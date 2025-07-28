@@ -183,10 +183,12 @@ const deathPlayBtn = deathMenu.querySelector('#deathPlayBtn');
 deathHomeBtn.addEventListener('click', () => {
     deathMenu.style.display = 'none';
     startMenu.style.display = 'flex';
-    // Remove the player's sphere and hide the renderer canvas
+    // Remove the player's sphere and hide all UI elements
     scene.remove(mainSphere);
     renderer.domElement.style.display = 'none';
     coordsDiv.style.display = 'none';
+    fpsDiv.style.display = 'none';
+    modeBtn.style.display = 'none'; // Hide examine mode button
     gameStarted = false;
     disableGameFog();
 });
@@ -212,6 +214,7 @@ function findSafeSpawnPosition() {
         pos.y = Math.max(-half, Math.min(half, pos.y));
         pos.z = Math.max(-half, Math.min(half, pos.z));
         valid = true;
+        
         // Check against blobs
         for (let c of scene.children) {
             if (c.geometry && c.geometry.type === 'SphereGeometry' && c !== mainSphere) {
@@ -222,6 +225,19 @@ function findSafeSpawnPosition() {
                 }
             }
         }
+        
+        // Check against large pink blobs
+        if (valid) {
+            for (let i = 0; i < largePinkSpheres.length; i++) {
+                if (largePinkSpheres[i].active) {
+                    if (pos.distanceTo(largePinkSpheres[i].position) < radius + largePinkSpheres[i].radius + 1.0) {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+        }
+        
         // Check against other players
         for (const id in otherPlayers) {
             const mesh = otherPlayers[id].mesh;
@@ -250,9 +266,11 @@ function startGame() {
     // Set a random safe spawn position
     const spawnPos = findSafeSpawnPosition();
     mainSphere.position.copy(spawnPos);
-    // Show the renderer canvas and coordinates
+    // Show the renderer canvas and all UI elements
     renderer.domElement.style.display = '';
     coordsDiv.style.display = '';
+    fpsDiv.style.display = '';
+    modeBtn.style.display = 'block'; // Show examine mode button
     // Track survival time
     gameStartTime = Date.now();
     // Add this line to join the server
@@ -277,10 +295,12 @@ escYesBtn.addEventListener('click', () => {
     escMenu.style.display = 'none';
     startMenu.style.display = 'flex';
     gameStarted = false;
-    // Remove the player's sphere and hide the renderer canvas
+    // Remove the player's sphere and hide all UI elements
     scene.remove(mainSphere);
     renderer.domElement.style.display = 'none';
     coordsDiv.style.display = 'none';
+    fpsDiv.style.display = 'none';
+    modeBtn.style.display = 'none'; // Hide examine mode button
     deathMenu.style.display = 'none';
     disableGameFog();
 });
@@ -308,13 +328,14 @@ window.addEventListener('keydown', (event) => {
 const coordsDiv = document.createElement('div');
 coordsDiv.style.position = 'absolute';
 coordsDiv.style.bottom = '10px';
-coordsDiv.style.right = '240px'; // moved left to avoid FPS overlay
+coordsDiv.style.right = '240px';
 coordsDiv.style.padding = '5px 10px';
 coordsDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
 coordsDiv.style.color = 'white';
 coordsDiv.style.fontFamily = 'monospace';
 coordsDiv.style.fontSize = '14px';
 coordsDiv.style.borderRadius = '5px';
+coordsDiv.style.display = 'none'; // Hide initially
 
 // FPS Counter
 const fpsDiv = document.createElement('div');
@@ -327,6 +348,7 @@ fpsDiv.style.color = 'white';
 fpsDiv.style.fontFamily = 'monospace';
 fpsDiv.style.fontSize = '14px';
 fpsDiv.style.borderRadius = '5px';
+fpsDiv.style.display = 'none'; // Hide initially
 fpsDiv.textContent = 'FPS: --';
 document.body.appendChild(fpsDiv);
 
@@ -346,6 +368,7 @@ modeBtn.style.cursor = 'pointer';
 modeBtn.style.zIndex = '1001';
 modeBtn.style.opacity = '0';
 modeBtn.style.transition = 'opacity 0.2s';
+modeBtn.style.display = 'none'; // Hide initially
 modeBtn.textContent = 'Examine Mode: OFF';
 document.body.appendChild(coordsDiv);
 document.body.appendChild(modeBtn);
@@ -358,14 +381,18 @@ let modeBtnVisible = false;
 
 
 function showModeBtn() {
-    modeBtn.style.opacity = '0.85';
+    if (gameStarted) {
+        modeBtn.style.opacity = '0.85';
+    }
     modeBtnVisible = true;
     if (modeBtnFadeTimeout) clearTimeout(modeBtnFadeTimeout);
 }
 
 
 function hideModeBtn() {
-    modeBtn.style.opacity = '0';
+    if (gameStarted) {
+        modeBtn.style.opacity = '0';
+    }
     modeBtnVisible = false;
 }
 
@@ -402,8 +429,8 @@ const MAX_SPEED = 0.4;
 const ACCEL = 0.04;
 const DECEL = 0.06;
 const ORBIT_SENSITIVITY = 0.005;
-const SPAWN_AREA_SIZE = 800;
-const SMALL_SPHERE_COUNT = SPAWN_AREA_SIZE * 10;
+const SPAWN_AREA_SIZE = 900 ;
+const SMALL_SPHERE_COUNT = SPAWN_AREA_SIZE * 25;
 const MIN_SPAWN_RADIUS_SQ = 5 * 5;
 
 const mainSphereGeometry = new THREE.SphereGeometry(1, 32, 32);
@@ -423,6 +450,37 @@ const SMALL_COLORS = [
     0xff69b4  // Pink
 ];
 
+// Update these constants for normal distribution
+const LARGE_PINK_COUNT = Math.floor(SMALL_SPHERE_COUNT / 250);
+const LARGE_PINK_COLOR = 0xff69b4;
+const LARGE_PINK_MIN_RADIUS = 8;
+const LARGE_PINK_MAX_RADIUS = 75;
+const LARGE_PINK_AVERAGE_RADIUS = 25;
+
+// Add normal distribution function
+function normalRandom(mean, stdDev) {
+    // Box-Muller transformation for normal distribution
+    let u = 0, v = 0;
+    while(u === 0) u = Math.random(); // Converting [0,1) to (0,1)
+    while(v === 0) v = Math.random();
+    const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    return z * stdDev + mean;
+}
+
+function generatePinkBlobRadius() {
+    // Standard deviation to make the distribution reasonable
+    // Using stdDev of 8 gives good spread while keeping most values reasonable
+    const stdDev = 8;
+    let radius;
+    
+    // Keep generating until we get a value in our desired range
+    do {
+        radius = normalRandom(LARGE_PINK_AVERAGE_RADIUS, stdDev);
+    } while (radius < LARGE_PINK_MIN_RADIUS || radius > LARGE_PINK_MAX_RADIUS);
+    
+    return radius;
+}
+
 // --- Instanced Spheres for Performance ---
 const smallSpheres = []; // To hold data like position, radius, color
 const smallSphereGeometry = new THREE.SphereGeometry(1, 16, 16); // Base geometry, scaled by instance matrix
@@ -433,6 +491,16 @@ scene.add(smallSphereInstances);
 const tempMatrix = new THREE.Matrix4();
 const tempColor = new THREE.Color();
 
+// Add after smallSphereInstances setup
+const largePinkSpheres = [];
+const largePinkGeometry = new THREE.SphereGeometry(1, 32, 32);
+const largePinkMaterial = new THREE.MeshStandardMaterial({ 
+    color: LARGE_PINK_COLOR, 
+    roughness: 0.3, 
+    metalness: 0.1 
+});
+const largePinkInstances = new THREE.InstancedMesh(largePinkGeometry, largePinkMaterial, LARGE_PINK_COUNT);
+scene.add(largePinkInstances);
 
 // Border lines (keep as is, cool effect)
 const borderLinesGeometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(SPAWN_AREA_SIZE, SPAWN_AREA_SIZE, SPAWN_AREA_SIZE));
@@ -553,6 +621,92 @@ for (let i = 0; i < SMALL_SPHERE_COUNT; i++) {
 }
 smallSphereInstances.instanceMatrix.needsUpdate = true;
 smallSphereInstances.instanceColor.needsUpdate = true;
+
+// Add this initialization after the smallSpheres initialization loop
+for (let i = 0; i < LARGE_PINK_COUNT; i++) {
+    let valid = false;
+    let attempts = 0;
+    let radius = 0;
+
+    while (!valid && attempts < 200) {
+        radius = generatePinkBlobRadius(); // Use normal distribution
+        const half = SPAWN_AREA_SIZE / 2 - radius;
+        tempPosition.set(
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE
+        );
+        tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
+        tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
+        tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
+
+        valid = tempPosition.lengthSq() > (MIN_SPAWN_RADIUS_SQ + radius * radius);
+
+        // Check against small spheres
+        if (valid) {
+            for (let j = 0; j < smallSpheres.length; j++) {
+                if (smallSpheres[j].active) {
+                    if (tempPosition.distanceTo(smallSpheres[j].position) < radius + smallSpheres[j].radius + 2.0) {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Check against other large pink spheres
+        if (valid) {
+            for (let j = 0; j < i; j++) {
+                if (largePinkSpheres[j] && largePinkSpheres[j].active) {
+                    if (tempPosition.distanceTo(largePinkSpheres[j].position) < radius + largePinkSpheres[j].radius + 2.0) {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Check against main sphere spawn area
+        if (valid && tempPosition.lengthSq() < (radius + 5) * (radius + 5)) {
+            valid = false;
+        }
+        
+        // Check against other players
+        if (valid) {
+            for (const id in otherPlayers) {
+                const mesh = otherPlayers[id].mesh;
+                if (tempPosition.distanceTo(mesh.position) < radius + mesh.geometry.parameters.radius + 2.0) {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        attempts++;
+    }
+
+    largePinkSpheres.push({
+        position: tempPosition.clone(),
+        radius: radius,
+        active: attempts < 200,
+        rotationSpeed: (Math.random() - 0.5) * 0.002,
+        rotationAxis: new THREE.Vector3(
+            Math.random() - 0.5,
+            Math.random() - 0.5,
+            Math.random() - 0.5
+        ).normalize(),
+        currentRotation: 0
+    });
+
+    if (attempts < 200) {
+        const scale = new THREE.Vector3(radius, radius, radius);
+        tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
+        largePinkInstances.setMatrixAt(i, tempMatrix);
+    } else {
+        tempMatrix.compose(new THREE.Vector3(), new THREE.Quaternion(), new THREE.Vector3(0, 0, 0));
+        largePinkInstances.setMatrixAt(i, tempMatrix);
+    }
+}
+largePinkInstances.instanceMatrix.needsUpdate = true;
 
 const light = new THREE.DirectionalLight(0xffffff, 5);
 light.position.set(10, 20, 15);
