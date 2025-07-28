@@ -1,0 +1,24 @@
+{
+  "name": "game",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^7.0.4"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "three": "^0.178.0"
+  },
+  "description": "This project uses [three.js](https://threejs.org/) with [Vite](https://vitejs.dev/) for fast development and modern JavaScript support.",
+  "main": "main.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
