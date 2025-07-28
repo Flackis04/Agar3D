@@ -457,6 +457,9 @@ const LARGE_PINK_MIN_RADIUS = 8;
 const LARGE_PINK_MAX_RADIUS = 75;
 const LARGE_PINK_AVERAGE_RADIUS = 25;
 
+const bots_COUNT = 300; // Number of bots to spawn
+const bots_color = 'red'
+
 // Add normal distribution function
 function normalRandom(mean, stdDev) {
     // Box-Muller transformation for normal distribution
@@ -501,6 +504,13 @@ const largePinkMaterial = new THREE.MeshStandardMaterial({
 });
 const largePinkInstances = new THREE.InstancedMesh(largePinkGeometry, largePinkMaterial, LARGE_PINK_COUNT);
 scene.add(largePinkInstances);
+
+// Bots
+const bots = [];
+const botsGeometry = new THREE.SphereGeometry(10, 32, 32);
+const botsMaterial = new THREE.MeshStandardMaterial({ color: bots_color });
+const botsInstances = new THREE.InstancedMesh(botsGeometry, botsMaterial, bots_COUNT);
+scene.add(botsInstances);
 
 // Border lines (keep as is, cool effect)
 const borderLinesGeometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(SPAWN_AREA_SIZE, SPAWN_AREA_SIZE, SPAWN_AREA_SIZE));
@@ -706,6 +716,58 @@ for (let i = 0; i < LARGE_PINK_COUNT; i++) {
         largePinkInstances.setMatrixAt(i, tempMatrix);
     }
 }
+
+for (let i = 0; i < bots_COUNT; i++) {
+    let valid = false;
+    let attempts = 0;
+    let radius = 0;
+
+    // This initial placement can be slow, but only runs once at startup.
+    while (!valid && attempts < 100) {
+        radius = 20;
+        const half = SPAWN_AREA_SIZE / 2 - radius;
+        tempPosition.set(
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE
+        );
+        tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
+        tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
+        tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
+
+        valid = tempPosition.lengthSq() > MIN_SPAWN_RADIUS_SQ;
+
+        if (valid) {
+            // Check against other newly placed spheres in this loop
+            for (let j = 0; j < i; j++) {
+                if (smallSpheres[j].active) {
+                    if (tempPosition.distanceTo(smallSpheres[j].position) < radius + smallSpheres[j].radius + 0.1) {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+        }
+        attempts++;
+    }
+
+    const color = bots_color; // Use a single color for bots
+    tempColor.set(color); 
+
+    bots.push({
+        position: tempPosition.clone(),
+        radius: radius,
+        active: true,
+        color: tempColor.clone()
+    });
+
+    // Set the matrix for this instance
+    const scale = new THREE.Vector3(radius, radius, radius);
+    tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
+    smallSphereInstances.setMatrixAt(i, tempMatrix);
+    smallSphereInstances.setColorAt(i, tempColor);
+}
+
 largePinkInstances.instanceMatrix.needsUpdate = true;
 
 const light = new THREE.DirectionalLight(0xffffff, 5);
