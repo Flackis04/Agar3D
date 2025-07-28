@@ -396,7 +396,6 @@ modeBtn.addEventListener('click', (e) => {
     e.stopPropagation();
 });
 
-
 // Only show the button on left click (handled below)
 
 const MAX_SPEED = 0.4;
@@ -424,16 +423,15 @@ const SMALL_COLORS = [
     0xff69b4  // Pink
 ];
 
-function randomSmallSphere() {
-    const radius = 0.5 + Math.random() * 0.4;
-    const geometry = new THREE.SphereGeometry(radius, 16, 16);
-    const color = SMALL_COLORS[Math.floor(Math.random() * SMALL_COLORS.length)];
-    const material = new THREE.MeshStandardMaterial({ color });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.userData.smallRadius = radius;
-    return mesh;
-}
+// --- Instanced Spheres for Performance ---
+const smallSpheres = []; // To hold data like position, radius, color
+const smallSphereGeometry = new THREE.SphereGeometry(1, 16, 16); // Base geometry, scaled by instance matrix
+const smallSphereMaterial = new THREE.MeshStandardMaterial({ vertexColors: true });
+const smallSphereInstances = new THREE.InstancedMesh(smallSphereGeometry, smallSphereMaterial, SMALL_SPHERE_COUNT);
+scene.add(smallSphereInstances);
 
+const tempMatrix = new THREE.Matrix4();
+const tempColor = new THREE.Color();
 
 
 // Border lines (keep as is, cool effect)
@@ -502,30 +500,32 @@ scene.add(borderWalls);
 let borderHue = 0;
 
 const tempPosition = new THREE.Vector3();
+// Initialization of instanced spheres
 for (let i = 0; i < SMALL_SPHERE_COUNT; i++) {
     let valid = false;
     let attempts = 0;
     let radius = 0;
-    let sphere;
+
+    // This initial placement can be slow, but only runs once at startup.
     while (!valid && attempts < 100) {
+        radius = 0.5 + Math.random() * 0.4;
+        const half = SPAWN_AREA_SIZE / 2 - radius;
         tempPosition.set(
             (Math.random() - 0.5) * SPAWN_AREA_SIZE,
             (Math.random() - 0.5) * SPAWN_AREA_SIZE,
             (Math.random() - 0.5) * SPAWN_AREA_SIZE
         );
-        sphere = randomSmallSphere();
-        radius = sphere.userData.smallRadius;
-        // Clamp to stay inside border
-        const half = SPAWN_AREA_SIZE / 2 - radius;
         tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
         tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
         tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
+
         valid = tempPosition.lengthSq() > MIN_SPAWN_RADIUS_SQ;
+
         if (valid) {
-            for (let c of scene.children) {
-                if (c.geometry && c.geometry.type === 'SphereGeometry' && c !== mainSphere) {
-                    const otherR = c.userData.smallRadius || 0.8;
-                    if (tempPosition.distanceTo(c.position) < radius + otherR + 0.1) {
+            // Check against other newly placed spheres in this loop
+            for (let j = 0; j < i; j++) {
+                if (smallSpheres[j].active) {
+                    if (tempPosition.distanceTo(smallSpheres[j].position) < radius + smallSpheres[j].radius + 0.1) {
                         valid = false;
                         break;
                     }
@@ -534,9 +534,25 @@ for (let i = 0; i < SMALL_SPHERE_COUNT; i++) {
         }
         attempts++;
     }
-    sphere.position.copy(tempPosition);
-    scene.add(sphere);
+
+    const color = SMALL_COLORS[Math.floor(Math.random() * SMALL_COLORS.length)];
+    tempColor.set(color); 
+
+    smallSpheres.push({
+        position: tempPosition.clone(),
+        radius: radius,
+        active: true,
+        color: tempColor.clone()
+    });
+
+    // Set the matrix for this instance
+    const scale = new THREE.Vector3(radius, radius, radius);
+    tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
+    smallSphereInstances.setMatrixAt(i, tempMatrix);
+    smallSphereInstances.setColorAt(i, tempColor);
 }
+smallSphereInstances.instanceMatrix.needsUpdate = true;
+smallSphereInstances.instanceColor.needsUpdate = true;
 
 const light = new THREE.DirectionalLight(0xffffff, 5);
 light.position.set(10, 20, 15);
@@ -700,33 +716,36 @@ function animate() {
         }
     }
 
-    // Remove small spheres if more than 25% of their surface is covered by the blue sphere
+    // Remove small spheres if more than a certain amount of their surface is covered
     let R = mainSphere.geometry.parameters.radius;
-    const toRemove = [];
+    const toRemoveIndexes = [];
     let newRadius = R;
     let anyAbsorbed = false;
-    // Optimization: Only check blobs within a reasonable distance (skip far away)
-    const maxAbsorbDist = R + 1.5; // Only check blobs within this distance (1.5 is max small blob radius)
-    for (let i = 0; i < scene.children.length; i++) {
-        const obj = scene.children[i];
-        if (obj.geometry && obj.geometry.type === 'SphereGeometry' && obj !== mainSphere) {
-            const r = obj.userData.smallRadius || 0.8;
-            const d = mainSphere.position.distanceTo(obj.position);
-            if (d > maxAbsorbDist + r) continue; // skip far blobs
-            if (d < R + r) {
-                const h = r - (d * d - R * R + r * r) / (2 * d);
-                if (h > 0) {
-                    const capArea = 2 * Math.PI * r * h;
-                    const totalArea = 4 * Math.PI * r * r;
-                    if (capArea / totalArea > 0.1) {
-                        toRemove.push({obj, r});
-                        newRadius = Math.sqrt(newRadius * newRadius + r * r);
-                        anyAbsorbed = true;
-                    }
+    const maxAbsorbDist = R + 1.5; // Max small sphere radius is ~0.9
+
+    for (let i = 0; i < smallSpheres.length; i++) {
+        const sphereData = smallSpheres[i];
+        if (!sphereData.active) continue;
+
+        const r = sphereData.radius;
+        const d = mainSphere.position.distanceTo(sphereData.position);
+
+        if (d > maxAbsorbDist + r) continue; // skip far blobs
+
+        if (d < R + r) {
+            const h = r - (d * d - R * R + r * r) / (2 * d);
+            if (h > 0) {
+                const capArea = 2 * Math.PI * r * h;
+                const totalArea = 4 * Math.PI * r * r;
+                if (capArea / totalArea > 0.1) {
+                    toRemoveIndexes.push(i);
+                    newRadius = Math.sqrt(newRadius * newRadius + r * r);
+                    anyAbsorbed = true;
                 }
             }
         }
     }
+
     if (anyAbsorbed) {
         // Adjust camera orbitRadius to maintain same % distance, but animate smoothly
         const prevRadius = R;
@@ -754,60 +773,83 @@ function animate() {
         mainSphere.geometry.dispose();
         mainSphere.geometry = newGeometry;
     }
-    // Respawn eaten blobs at random positions not intersecting with player or other small spheres
-    for (const entry of toRemove) {
-        const obj = entry.obj;
-        // Remove from scene
-        scene.remove(obj);
-        // Find a valid random position and new color/size
+
+    // Respawn eaten blobs
+    let matrixNeedsUpdate = false;
+    let colorNeedsUpdate = false;
+
+    for (const index of toRemoveIndexes) {
+        const sphereData = smallSpheres[index];
+        sphereData.active = false; // Deactivate
+
+        // Hide it by scaling to zero. We'll move it later if a valid spot is found.
+        smallSphereInstances.getMatrixAt(index, tempMatrix);
+        tempMatrix.decompose(tempPosition, new THREE.Quaternion(), new THREE.Vector3());
+        tempMatrix.compose(tempPosition, new THREE.Quaternion(), new THREE.Vector3(0, 0, 0));
+        smallSphereInstances.setMatrixAt(index, tempMatrix);
+        matrixNeedsUpdate = true;
+
+        // Find a valid random position and new color/size to respawn
         let valid = false;
         let attempts = 0;
         let pos = new THREE.Vector3();
-        let newRadius = 0;
-        let newColor = 0xffffff;
+        let newSphereRadius = 0;
+
         while (!valid && attempts < 100) {
+            newSphereRadius = 0.5 + Math.random() * 0.4;
+            const half = SPAWN_AREA_SIZE / 2 - newSphereRadius;
             pos.set(
                 (Math.random() - 0.5) * SPAWN_AREA_SIZE,
                 (Math.random() - 0.5) * SPAWN_AREA_SIZE,
                 (Math.random() - 0.5) * SPAWN_AREA_SIZE
             );
-            newRadius = 0.5 + Math.random() * 0.4;
-            newColor = SMALL_COLORS[Math.floor(Math.random() * SMALL_COLORS.length)];
-            // Clamp to stay inside border
-            const half = SPAWN_AREA_SIZE / 2 - newRadius;
             pos.x = Math.max(-half, Math.min(half, pos.x));
             pos.y = Math.max(-half, Math.min(half, pos.y));
             pos.z = Math.max(-half, Math.min(half, pos.z));
-            valid = pos.distanceTo(mainSphere.position) > mainSphere.geometry.parameters.radius + newRadius + 0.1;
+
+            valid = pos.distanceTo(mainSphere.position) > mainSphere.geometry.parameters.radius + newSphereRadius + 0.1;
+
             if (valid) {
-                for (let c of scene.children) {
-                    if (c !== obj && c.geometry && c.geometry.type === 'SphereGeometry' && c !== mainSphere) {
-                        const otherR = c.userData.smallRadius || 0.8;
-                        if (pos.distanceTo(c.position) < newRadius + otherR + 0.1) {
-                            valid = false;
-                            break;
-                        }
+                // Check against other small spheres
+                for (let i = 0; i < smallSpheres.length; i++) {
+                    if (i === index || !smallSpheres[i].active) continue;
+                    const otherR = smallSpheres[i].radius;
+                    if (pos.distanceTo(smallSpheres[i].position) < newSphereRadius + otherR + 0.1) {
+                        valid = false;
+                        break;
                     }
                 }
             }
             attempts++;
         }
-        // If found, reuse the mesh and add back to scene with new size/color
+
         if (valid) {
-            // Dispose old geometry/material
-            if (obj.geometry) obj.geometry.dispose();
-            if (obj.material) obj.material.dispose();
-            obj.geometry = new THREE.SphereGeometry(newRadius, 16, 16);
-            obj.material = new THREE.MeshStandardMaterial({ color: newColor });
-            obj.userData.smallRadius = newRadius;
-            obj.position.copy(pos);
-            scene.add(obj);
-        } else {
-            // If not, just dispose
-            if (obj.geometry) obj.geometry.dispose();
-            if (obj.material) obj.material.dispose();
+            const newColor = SMALL_COLORS[Math.floor(Math.random() * SMALL_COLORS.length)];
+            tempColor.set(newColor);
+
+            // Update data array
+            sphereData.position.copy(pos);
+            sphereData.radius = newSphereRadius;
+            sphereData.color.copy(tempColor);
+            sphereData.active = true;
+
+            // Update instance
+            const scale = new THREE.Vector3(newSphereRadius, newSphereRadius, newSphereRadius);
+            tempMatrix.compose(pos, new THREE.Quaternion(), scale);
+            smallSphereInstances.setMatrixAt(index, tempMatrix);
+            smallSphereInstances.setColorAt(index, tempColor);
+            matrixNeedsUpdate = true;
+            colorNeedsUpdate = true;
         }
     }
+
+    if (matrixNeedsUpdate) {
+        smallSphereInstances.instanceMatrix.needsUpdate = true;
+    }
+    if (colorNeedsUpdate) {
+        smallSphereInstances.instanceColor.needsUpdate = true;
+    }
+
 
     const { x, y, z } = mainSphere.position;
     const currentRadius = mainSphere.geometry.parameters.radius;
