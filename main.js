@@ -426,7 +426,7 @@ const SMALL_COLORS = [
 // --- Instanced Spheres for Performance ---
 const smallSpheres = []; // To hold data like position, radius, color
 const smallSphereGeometry = new THREE.SphereGeometry(1, 16, 16); // Base geometry, scaled by instance matrix
-const smallSphereMaterial = new THREE.MeshStandardMaterial({ vertexColors: true });
+const smallSphereMaterial = new THREE.MeshStandardMaterial(); // { vertexColors: true} was set in parenthasis
 const smallSphereInstances = new THREE.InstancedMesh(smallSphereGeometry, smallSphereMaterial, SMALL_SPHERE_COUNT);
 scene.add(smallSphereInstances);
 
