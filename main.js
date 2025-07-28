@@ -53,6 +53,11 @@ socket.on('player-left', (id) => {
 
 // Update the 'you-were-eaten' event to accept a killer name
 socket.on('you-were-eaten', (data) => {
+    handlePlayerDeath(data);
+});
+
+function handlePlayerDeath(data) {
+    if (!gameStarted) return; // Prevent multiple death triggers
     gameStarted = false;
     scene.remove(mainSphere);
     // Show the renderer and coordinates on death UI
@@ -62,7 +67,7 @@ socket.on('you-were-eaten', (data) => {
         document.exitPointerLock();
     }
     lastSurvivalTime = ((Date.now() - gameStartTime) / 1000).toFixed(1);
-    lastMass = mainSphere.geometry.parameters.radius.toFixed(2);
+    lastMass = Math.floor(mainSphere.geometry.parameters.radius ** 2);
     let absorbedBy = '';
     if (data && data.killerName) {
         absorbedBy = `Absorbed by <b>${data.killerName ? data.killerName : 'a player'}</b>`;
@@ -73,6 +78,122 @@ socket.on('you-were-eaten', (data) => {
     deathMenu.style.display = 'flex';
     startMenu.style.display = 'none';
     escMenu.style.display = 'none';
+}
+
+
+// Debug mode toggle
+let DEBUG = false;
+
+
+// Operator UI (hidden by default)
+const operatorDiv = document.createElement('div');
+operatorDiv.style.position = 'fixed';
+operatorDiv.style.top = '20px';
+operatorDiv.style.left = '20px';
+operatorDiv.style.zIndex = '5000';
+operatorDiv.style.background = 'rgba(30,30,40,0.97)';
+operatorDiv.style.border = '2px solid #0077ff';
+operatorDiv.style.borderRadius = '1em';
+operatorDiv.style.padding = '1.2em 1.5em 1.2em 1.5em';
+operatorDiv.style.boxShadow = '0 4px 24px rgba(0,0,0,0.25)';
+operatorDiv.style.display = 'none';
+operatorDiv.style.minWidth = '180px';
+operatorDiv.style.color = 'white';
+operatorDiv.style.fontFamily = 'sans-serif';
+operatorDiv.innerHTML = `<div style="font-size:1.2em;font-weight:bold;margin-bottom:0.7em;letter-spacing:0.04em;">Operator UI</div>`;
+
+// +100 mass button
+const addMassBtn = document.createElement('button');
+addMassBtn.textContent = '+ 100 mass';
+addMassBtn.style.fontSize = '1.1em';
+addMassBtn.style.padding = '0.5em 1.2em';
+addMassBtn.style.borderRadius = '0.5em';
+addMassBtn.style.border = 'none';
+addMassBtn.style.background = '#222';
+addMassBtn.style.color = 'white';
+addMassBtn.style.cursor = 'pointer';
+addMassBtn.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
+addMassBtn.style.marginBottom = '0.5em';
+operatorDiv.appendChild(addMassBtn);
+
+document.body.appendChild(operatorDiv);
+
+addMassBtn.addEventListener('click', () => {
+    // Add 100 mass to the player (mass = radius^2)
+    const currentRadius = mainSphere.geometry.parameters.radius;
+    const newMass = currentRadius * currentRadius + 100;
+    const newRadius = Math.sqrt(newMass);
+    // Camera orbit fix: accumulate any remaining lerp distance from previous presses
+    const prevOrbitRatio = orbitRadius / currentRadius;
+    let remainingDistance = 0;
+    if (orbitLerpActive) {
+        // Compute how much of the previous lerp was left
+        let t = Math.min(orbitLerpTime / orbitLerpDuration, 1);
+        t = t * t * (3 - 2 * t); // smoothstep
+        const currentLerpRadius = prevOrbitRadius + (targetOrbitRadius - prevOrbitRadius) * t;
+        remainingDistance = targetOrbitRadius - currentLerpRadius;
+        prevOrbitRadius = currentLerpRadius;
+    } else {
+        prevOrbitRadius = orbitRadius;
+    }
+    targetOrbitRadius = prevOrbitRatio * newRadius + remainingDistance;
+    orbitLerpTime = 0;
+    orbitLerpActive = true;
+    const newGeometry = new THREE.SphereGeometry(newRadius, 32, 32);
+    mainSphere.geometry.dispose();
+    mainSphere.geometry = newGeometry;
+});
+
+// Keyboard shortcuts: 'D' for debug mode, Right Shift for Operator UI (in debug mode)
+let operatorUIVisible = false;
+window.addEventListener('keydown', (event) => {
+    // Toggle debug mode with D
+    if (event.key === 'x' || event.key === 'X') {
+        DEBUG = !DEBUG;
+        if (DEBUG) {
+            disableGameFog();
+            // Show all overlays for debugging
+            coordsDiv.style.display = '';
+            fpsDiv.style.display = '';
+            leaderboardDiv.style.display = '';
+            modeBtn.style.display = 'block';
+            renderer.domElement.style.display = '';
+        } else {
+            if (gameStarted) enableGameFog();
+            // Hide overlays if not in game
+            if (!gameStarted) {
+                coordsDiv.style.display = 'none';
+                fpsDiv.style.display = 'none';
+                leaderboardDiv.style.display = 'none';
+                modeBtn.style.display = 'none';
+            }
+            // Hide operator UI if open
+            operatorDiv.style.display = 'none';
+            operatorUIVisible = false;
+            renderer.domElement.style.cursor = 'none';
+        }
+        console.log('DEBUG mode:', DEBUG);
+    }
+
+    // Toggle Operator UI with Right Shift (only in debug mode)
+    if (DEBUG && event.key === 'Shift' && event.code === 'ShiftRight') {
+        operatorUIVisible = !operatorUIVisible;
+        if (operatorUIVisible) {
+            operatorDiv.style.display = '';
+            // Show mouse cursor for UI interaction
+            renderer.domElement.style.cursor = 'auto';
+            // If pointer lock is active, exit it so mouse can move freely
+            if (document.pointerLockElement === renderer.domElement) {
+                document.exitPointerLock();
+            }
+        } else {
+            operatorDiv.style.display = 'none';
+            // Hide cursor if not in UI and not in menu
+            if (escMenu.style.display === 'none') {
+                renderer.domElement.style.cursor = 'none';
+            }
+        }
+    }
 });
 
 import * as THREE from 'three';
@@ -83,16 +204,43 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 // Fog settings for gameplay
+
 const FOG_COLOR = 0x222233;
-const FOG_NEAR = 40;
-const FOG_FAR = 120;
+const FOG_NEAR_BASE = 40;
+const FOG_FAR_BASE = 120;
+const FOG_FAR_MAX = 500; // Maximum fog distance for very large players
+
+let FOG_NEAR = FOG_NEAR_BASE;
+let FOG_FAR = FOG_FAR_BASE;
+
+
 function enableGameFog() {
-    scene.fog = new THREE.Fog(FOG_COLOR, FOG_NEAR, FOG_FAR);
-    renderer.setClearColor(FOG_COLOR);
+    if (!DEBUG) {
+        scene.fog = new THREE.Fog(FOG_COLOR, FOG_NEAR, FOG_FAR);
+        renderer.setClearColor(FOG_COLOR);
+    } else {
+        disableGameFog();
+    }
 }
 function disableGameFog() {
     scene.fog = null;
     renderer.setClearColor(0x000000);
+}
+
+function updateFogForPlayerSize(playerRadius) {
+    if (DEBUG) return; // Don't update fog in debug mode
+    // As player grows, increase FOG_FAR (and optionally FOG_NEAR)
+    // FOG_FAR grows linearly with radius, capped at FOG_FAR_MAX
+    // FOG_NEAR can also grow, but less aggressively
+    const minRadius = 1;
+    const maxRadius = 100; // Adjust as needed for your game
+    const t = Math.min(1, Math.max(0, (playerRadius - minRadius) / (maxRadius - minRadius)));
+    FOG_NEAR = FOG_NEAR_BASE + t * 60; // e.g., from 40 to 100
+    FOG_FAR = FOG_FAR_BASE + t * (FOG_FAR_MAX - FOG_FAR_BASE); // e.g., from 120 to 500
+    if (scene.fog) {
+        scene.fog.near = FOG_NEAR;
+        scene.fog.far = FOG_FAR;
+    }
 }
 
 // --- Start Menu Overlay ---
@@ -189,6 +337,7 @@ deathHomeBtn.addEventListener('click', () => {
     coordsDiv.style.display = 'none';
     fpsDiv.style.display = 'none';
     modeBtn.style.display = 'none'; // Hide examine mode button
+    leaderboardDiv.style.display = 'none';
     gameStarted = false;
     disableGameFog();
 });
@@ -258,7 +407,8 @@ function startGame() {
     escMenu.style.display = 'none';
     deathMenu.style.display = 'none';
     gameStarted = true;
-    enableGameFog();
+    if (!DEBUG) enableGameFog();
+    else disableGameFog();
     // Re-add the player's sphere to the scene if not present
     if (!scene.children.includes(mainSphere)) {
         scene.add(mainSphere);
@@ -271,6 +421,7 @@ function startGame() {
     coordsDiv.style.display = '';
     fpsDiv.style.display = '';
     modeBtn.style.display = 'block'; // Show examine mode button
+    leaderboardDiv.style.display = 'block';
     // Track survival time
     gameStartTime = Date.now();
     // Add this line to join the server
@@ -301,6 +452,7 @@ escYesBtn.addEventListener('click', () => {
     coordsDiv.style.display = 'none';
     fpsDiv.style.display = 'none';
     modeBtn.style.display = 'none'; // Hide examine mode button
+    leaderboardDiv.style.display = 'none';
     deathMenu.style.display = 'none';
     disableGameFog();
 });
@@ -373,6 +525,23 @@ modeBtn.textContent = 'Examine Mode: OFF';
 document.body.appendChild(coordsDiv);
 document.body.appendChild(modeBtn);
 
+// Leaderboard UI
+const leaderboardDiv = document.createElement('div');
+leaderboardDiv.style.position = 'absolute';
+leaderboardDiv.style.top = '10px';
+leaderboardDiv.style.right = '10px';
+leaderboardDiv.style.width = '220px';
+leaderboardDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+leaderboardDiv.style.color = 'white';
+leaderboardDiv.style.fontFamily = 'sans-serif';
+leaderboardDiv.style.fontSize = '14px';
+leaderboardDiv.style.borderRadius = '8px';
+leaderboardDiv.style.padding = '10px';
+leaderboardDiv.style.display = 'none'; // Hide initially
+leaderboardDiv.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+leaderboardDiv.innerHTML = `<h3 style="margin: 0 0 10px; text-align: center; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 5px;">Leaderboard</h3><ul id="leaderboard-list" style="list-style: none; padding: 0; margin: 0;"></ul>`;
+document.body.appendChild(leaderboardDiv);
+const leaderboardList = leaderboardDiv.querySelector('#leaderboard-list');
 
 
 let modeBtnFadeTimeout = null;
@@ -425,21 +594,21 @@ modeBtn.addEventListener('click', (e) => {
 
 // Only show the button on left click (handled below)
 
-const MAX_SPEED = 0.4;
-const ACCEL = 0.04;
-const DECEL = 0.06;
+const MAX_SPEED = 24; // Speed in units per second
+const ACCEL = 2.4;    // Acceleration rate
+const DECEL = 3.6;    // Deceleration rate
 const ORBIT_SENSITIVITY = 0.005;
-const SPAWN_AREA_SIZE = 900 ;
-const SMALL_SPHERE_COUNT = SPAWN_AREA_SIZE * 25;
+const SPAWN_AREA_SIZE = 500 ;
+const PELLET_COUNT = SPAWN_AREA_SIZE * 25;
 const MIN_SPAWN_RADIUS_SQ = 5 * 5;
 
 const mainSphereGeometry = new THREE.SphereGeometry(1, 32, 32);
-const mainSphereMaterial = new THREE.MeshStandardMaterial({ color: 0x0077ff, opacity: 0.6, transparent: true });
+const mainSphereMaterial = new THREE.MeshStandardMaterial({ color: 0x0077ff, opacity: 1.0, transparent: false });
 const mainSphere = new THREE.Mesh(mainSphereGeometry, mainSphereMaterial);
 scene.add(mainSphere);
 
 
-const SMALL_COLORS = [
+const PELLET_COLORS = [
     0xff0000, // Red
     0x0077ff, // Blue
     0x00ff00, // Green
@@ -451,14 +620,18 @@ const SMALL_COLORS = [
 ];
 
 // Update these constants for normal distribution
-const LARGE_PINK_COUNT = Math.floor(SMALL_SPHERE_COUNT / 250);
+const LARGE_PINK_COUNT = Math.max(2, Math.floor(PELLET_COUNT / 600)); // Fewer pink blobs
 const LARGE_PINK_COLOR = 0xff69b4;
-const LARGE_PINK_MIN_RADIUS = 8;
-const LARGE_PINK_MAX_RADIUS = 75;
-const LARGE_PINK_AVERAGE_RADIUS = 25;
+const LARGE_PINK_MIN_RADIUS = 30; // Larger min size
+const LARGE_PINK_MAX_RADIUS = 120; // Larger max size
+const LARGE_PINK_AVERAGE_RADIUS = 60;
 
-const bots_COUNT = 300; // Number of bots to spawn
+const bots_COUNT = 30; // Number of bots to spawn
 const bots_color = 'red'
+const BOT_SPEED = 3; // Speed of the bots
+const BOT_MIN_RADIUS = 1;
+const BOT_AVERAGE_RADIUS = 5;
+const BOT_MAX_RADIUS = 9;
 
 // Add normal distribution function
 function normalRandom(mean, stdDev) {
@@ -484,33 +657,63 @@ function generatePinkBlobRadius() {
     return radius;
 }
 
+function generateBotRadius() {
+    // Standard deviation to make the distribution reasonable
+    const stdDev = 7;
+    let radius;
+    
+    // Keep generating until we get a value in our desired range
+    do {
+        radius = normalRandom(BOT_AVERAGE_RADIUS, stdDev);
+    } while (radius < BOT_MIN_RADIUS || radius > BOT_MAX_RADIUS);
+    
+    return radius;
+}
+
 // --- Instanced Spheres for Performance ---
-const smallSpheres = []; // To hold data like position, radius, color
-const smallSphereGeometry = new THREE.SphereGeometry(1, 16, 16); // Base geometry, scaled by instance matrix
-const smallSphereMaterial = new THREE.MeshStandardMaterial(); // { vertexColors: true} was set in parenthasis
-const smallSphereInstances = new THREE.InstancedMesh(smallSphereGeometry, smallSphereMaterial, SMALL_SPHERE_COUNT);
-scene.add(smallSphereInstances);
+const pellets = []; // To hold data like position, radius, color
+const pelletGeometry = new THREE.SphereGeometry(1, 16, 16); // Base geometry, scaled by instance matrix
+const pelletMaterial = new THREE.MeshStandardMaterial(); // { vertexColors: true} was set in parenthasis
+const pelletInstances = new THREE.InstancedMesh(pelletGeometry, pelletMaterial, PELLET_COUNT);
+scene.add(pelletInstances);
 
 const tempMatrix = new THREE.Matrix4();
 const tempColor = new THREE.Color();
 
-// Add after smallSphereInstances setup
+// Add after pelletInstances setup
 const largePinkSpheres = [];
 const largePinkGeometry = new THREE.SphereGeometry(1, 32, 32);
 const largePinkMaterial = new THREE.MeshStandardMaterial({ 
     color: LARGE_PINK_COLOR, 
     roughness: 0.3, 
-    metalness: 0.1 
+    metalness: 0.1,
+    opacity: 0.4,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending
 });
 const largePinkInstances = new THREE.InstancedMesh(largePinkGeometry, largePinkMaterial, LARGE_PINK_COUNT);
 scene.add(largePinkInstances);
 
 // Bots
 const bots = [];
-const botsGeometry = new THREE.SphereGeometry(10, 32, 32);
+const botsGeometry = new THREE.SphereGeometry(1, 32, 32);
 const botsMaterial = new THREE.MeshStandardMaterial({ color: bots_color });
 const botsInstances = new THREE.InstancedMesh(botsGeometry, botsMaterial, bots_COUNT);
 scene.add(botsInstances);
+
+// Pink overlay for camera-inside-pink-blob effect
+const pinkOverlay = document.createElement('div');
+pinkOverlay.style.position = 'fixed';
+pinkOverlay.style.top = '0';
+pinkOverlay.style.left = '0';
+pinkOverlay.style.width = '100vw';
+pinkOverlay.style.height = '100vh';
+pinkOverlay.style.background = 'rgba(255, 0, 128, 0.5)'; // #ff69b4, 0.2 opacity
+pinkOverlay.style.pointerEvents = 'none';
+pinkOverlay.style.zIndex = '9999';
+pinkOverlay.style.display = 'none';
+document.body.appendChild(pinkOverlay);
 
 // Border lines (keep as is, cool effect)
 const borderLinesGeometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(SPAWN_AREA_SIZE, SPAWN_AREA_SIZE, SPAWN_AREA_SIZE));
@@ -578,8 +781,8 @@ scene.add(borderWalls);
 let borderHue = 0;
 
 const tempPosition = new THREE.Vector3();
-// Initialization of instanced spheres
-for (let i = 0; i < SMALL_SPHERE_COUNT; i++) {
+// Initialization of instanced pellets
+for (let i = 0; i < PELLET_COUNT; i++) {
     let valid = false;
     let attempts = 0;
     let radius = 0;
@@ -600,10 +803,10 @@ for (let i = 0; i < SMALL_SPHERE_COUNT; i++) {
         valid = tempPosition.lengthSq() > MIN_SPAWN_RADIUS_SQ;
 
         if (valid) {
-            // Check against other newly placed spheres in this loop
+            // Check against other newly placed pellets in this loop
             for (let j = 0; j < i; j++) {
-                if (smallSpheres[j].active) {
-                    if (tempPosition.distanceTo(smallSpheres[j].position) < radius + smallSpheres[j].radius + 0.1) {
+                if (pellets[j].active) {
+                    if (tempPosition.distanceTo(pellets[j].position) < radius + pellets[j].radius + 0.1) {
                         valid = false;
                         break;
                     }
@@ -613,10 +816,10 @@ for (let i = 0; i < SMALL_SPHERE_COUNT; i++) {
         attempts++;
     }
 
-    const color = SMALL_COLORS[Math.floor(Math.random() * SMALL_COLORS.length)];
+    const color = PELLET_COLORS[Math.floor(Math.random() * PELLET_COLORS.length)];
     tempColor.set(color); 
 
-    smallSpheres.push({
+    pellets.push({
         position: tempPosition.clone(),
         radius: radius,
         active: true,
@@ -626,78 +829,29 @@ for (let i = 0; i < SMALL_SPHERE_COUNT; i++) {
     // Set the matrix for this instance
     const scale = new THREE.Vector3(radius, radius, radius);
     tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
-    smallSphereInstances.setMatrixAt(i, tempMatrix);
-    smallSphereInstances.setColorAt(i, tempColor);
+    pelletInstances.setMatrixAt(i, tempMatrix);
+    pelletInstances.setColorAt(i, tempColor);
 }
-smallSphereInstances.instanceMatrix.needsUpdate = true;
-smallSphereInstances.instanceColor.needsUpdate = true;
+pelletInstances.instanceMatrix.needsUpdate = true;
+pelletInstances.instanceColor.needsUpdate = true;
 
-// Add this initialization after the smallSpheres initialization loop
+// Add this initialization after the pellets initialization loop
 for (let i = 0; i < LARGE_PINK_COUNT; i++) {
-    let valid = false;
-    let attempts = 0;
-    let radius = 0;
-
-    while (!valid && attempts < 200) {
-        radius = generatePinkBlobRadius(); // Use normal distribution
-        const half = SPAWN_AREA_SIZE / 2 - radius;
-        tempPosition.set(
-            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-            (Math.random() - 0.5) * SPAWN_AREA_SIZE
-        );
-        tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
-        tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
-        tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
-
-        valid = tempPosition.lengthSq() > (MIN_SPAWN_RADIUS_SQ + radius * radius);
-
-        // Check against small spheres
-        if (valid) {
-            for (let j = 0; j < smallSpheres.length; j++) {
-                if (smallSpheres[j].active) {
-                    if (tempPosition.distanceTo(smallSpheres[j].position) < radius + smallSpheres[j].radius + 2.0) {
-                        valid = false;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // Check against other large pink spheres
-        if (valid) {
-            for (let j = 0; j < i; j++) {
-                if (largePinkSpheres[j] && largePinkSpheres[j].active) {
-                    if (tempPosition.distanceTo(largePinkSpheres[j].position) < radius + largePinkSpheres[j].radius + 2.0) {
-                        valid = false;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // Check against main sphere spawn area
-        if (valid && tempPosition.lengthSq() < (radius + 5) * (radius + 5)) {
-            valid = false;
-        }
-        
-        // Check against other players
-        if (valid) {
-            for (const id in otherPlayers) {
-                const mesh = otherPlayers[id].mesh;
-                if (tempPosition.distanceTo(mesh.position) < radius + mesh.geometry.parameters.radius + 2.0) {
-                    valid = false;
-                    break;
-                }
-            }
-        }
-        attempts++;
-    }
+    let radius = generatePinkBlobRadius();
+    const half = SPAWN_AREA_SIZE / 2 - radius;
+    tempPosition.set(
+        (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+        (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+        (Math.random() - 0.5) * SPAWN_AREA_SIZE
+    );
+    tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
+    tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
+    tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
 
     largePinkSpheres.push({
         position: tempPosition.clone(),
         radius: radius,
-        active: attempts < 200,
+        active: true,
         rotationSpeed: (Math.random() - 0.5) * 0.002,
         rotationAxis: new THREE.Vector3(
             Math.random() - 0.5,
@@ -707,14 +861,9 @@ for (let i = 0; i < LARGE_PINK_COUNT; i++) {
         currentRotation: 0
     });
 
-    if (attempts < 200) {
-        const scale = new THREE.Vector3(radius, radius, radius);
-        tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
-        largePinkInstances.setMatrixAt(i, tempMatrix);
-    } else {
-        tempMatrix.compose(new THREE.Vector3(), new THREE.Quaternion(), new THREE.Vector3(0, 0, 0));
-        largePinkInstances.setMatrixAt(i, tempMatrix);
-    }
+    const scale = new THREE.Vector3(radius, radius, radius);
+    tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
+    largePinkInstances.setMatrixAt(i, tempMatrix);
 }
 
 for (let i = 0; i < bots_COUNT; i++) {
@@ -724,7 +873,7 @@ for (let i = 0; i < bots_COUNT; i++) {
 
     // This initial placement can be slow, but only runs once at startup.
     while (!valid && attempts < 100) {
-        radius = 20;
+        radius = generateBotRadius();
         const half = SPAWN_AREA_SIZE / 2 - radius;
         tempPosition.set(
             (Math.random() - 0.5) * SPAWN_AREA_SIZE,
@@ -740,8 +889,8 @@ for (let i = 0; i < bots_COUNT; i++) {
         if (valid) {
             // Check against other newly placed spheres in this loop
             for (let j = 0; j < i; j++) {
-                if (smallSpheres[j].active) {
-                    if (tempPosition.distanceTo(smallSpheres[j].position) < radius + smallSpheres[j].radius + 0.1) {
+                if (bots[j] && bots[j].active) {
+                    if (tempPosition.distanceTo(bots[j].position) < radius + bots[j].radius + 0.1) {
                         valid = false;
                         break;
                     }
@@ -764,11 +913,11 @@ for (let i = 0; i < bots_COUNT; i++) {
     // Set the matrix for this instance
     const scale = new THREE.Vector3(radius, radius, radius);
     tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
-    smallSphereInstances.setMatrixAt(i, tempMatrix);
-    smallSphereInstances.setColorAt(i, tempColor);
+    botsInstances.setMatrixAt(i, tempMatrix);
 }
 
 largePinkInstances.instanceMatrix.needsUpdate = true;
+botsInstances.instanceMatrix.needsUpdate = true;
 
 const light = new THREE.DirectionalLight(0xffffff, 5);
 light.position.set(10, 20, 15);
@@ -785,7 +934,10 @@ camera.position.z = 10;
 
 let wHeld = false;
 let sHeld = false;
+let aHeld = false;
+let dHeld = false;
 let velocity = 0;
+let strafeVelocity = 0;
 
 let orbitRadius = 10;
 let targetOrbitRadius = orbitRadius;
@@ -854,11 +1006,79 @@ function updateCamera() {
 
 
 let examineForward = new THREE.Vector3(0, 0, -1);
+let lastLeaderboardUpdateTime = 0;
+const botsToRemove = [];
+const largePinkSpheresToRemove = [];
+
+function updateLeaderboard() {
+    const playersForLeaderboard = [];
+
+    // Add main player
+    playersForLeaderboard.push({
+        name: playerName || 'You',
+        mass: Math.floor(mainSphere.geometry.parameters.radius ** 2),
+        isPlayer: true
+    });
+
+    // Add other players
+    for (const id in otherPlayers) {
+        const player = otherPlayers[id];
+        playersForLeaderboard.push({
+            name: player.name || 'Player',
+            mass: Math.floor(player.mesh.geometry.parameters.radius ** 2)
+        });
+    }
+
+    // Add bots
+    for (let i = 0; i < bots.length; i++) {
+        const bot = bots[i];
+        if (bot.active) {
+            playersForLeaderboard.push({
+                name: `Bot ${i + 1}`,
+                mass: Math.floor(bot.radius ** 2)
+            });
+        }
+    }
+
+    // Sort by mass
+    playersForLeaderboard.sort((a, b) => b.mass - a.mass);
+
+    // Update UI
+    leaderboardList.innerHTML = '';
+    const top10 = playersForLeaderboard.slice(0, 10);
+    top10.forEach(p => {
+        const li = document.createElement('li');
+        li.style.display = 'flex';
+        li.style.justifyContent = 'space-between';
+        li.style.padding = '4px 0';
+        li.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+        if (p.isPlayer) {
+            li.style.fontWeight = 'bold';
+            li.style.color = '#7ed6ff';
+        }
+        li.innerHTML = `<span>${p.name}</span><span>${p.mass}</span>`;
+        leaderboardList.appendChild(li);
+    });
+}
+
+function checkEatCondition(radius1, radius2, distance) {
+    // Bigger sphere must be at least 10% larger in radius.
+    if (radius1 < radius2 * 1.1) {
+        return false;
+    }
+
+    // Lower the threshold so bots can eat from further away (increase the multiplier and reduce the cap factor)
+    // Original: 0.8 * radius2 + sqrt(radius1^2 - 0.36 * radius2^2)
+    // New: 1.2 * radius2 + sqrt(radius1^2 - 0.16 * radius2^2)
+    const thresholdDistance = 0.8 * radius2 + Math.sqrt(radius1 * radius1 - 0.36 * radius2 * radius2);
+    return distance < thresholdDistance;
+}
 
 
 function animate() {
     requestAnimationFrame(animate);
     if (!gameStarted) {
+        pinkOverlay.style.display = 'none';
         return;
     }
     const now = performance.now() * 0.001;
@@ -866,6 +1086,215 @@ function animate() {
     animate.lastTime = animate.lastTime || now;
     const deltaTime = Math.min(now - animate.lastTime, 0.1); // clamp to avoid big jumps
     animate.lastTime = now;
+
+    // Pink overlay logic: show if camera is inside any pink blob
+    let insidePink = false;
+    for (let i = 0; i < largePinkSpheres.length; i++) {
+        const pink = largePinkSpheres[i];
+        if (!pink.active) continue;
+        const dist = camera.position.distanceTo(pink.position);
+        if (dist < pink.radius) {
+            insidePink = true;
+            break;
+        }
+    }
+    pinkOverlay.style.display = insidePink ? '' : 'none';
+
+    // Update leaderboard periodically
+    if (now - lastLeaderboardUpdateTime > 1) { // Update every second
+        updateLeaderboard();
+        lastLeaderboardUpdateTime = now;
+    }
+
+    // --- Bot Logic (Movement, Eating) ---
+    let botsMatrixNeedsUpdate = false;
+    botsToRemove.length = 0;
+    largePinkSpheresToRemove.length = 0;
+
+    for (let i = 0; i < bots.length; i++) {
+        const bot = bots[i];
+        if (!bot.active) continue;
+
+        // Calculate this bot's MAXfog distance (same as FOG_FAR for its radius)
+        const minRadius = 1;
+        const maxRadius = 100;
+        const t = Math.min(1, Math.max(0, (bot.radius - minRadius) / (maxRadius - minRadius)));
+        const botFogFar = FOG_FAR_BASE + t * (FOG_FAR_MAX - FOG_FAR_BASE);
+
+        // Gather all entities (main player, all network players, all bots except self)
+        const allEntities = [];
+        allEntities.push({ radius: mainSphere.geometry.parameters.radius, position: mainSphere.position, type: 'player' });
+        for (const id in otherPlayers) {
+            allEntities.push({ radius: otherPlayers[id].mesh.geometry.parameters.radius, position: otherPlayers[id].mesh.position, type: 'otherPlayer', id });
+        }
+        for (let j = 0; j < bots.length; j++) {
+            if (i === j || !bots[j].active) continue;
+            allEntities.push({ radius: bots[j].radius, position: bots[j].position, type: 'bot', botIndex: j });
+        }
+
+        // Find the closest smaller bot/player within MAXfog distance
+        let target = null;
+        let minDistSq = Infinity;
+        let chosenTargetType = 'pellet';
+        let chosenTargetInfo = null;
+        for (const entity of allEntities) {
+            if (entity.radius < bot.radius) {
+                const distSq = bot.position.distanceToSquared(entity.position);
+                if (distSq < botFogFar * botFogFar && distSq < minDistSq) {
+                    minDistSq = distSq;
+                    target = entity.position;
+                    chosenTargetType = entity.type;
+                    chosenTargetInfo = entity;
+                }
+            }
+        }
+
+        // If no smaller bot/player in fog range, go for closest pellet
+        if (target === null) {
+            minDistSq = Infinity;
+            for (let j = 0; j < pellets.length; j++) {
+                const pellet = pellets[j];
+                if (pellet.active) {
+                    const distSq = bot.position.distanceToSquared(pellet.position);
+                    if (distSq < minDistSq) {
+                        minDistSq = distSq;
+                        target = pellet.position;
+                        chosenTargetType = 'pellet';
+                        chosenTargetInfo = { pelletIndex: j };
+                    }
+                }
+            }
+        }
+
+        // Debug output
+        const isSmallest = (chosenTargetType === 'pellet');
+        // Uncomment for debugging:
+        // console.log(`Bot ${i}: radius=${bot.radius.toFixed(2)}, isSmallest=${isSmallest}`);
+        // console.log(`Bot ${i}: targeting ${chosenTargetType}${chosenTargetType === 'bot' && chosenTargetInfo ? ' #' + chosenTargetInfo.botIndex : ''}${chosenTargetType === 'otherPlayer' && chosenTargetInfo ? ' id=' + chosenTargetInfo.id : ''}${chosenTargetType === 'pellet' && chosenTargetInfo ? ' #' + chosenTargetInfo.pelletIndex : ''}`);
+
+        // --- Bot Movement ---
+        if (target) {
+            const direction = new THREE.Vector3().subVectors(target, bot.position).normalize();
+            bot.position.add(direction.multiplyScalar(BOT_SPEED * deltaTime));
+            const half = SPAWN_AREA_SIZE / 2 - bot.radius;
+            bot.position.x = Math.max(-half, Math.min(half, bot.position.x));
+            bot.position.y = Math.max(-half, Math.min(half, bot.position.y));
+            bot.position.z = Math.max(-half, Math.min(half, bot.position.z));
+        }
+
+        // --- Bot Eating Logic ---
+
+        // Bot vs. Pellets
+        for (let j = 0; j < pellets.length; j++) {
+            const pellet = pellets[j];
+            if (pellet.active && bot.position.distanceTo(pellet.position) < bot.radius + pellet.radius) {
+                if (bot.radius > pellet.radius) { // Bots can always eat small pellets
+                    bot.radius = Math.sqrt(bot.radius ** 2 + pellet.radius ** 2);
+                    pellet.active = false; // Mark pellet as eaten
+                }
+            }
+        }
+
+        // Bot vs. Large Pink Spheres
+        for (let j = 0; j < largePinkSpheres.length; j++) {
+            const pink = largePinkSpheres[j];
+            if (pink.active) {
+                const dist = bot.position.distanceTo(pink.position);
+                if (checkEatCondition(bot.radius, pink.radius, dist)) {
+                    bot.radius = Math.sqrt(bot.radius ** 2 + pink.radius ** 2);
+                    pink.active = false;
+                    largePinkSpheresToRemove.push(j);
+                }
+            }
+        }
+
+        // Bot vs. Player
+        const playerRadius = mainSphere.geometry.parameters.radius;
+        const distToPlayer = bot.position.distanceTo(mainSphere.position);
+        
+        if (checkEatCondition(bot.radius, playerRadius, distToPlayer)) {
+            socket.emit('i-ate-you', { killerName: `Bot ${i + 1}` });
+            // Directly trigger the death sequence on the client
+            handlePlayerDeath({ killerName: `Bot ${i + 1}` });
+        } else if (checkEatCondition(playerRadius, bot.radius, distToPlayer)) {
+            const newPlayerRadius = Math.sqrt(playerRadius ** 2 + bot.radius ** 2);
+            const newGeometry = new THREE.SphereGeometry(newPlayerRadius, 32, 32);
+            mainSphere.geometry.dispose();
+            mainSphere.geometry = newGeometry;
+            botsToRemove.push(i);
+        }
+
+        // Bot vs. Other Bots
+        for (let j = i + 1; j < bots.length; j++) {
+            const otherBot = bots[j];
+            if (!otherBot.active) continue;
+            const distToOtherBot = bot.position.distanceTo(otherBot.position);
+
+            if (checkEatCondition(bot.radius, otherBot.radius, distToOtherBot)) {
+                bot.radius = Math.sqrt(bot.radius ** 2 + otherBot.radius ** 2);
+                botsToRemove.push(j);
+            } else if (checkEatCondition(otherBot.radius, bot.radius, distToOtherBot)) {
+                otherBot.radius = Math.sqrt(otherBot.radius ** 2 + bot.radius ** 2);
+                botsToRemove.push(i);
+                break; // Current bot 'i' was eaten, so it can't eat anymore this frame
+            }
+        }
+        
+        // Bot vs. Other Players
+        for (const id in otherPlayers) {
+            const otherPlayer = otherPlayers[id].mesh;
+            const otherPlayerRadius = otherPlayer.geometry.parameters.radius;
+            const distToOtherPlayer = bot.position.distanceTo(otherPlayer.position);
+
+            if (checkEatCondition(otherPlayerRadius, bot.radius, distToOtherPlayer)) {
+                // The other player would eat the bot, but we can't credit them from here.
+                // We just remove the bot. The server would handle the player's size increase.
+                botsToRemove.push(i);
+                break;
+            }
+        }
+
+        if (bot.active) {
+            const scale = new THREE.Vector3(bot.radius, bot.radius, bot.radius);
+            tempMatrix.compose(bot.position, new THREE.Quaternion(), scale);
+            botsInstances.setMatrixAt(i, tempMatrix);
+            botsMatrixNeedsUpdate = true;
+        }
+    }
+
+    // Deactivate eaten bots
+    const uniqueBotsToRemove = [...new Set(botsToRemove)];
+    for (const index of uniqueBotsToRemove) {
+        if (bots[index]) {
+            bots[index].active = false;
+            const scale = new THREE.Vector3(0, 0, 0);
+            tempMatrix.compose(bots[index].position, new THREE.Quaternion(), scale);
+            botsInstances.setMatrixAt(index, tempMatrix);
+            botsMatrixNeedsUpdate = true;
+        }
+    }
+
+    if (botsMatrixNeedsUpdate) {
+        botsInstances.instanceMatrix.needsUpdate = true;
+    }
+
+    // Deactivate eaten large pink spheres
+    const uniquePinkToRemove = [...new Set(largePinkSpheresToRemove)];
+    let pinkMatrixNeedsUpdate = false;
+    for (const index of uniquePinkToRemove) {
+        if (largePinkSpheres[index]) {
+            largePinkSpheres[index].active = false;
+            const scale = new THREE.Vector3(0, 0, 0);
+            tempMatrix.compose(largePinkSpheres[index].position, new THREE.Quaternion(), scale);
+            largePinkInstances.setMatrixAt(index, tempMatrix);
+            pinkMatrixNeedsUpdate = true;
+        }
+    }
+    if(pinkMatrixNeedsUpdate) {
+        largePinkInstances.instanceMatrix.needsUpdate = true;
+    }
+
+
     if (orbitLerpActive) {
         orbitLerpTime += deltaTime;
         let t = Math.min(orbitLerpTime / orbitLerpDuration, 1);
@@ -890,28 +1319,49 @@ function animate() {
     borderWallShaderMaterial.uniforms.fadeFar.value = FOG_FAR;
     borderWallShaderMaterial.uniforms.time.value = now;
 
-    // Acceleration and deceleration
-    let target = 0;
-    if (wHeld) target += 1;
-    if (sHeld) target -= 1;
-    // Lerp velocity toward target*MAX_SPEED
-    if (target !== 0) {
-        velocity += (target * MAX_SPEED - velocity) * ACCEL;
+    // Acceleration and deceleration for all movement axes
+    let forwardTarget = 0;
+    if (wHeld) forwardTarget += 1;
+    if (sHeld) forwardTarget -= 1;
+    if (forwardTarget !== 0) {
+        velocity += (forwardTarget * MAX_SPEED - velocity) * ACCEL * deltaTime;
     } else {
-        velocity += (0 - velocity) * DECEL;
+        velocity += (0 - velocity) * DECEL * deltaTime;
     }
 
-    // Move and clamp
-    if (escMenu.style.display === 'none' && Math.abs(velocity) > 0.001) {
+    let strafeTarget = 0;
+    if (dHeld) strafeTarget += 1;
+    if (aHeld) strafeTarget -= 1;
+    if (strafeTarget !== 0) {
+        strafeVelocity += (strafeTarget * MAX_SPEED - strafeVelocity) * ACCEL * deltaTime;
+    } else {
+        strafeVelocity += (0 - strafeVelocity) * DECEL * deltaTime;
+    }
+
+    // Remove vertical movement
+
+    // --- Player Movement and Eating ---
+    if (
+        escMenu.style.display === 'none' &&
+        (Math.abs(velocity) > 0.001 || Math.abs(strafeVelocity) > 0.001)
+    ) {
         let moveDir = new THREE.Vector3();
+        let strafeDir = new THREE.Vector3();
+        let upDir = new THREE.Vector3(0, 1, 0);
         if (cameraMode === 'normal') {
             camera.getWorldDirection(moveDir);
             examineForward.copy(moveDir);
+            // Strafe direction: right vector
+            strafeDir.crossVectors(moveDir, upDir).normalize();
         } else {
-            // In examine mode, use the last direction from normal mode
             moveDir.copy(examineForward);
+            strafeDir.crossVectors(moveDir, upDir).normalize();
         }
-        mainSphere.position.add(moveDir.clone().multiplyScalar(velocity));
+        // Compose movement vector
+        let movement = new THREE.Vector3();
+        movement.add(moveDir.clone().multiplyScalar(velocity * deltaTime));
+        movement.add(strafeDir.clone().multiplyScalar(strafeVelocity * deltaTime));
+        mainSphere.position.add(movement);
         const radius = mainSphere.geometry.parameters.radius;
         const half = SPAWN_AREA_SIZE / 2 - radius;
         mainSphere.position.x = Math.max(-half, Math.min(half, mainSphere.position.x));
@@ -932,33 +1382,24 @@ function animate() {
         }
     }
 
-    // Remove small spheres if more than a certain amount of their surface is covered
+    // Player vs. Pellets
     let R = mainSphere.geometry.parameters.radius;
     const toRemoveIndexes = [];
     let newRadius = R;
     let anyAbsorbed = false;
     const maxAbsorbDist = R + 1.5; // Max small sphere radius is ~0.9
 
-    for (let i = 0; i < smallSpheres.length; i++) {
-        const sphereData = smallSpheres[i];
-        if (!sphereData.active) continue;
+    for (let i = 0; i < pellets.length; i++) {
+        const pelletData = pellets[i];
+        if (!pelletData.active) continue;
 
-        const r = sphereData.radius;
-        const d = mainSphere.position.distanceTo(sphereData.position);
-
-        if (d > maxAbsorbDist + r) continue; // skip far blobs
+        const r = pelletData.radius;
+        const d = mainSphere.position.distanceTo(pelletData.position);
 
         if (d < R + r) {
-            const h = r - (d * d - R * R + r * r) / (2 * d);
-            if (h > 0) {
-                const capArea = 2 * Math.PI * r * h;
-                const totalArea = 4 * Math.PI * r * r;
-                if (capArea / totalArea > 0.1) {
-                    toRemoveIndexes.push(i);
-                    newRadius = Math.sqrt(newRadius * newRadius + r * r);
-                    anyAbsorbed = true;
-                }
-            }
+            toRemoveIndexes.push(i);
+            newRadius = Math.sqrt(newRadius * newRadius + r * r);
+            anyAbsorbed = true;
         }
     }
 
@@ -990,19 +1431,28 @@ function animate() {
         mainSphere.geometry = newGeometry;
     }
 
-    // Respawn eaten blobs
+    // Respawn eaten pellets
     let matrixNeedsUpdate = false;
     let colorNeedsUpdate = false;
 
-    for (const index of toRemoveIndexes) {
-        const sphereData = smallSpheres[index];
-        sphereData.active = false; // Deactivate
+    // Add pellets eaten by bots to the respawn queue
+    for (let i = 0; i < pellets.length; i++) {
+        if (!pellets[i].active) {
+            toRemoveIndexes.push(i);
+        }
+    }
+    const uniqueFoodToRemove = [...new Set(toRemoveIndexes)];
+
+    for (const index of uniqueFoodToRemove) {
+        const pelletData = pellets[index];
+        
+        if (!pelletData) continue;
 
         // Hide it by scaling to zero. We'll move it later if a valid spot is found.
-        smallSphereInstances.getMatrixAt(index, tempMatrix);
+        pelletInstances.getMatrixAt(index, tempMatrix);
         tempMatrix.decompose(tempPosition, new THREE.Quaternion(), new THREE.Vector3());
         tempMatrix.compose(tempPosition, new THREE.Quaternion(), new THREE.Vector3(0, 0, 0));
-        smallSphereInstances.setMatrixAt(index, tempMatrix);
+        pelletInstances.setMatrixAt(index, tempMatrix);
         matrixNeedsUpdate = true;
 
         // Find a valid random position and new color/size to respawn
@@ -1026,11 +1476,22 @@ function animate() {
             valid = pos.distanceTo(mainSphere.position) > mainSphere.geometry.parameters.radius + newSphereRadius + 0.1;
 
             if (valid) {
-                // Check against other small spheres
-                for (let i = 0; i < smallSpheres.length; i++) {
-                    if (i === index || !smallSpheres[i].active) continue;
-                    const otherR = smallSpheres[i].radius;
-                    if (pos.distanceTo(smallSpheres[i].position) < newSphereRadius + otherR + 0.1) {
+                // Check against other pellets
+                for (let i = 0; i < pellets.length; i++) {
+                    if (i === index || !pellets[i].active) continue;
+                    const otherR = pellets[i].radius;
+                    if (pos.distanceTo(pellets[i].position) < newSphereRadius + otherR + 0.1) {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+            if (valid) {
+                // Check against bots
+                for (let i = 0; i < bots.length; i++) {
+                    if (!bots[i].active) continue;
+                    const botR = bots[i].radius;
+                    if (pos.distanceTo(bots[i].position) < newSphereRadius + botR + 0.1) {
                         valid = false;
                         break;
                     }
@@ -1040,36 +1501,41 @@ function animate() {
         }
 
         if (valid) {
-            const newColor = SMALL_COLORS[Math.floor(Math.random() * SMALL_COLORS.length)];
+            const newColor = PELLET_COLORS[Math.floor(Math.random() * PELLET_COLORS.length)];
             tempColor.set(newColor);
 
             // Update data array
-            sphereData.position.copy(pos);
-            sphereData.radius = newSphereRadius;
-            sphereData.color.copy(tempColor);
-            sphereData.active = true;
+            pelletData.position.copy(pos);
+            pelletData.radius = newSphereRadius;
+            pelletData.color.copy(tempColor);
+            pelletData.active = true;
 
             // Update instance
             const scale = new THREE.Vector3(newSphereRadius, newSphereRadius, newSphereRadius);
             tempMatrix.compose(pos, new THREE.Quaternion(), scale);
-            smallSphereInstances.setMatrixAt(index, tempMatrix);
-            smallSphereInstances.setColorAt(index, tempColor);
+            pelletInstances.setMatrixAt(index, tempMatrix);
+            pelletInstances.setColorAt(index, tempColor);
             matrixNeedsUpdate = true;
             colorNeedsUpdate = true;
         }
     }
 
     if (matrixNeedsUpdate) {
-        smallSphereInstances.instanceMatrix.needsUpdate = true;
+        pelletInstances.instanceMatrix.needsUpdate = true;
     }
     if (colorNeedsUpdate) {
-        smallSphereInstances.instanceColor.needsUpdate = true;
+        pelletInstances.instanceColor.needsUpdate = true;
     }
 
 
     const { x, y, z } = mainSphere.position;
     const currentRadius = mainSphere.geometry.parameters.radius;
-    coordsDiv.textContent = `x: ${x.toFixed(2)}, y: ${y.toFixed(2)}, z: ${z.toFixed(2)}\nradius: ${currentRadius.toFixed(2)}`;
+    const mass = Math.floor(currentRadius ** 2);
+    coordsDiv.textContent = `x: ${x.toFixed(2)}, y: ${y.toFixed(2)}, z: ${z.toFixed(2)}\nmass: ${mass}`;
+
+
+    // Update fog based on player size
+    updateFogForPlayerSize(currentRadius);
 
     // FPS calculation
     animate._frames = (animate._frames || 0) + 1;
@@ -1089,14 +1555,20 @@ animate();
 
 window.addEventListener('keydown', (event) => {
     if (escMenu.style.display !== 'none') return;
-    if (event.key.toLowerCase() === 'w') wHeld = true;
-    if (event.key.toLowerCase() === 's') sHeld = true;
+    const k = event.key.toLowerCase();
+    if (k === 'w') wHeld = true;
+    if (k === 's') sHeld = true;
+    if (k === 'a') aHeld = true;
+    if (k === 'd') dHeld = true;
 });
 
 window.addEventListener('keyup', (event) => {
     if (escMenu.style.display !== 'none') return;
-    if (event.key.toLowerCase() === 'w') wHeld = false;
-    if (event.key.toLowerCase() === 's') sHeld = false;
+    const k = event.key.toLowerCase();
+    if (k === 'w') wHeld = false;
+    if (k === 's') sHeld = false;
+    if (k === 'a') aHeld = false;
+    if (k === 'd') dHeld = false;
 });
 
 renderer.domElement.style.cursor = 'none';
@@ -1104,21 +1576,26 @@ renderer.domElement.style.cursor = 'none';
 
 
 renderer.domElement.addEventListener('mousedown', (e) => {
+    // If operator UI is visible and click is inside it, do NOT request pointer lock
+    if (operatorUIVisible && operatorDiv.style.display !== 'none') {
+        if (operatorDiv.contains(e.target)) {
+            // Prevent pointer lock and context menu
+            e.preventDefault();
+            return;
+        }
+    }
     if (e.button === 2) {
-        // Show the button and schedule fade
         showModeBtn();
         scheduleModeBtnFade();
-        // Only toggle if not clicking the button itself
         if (e.target !== modeBtn) {
             cameraMode = cameraMode === 'normal' ? 'examine' : 'normal';
             lastToggleTime = Date.now();
             updateModeBtn();
         }
-        // Prevent context menu
         e.preventDefault();
     }
-    // Only request pointer lock if menu is not up
-    if (escMenu.style.display === 'none') {
+    // Only request pointer lock if menu is not up and operator UI is not visible
+    if (escMenu.style.display === 'none' && !operatorUIVisible) {
         renderer.domElement.requestPointerLock();
     }
 });
