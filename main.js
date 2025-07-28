@@ -291,6 +291,13 @@ startMenu.innerHTML = `
 document.body.appendChild(startMenu);
 document.body.appendChild(renderer.domElement);
 
+// Remove scrollbars from the game
+document.body.style.overflow = 'hidden';
+document.body.style.margin = '0';
+document.body.style.padding = '0';
+document.documentElement.style.overflow = 'hidden';
+document.documentElement.style.margin = '0';
+document.documentElement.style.padding = '0';
 
 let playerName = '';
 let gameStarted = false;
@@ -375,11 +382,11 @@ function findSafeSpawnPosition() {
             }
         }
         
-        // Check against large pink blobs
+        // Check against Nebulosa
         if (valid) {
-            for (let i = 0; i < largePinkSpheres.length; i++) {
-                if (largePinkSpheres[i].active) {
-                    if (pos.distanceTo(largePinkSpheres[i].position) < radius + largePinkSpheres[i].radius + 1.0) {
+            for (let i = 0; i < nebulosa.length; i++) {
+                if (nebulosa[i].active) {
+                    if (pos.distanceTo(nebulosa[i].position) < radius + nebulosa[i].radius + 1.0) {
                         valid = false;
                         break;
                     }
@@ -599,11 +606,11 @@ const ACCEL = 2.4;    // Acceleration rate
 const DECEL = 3.6;    // Deceleration rate
 const ORBIT_SENSITIVITY = 0.005;
 const SPAWN_AREA_SIZE = 500 ;
-const PELLET_COUNT = SPAWN_AREA_SIZE * 25;
+const PELLET_COUNT = SPAWN_AREA_SIZE * 50;
 const MIN_SPAWN_RADIUS_SQ = 5 * 5;
 
 const mainSphereGeometry = new THREE.SphereGeometry(1, 32, 32);
-const mainSphereMaterial = new THREE.MeshStandardMaterial({ color: 0x0077ff, opacity: 1.0, transparent: false });
+const mainSphereMaterial = new THREE.MeshStandardMaterial({ color: 0x0077ff, opacity: 0.6, transparent: true });
 const mainSphere = new THREE.Mesh(mainSphereGeometry, mainSphereMaterial);
 scene.add(mainSphere);
 
@@ -620,14 +627,14 @@ const PELLET_COLORS = [
 ];
 
 // Update these constants for normal distribution
-const LARGE_PINK_COUNT = Math.max(2, Math.floor(PELLET_COUNT / 600)); // Fewer pink blobs
-const LARGE_PINK_COLOR = 0xff69b4;
-const LARGE_PINK_MIN_RADIUS = 30; // Larger min size
-const LARGE_PINK_MAX_RADIUS = 120; // Larger max size
-const LARGE_PINK_AVERAGE_RADIUS = 60;
+const NEBULOSA_COUNT = Math.max(2, Math.floor(SPAWN_AREA_SIZE / 150)); // Fewer Nebulosa
+const NEBULOSA_COLOR = 0xff69b4;
+const NEBULOSA_MIN_RADIUS = 80; // Larger min size
+const NEBULOSA_MAX_RADIUS = 250; // Larger max size
+const NEBULOSA_AVERAGE_RADIUS = 120;
 
 const bots_COUNT = 30; // Number of bots to spawn
-const bots_color = 'red'
+const bots_color = 0xcd990000;
 const BOT_SPEED = 3; // Speed of the bots
 const BOT_MIN_RADIUS = 1;
 const BOT_AVERAGE_RADIUS = 5;
@@ -643,7 +650,7 @@ function normalRandom(mean, stdDev) {
     return z * stdDev + mean;
 }
 
-function generatePinkBlobRadius() {
+function generateNebulosaRadius() {
     // Standard deviation to make the distribution reasonable
     // Using stdDev of 8 gives good spread while keeping most values reasonable
     const stdDev = 8;
@@ -651,8 +658,8 @@ function generatePinkBlobRadius() {
     
     // Keep generating until we get a value in our desired range
     do {
-        radius = normalRandom(LARGE_PINK_AVERAGE_RADIUS, stdDev);
-    } while (radius < LARGE_PINK_MIN_RADIUS || radius > LARGE_PINK_MAX_RADIUS);
+        radius = normalRandom(NEBULOSA_AVERAGE_RADIUS, stdDev);
+    } while (radius < NEBULOSA_MIN_RADIUS || radius > NEBULOSA_MAX_RADIUS);
     
     return radius;
 }
@@ -670,6 +677,81 @@ function generateBotRadius() {
     return radius;
 }
 
+
+// --- Nebulosa must be initialized BEFORE pellets so their positions/volumes are known ---
+const nebulosa = [];
+const nebulosaGeometry = new THREE.SphereGeometry(1, 32, 32);
+const nebulosaMaterial = new THREE.MeshStandardMaterial({ 
+    color: NEBULOSA_COLOR, 
+    roughness: 0.3, 
+    metalness: 0.1,
+    opacity: 0.2,
+    transparent: true,
+    depthWrite: false, // Allow seeing through for better visuals inside
+    side: THREE.DoubleSide, // Render both sides for immersive interior
+    blending: THREE.NormalBlending
+});
+const nebulosaInstances = new THREE.InstancedMesh(nebulosaGeometry, nebulosaMaterial, NEBULOSA_COUNT);
+scene.add(nebulosaInstances);
+
+const tempMatrix = new THREE.Matrix4();
+const tempColor = new THREE.Color();
+const tempPosition = new THREE.Vector3();
+
+// Initialize Nebulosa first
+for (let i = 0; i < NEBULOSA_COUNT; i++) {
+    let valid = false;
+    let attempts = 0;
+    let radius = 0;
+    
+    while (!valid && attempts < 100) {
+        radius = generateNebulosaRadius();
+        const half = SPAWN_AREA_SIZE / 2 - radius;
+        tempPosition.set(
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE
+        );
+        tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
+        tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
+        tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
+
+        valid = true;
+        
+        // Check against other already placed Nebulosa
+        for (let j = 0; j < i; j++) {
+            if (nebulosa[j].active) {
+                const distance = tempPosition.distanceTo(nebulosa[j].position);
+                const minDistance = radius + nebulosa[j].radius + 5.0; // 5 unit buffer
+                if (distance < minDistance) {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        
+        attempts++;
+    }
+
+    nebulosa.push({
+        position: tempPosition.clone(),
+        radius: radius,
+        active: true,
+        rotationSpeed: (Math.random() - 0.5) * 0.002,
+        rotationAxis: new THREE.Vector3(
+            Math.random() - 0.5,
+            Math.random() - 0.5,
+            Math.random() - 0.5
+        ).normalize(),
+        currentRotation: 0
+    });
+
+    const scale = new THREE.Vector3(radius, radius, radius);
+    tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
+    nebulosaInstances.setMatrixAt(i, tempMatrix);
+}
+nebulosaInstances.instanceMatrix.needsUpdate = true;
+
 // --- Instanced Spheres for Performance ---
 const pellets = []; // To hold data like position, radius, color
 const pelletGeometry = new THREE.SphereGeometry(1, 16, 16); // Base geometry, scaled by instance matrix
@@ -677,23 +759,93 @@ const pelletMaterial = new THREE.MeshStandardMaterial(); // { vertexColors: true
 const pelletInstances = new THREE.InstancedMesh(pelletGeometry, pelletMaterial, PELLET_COUNT);
 scene.add(pelletInstances);
 
-const tempMatrix = new THREE.Matrix4();
-const tempColor = new THREE.Color();
+// Now initialize pellets, using Nebulosa positions/volumes
+for (let i = 0; i < PELLET_COUNT; i++) {
+    let valid = false;
+    let attempts = 0;
+    let radius = 0;
+    // Compute total Nebulosa volume and world volume
+    let nebulosaVolume = 0;
+    for (let p = 0; p < nebulosa.length; p++) {
+        if (nebulosa[p].active) {
+            nebulosaVolume += (4/3) * Math.PI * Math.pow(nebulosa[p].radius, 3);
+        }
+    }
+    const worldVolume = Math.pow(SPAWN_AREA_SIZE, 3);
+    // Probability to spawn inside a Nebulosa so that density inside is 15x higher than outside
+    // Let D_in = 15 * D_out, so Prob_in = (15 * nebulosaVolume) / (15 * nebulosaVolume + (worldVolume - nebulosaVolume))
+    const nebulosaProb = (15 * nebulosaVolume) / (15 * nebulosaVolume + (worldVolume - nebulosaVolume));
+    while (!valid && attempts < 100) {
+        radius = 0.5 + Math.random() * 0.4;
+        const half = SPAWN_AREA_SIZE / 2 - radius;
+        let tryInsideNebulosa = false;
+        if (nebulosa.length > 0 && Math.random() < nebulosaProb) {
+            // Pick a random active Nebulosa
+            const nebulosaCandidates = nebulosa.filter(p => p.active);
+            if (nebulosaCandidates.length > 0) {
+                const selectedNebulosa = nebulosaCandidates[Math.floor(Math.random() * nebulosaCandidates.length)];
+                // Random point inside the Nebulosa
+                const u = Math.random();
+                const v = Math.random();
+                const w = Math.random();
+                // Spherical coordinates, uniform in volume
+                const theta = 2 * Math.PI * u;
+                const phi = Math.acos(2 * v - 1);
+                const r = Math.cbrt(w) * (selectedNebulosa.radius - radius - 0.2); // stay inside
+                tempPosition.set(
+                    selectedNebulosa.position.x + r * Math.sin(phi) * Math.cos(theta),
+                    selectedNebulosa.position.y + r * Math.sin(phi) * Math.sin(theta),
+                    selectedNebulosa.position.z + r * Math.cos(phi)
+                );
+                tryInsideNebulosa = true;
+            }
+        }
+        if (!tryInsideNebulosa) {
+            tempPosition.set(
+                (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+                (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+                (Math.random() - 0.5) * SPAWN_AREA_SIZE
+            );
+            tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
+            tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
+            tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
+        }
 
-// Add after pelletInstances setup
-const largePinkSpheres = [];
-const largePinkGeometry = new THREE.SphereGeometry(1, 32, 32);
-const largePinkMaterial = new THREE.MeshStandardMaterial({ 
-    color: LARGE_PINK_COLOR, 
-    roughness: 0.3, 
-    metalness: 0.1,
-    opacity: 0.4,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.NormalBlending
-});
-const largePinkInstances = new THREE.InstancedMesh(largePinkGeometry, largePinkMaterial, LARGE_PINK_COUNT);
-scene.add(largePinkInstances);
+        valid = tempPosition.lengthSq() > MIN_SPAWN_RADIUS_SQ;
+
+        if (valid) {
+            // Check against other newly placed pellets in this loop
+            for (let j = 0; j < i; j++) {
+                if (pellets[j].active) {
+                    if (tempPosition.distanceTo(pellets[j].position) < radius + pellets[j].radius + 0.1) {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+        }
+        attempts++;
+    }
+
+    const color = PELLET_COLORS[Math.floor(Math.random() * PELLET_COLORS.length)];
+    tempColor.set(color); 
+
+    pellets.push({
+        position: tempPosition.clone(),
+        radius: radius,
+        active: true,
+        color: tempColor.clone()
+    });
+
+    // Set the matrix for this instance
+    const scale = new THREE.Vector3(radius, radius, radius);
+    tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
+    pelletInstances.setMatrixAt(i, tempMatrix);
+    pelletInstances.setColorAt(i, tempColor);
+}
+pelletInstances.instanceMatrix.needsUpdate = true;
+pelletInstances.instanceColor.needsUpdate = true;
+
 
 // Bots
 const bots = [];
@@ -702,18 +854,385 @@ const botsMaterial = new THREE.MeshStandardMaterial({ color: bots_color });
 const botsInstances = new THREE.InstancedMesh(botsGeometry, botsMaterial, bots_COUNT);
 scene.add(botsInstances);
 
-// Pink overlay for camera-inside-pink-blob effect
-const pinkOverlay = document.createElement('div');
-pinkOverlay.style.position = 'fixed';
-pinkOverlay.style.top = '0';
-pinkOverlay.style.left = '0';
-pinkOverlay.style.width = '100vw';
-pinkOverlay.style.height = '100vh';
-pinkOverlay.style.background = 'rgba(255, 0, 128, 0.5)'; // #ff69b4, 0.2 opacity
-pinkOverlay.style.pointerEvents = 'none';
-pinkOverlay.style.zIndex = '9999';
-pinkOverlay.style.display = 'none';
-document.body.appendChild(pinkOverlay);
+for (let i = 0; i < bots_COUNT; i++) {
+    let valid = false;
+    let attempts = 0;
+    let radius = 0;
+
+    // This initial placement can be slow, but only runs once at startup.
+    while (!valid && attempts < 100) {
+        radius = generateBotRadius();
+        const half = SPAWN_AREA_SIZE / 2 - radius;
+        tempPosition.set(
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+            (Math.random() - 0.5) * SPAWN_AREA_SIZE
+        );
+        tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
+        tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
+        tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
+
+        valid = tempPosition.lengthSq() > MIN_SPAWN_RADIUS_SQ;
+
+        if (valid) {
+            // Check against other newly placed spheres in this loop
+            for (let j = 0; j < i; j++) {
+                if (bots[j] && bots[j].active) {
+                    if (tempPosition.distanceTo(bots[j].position) < radius + bots[j].radius + 0.1) {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+        }
+        attempts++;
+    }
+
+    const color = bots_color; // Use a single color for bots
+    tempColor.set(color); 
+
+    bots.push({
+        position: tempPosition.clone(),
+        radius: radius,
+        active: true,
+        color: tempColor.clone()
+    });
+
+    // Set the matrix for this instance
+    const scale = new THREE.Vector3(radius, radius, radius);
+    tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
+    botsInstances.setMatrixAt(i, tempMatrix);
+}
+
+nebulosaInstances.instanceMatrix.needsUpdate = true;
+botsInstances.instanceMatrix.needsUpdate = true;
+
+// Nebulosa background effect
+let nebulosaBackgroundActive = false;
+let nebulosaBackgroundStrength = 0.0; // 0.0 = off, 1.0 = full
+
+// Enhanced Nebulosa background with multi-dimensional shader
+const nebulosaBgGeometry = new THREE.PlaneGeometry(2000, 2000, 1, 1);
+const nebulosaBgMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+        time: { value: 0.0 },
+        opacity: { value: 0.0 },
+        cameraPos: { value: new THREE.Vector3() },
+        resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+    },
+    vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        void main() {
+            vUv = uv;
+            vPosition = position;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform float time;
+        uniform float opacity;
+        uniform vec3 cameraPos;
+        uniform vec2 resolution;
+        varying vec2 vUv;
+        varying vec3 vPosition;
+
+        void main() {
+            vec2 uv = (vUv - 0.5) * 2.0;
+            float aspectRatio = resolution.x / resolution.y;
+            uv.x *= aspectRatio;
+            
+            // Simple effects without complex noise
+            float dist = length(uv);
+            
+            // Simple animated swirls
+            float angle = atan(uv.y, uv.x);
+            float spiral = sin(angle * 6.0 + dist * 8.0 + time * 1.5) * 0.5 + 0.5;
+            
+            // Clean energy streams
+            float streams = sin(uv.x * 12.0 + time * 2.0) * sin(uv.y * 10.0 + time * 1.8);
+            streams = abs(streams);
+            
+            // Dimensional portal colors
+            vec3 color1 = vec3(1.0, 0.2, 0.8);    // Hot pink
+            vec3 color2 = vec3(0.4, 0.1, 1.0);    // Deep purple
+            vec3 color3 = vec3(0.1, 0.9, 1.0);    // Cyan
+            vec3 color4 = vec3(1.0, 0.8, 0.2);    // Golden
+            vec3 color5 = vec3(0.2, 1.0, 0.4);    // Neon green
+            
+            // Smooth color mixing without noise
+            vec3 finalColor = mix(color1, color2, sin(spiral * 3.14159) * 0.5 + 0.5);
+            finalColor = mix(finalColor, color3, streams * 0.3);
+            
+            // Add energy pulses
+            float pulse = sin(time * 3.0 + dist * 5.0) * 0.5 + 0.5;
+            finalColor += pulse * 0.2 * vec3(1.0, 0.5, 1.0);
+            
+            // Radial fade with energy center
+            float centerIntensity = 1.0 / (1.0 + dist * dist * 0.5);
+            float edgeFade = 1.0 - smoothstep(0.5, 2.0, dist);
+            
+            // Final intensity and glow
+            float intensity = (0.7 + spiral * 0.3) * centerIntensity * edgeFade;
+            intensity += streams * 0.3;
+            
+            gl_FragColor = vec4(finalColor * intensity, opacity * intensity * 0.8);
+        }
+    `,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending
+});
+const nebulosaBgMesh = new THREE.Mesh(nebulosaBgGeometry, nebulosaBgMaterial);
+nebulosaBgMesh.position.set(0, 0, -900); // Far behind everything
+// Background disabled - only particles: scene.add(nebulosaBgMesh);
+
+// Add multiple background layers for depth
+const dimensionalLayers = [];
+for (let i = 0; i < 3; i++) {
+    const layerGeometry = new THREE.SphereGeometry(800 + i * 200, 32, 32);
+    const layerMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+            time: { value: 0.0 },
+            opacity: { value: 0.0 },
+            layer: { value: i }
+        },
+        vertexShader: `
+            uniform float time;
+            uniform float layer;
+            varying vec3 vPosition;
+            varying vec3 vNormal;
+            
+            void main() {
+                vPosition = position;
+                vNormal = normal;
+                
+                // Dimensional warping
+                vec3 pos = position;
+                pos += normal * sin(time * (1.0 + layer * 0.5) + length(position) * 0.01) * (5.0 + layer * 10.0);
+                
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform float time;
+            uniform float opacity;
+            uniform float layer;
+            varying vec3 vPosition;
+            varying vec3 vNormal;
+            
+            void main() {
+                // Each layer has different colors and patterns
+                vec3 color;
+                if (layer < 0.5) {
+                    color = vec3(0.2, 0.6, 1.0); // Deep blue
+                } else if (layer < 1.5) {
+                    color = vec3(1.0, 0.3, 0.7); // Magenta
+                } else {
+                    color = vec3(0.4, 1.0, 0.3); // Green
+                }
+                
+                // Animated energy flows
+                float flow = sin(time * 2.0 + vPosition.x * 0.1 + vPosition.y * 0.15 + vPosition.z * 0.12);
+                flow += sin(time * 3.0 + length(vPosition.xy) * 0.05);
+                color += vec3(0.3) * flow * 0.5;
+                
+                // Fresnel-like edge glow
+                float fresnel = 1.0 - abs(dot(vNormal, normalize(vPosition)));
+                fresnel = pow(fresnel, 2.0);
+                
+                float alpha = opacity * fresnel * (0.1 + layer * 0.05);
+                gl_FragColor = vec4(color, alpha);
+            }
+        `,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.BackSide,
+        blending: THREE.AdditiveBlending
+    });
+    
+    const layerMesh = new THREE.Mesh(layerGeometry, layerMaterial);
+    scene.add(layerMesh);
+    dimensionalLayers.push(layerMesh);
+}
+
+// Dimensional energy beams
+const beamCount = 20;
+const beamGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1000, 8);
+const beamMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+        time: { value: 0.0 },
+        opacity: { value: 0.0 }
+    },
+    vertexShader: `
+        uniform float time;
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        
+        void main() {
+            vUv = uv;
+            vPosition = position;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform float time;
+        uniform float opacity;
+        varying vec2 vUv;
+        varying vec3 vPosition;
+        
+        void main() {
+            // Energy beam effect
+            float dist = abs(vUv.x - 0.5) * 2.0;
+            float beam = 1.0 - smoothstep(0.0, 0.8, dist);
+            
+            // Flowing energy
+            float flow = sin(vUv.y * 20.0 - time * 5.0) * 0.5 + 0.5;
+            beam *= flow * flow;
+            
+            vec3 color = vec3(0.5, 1.0, 1.0) + vec3(0.5, 0.0, 0.5) * sin(time * 2.0);
+            
+            gl_FragColor = vec4(color, beam * opacity * 0.3);
+        }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+});
+
+const energyBeams = [];
+for (let i = 0; i < beamCount; i++) {
+    const beam = new THREE.Mesh(beamGeometry, beamMaterial.clone());
+    beam.position.set(
+        (Math.random() - 0.5) * 1000,
+        (Math.random() - 0.5) * 1000,
+        (Math.random() - 0.5) * 1000
+    );
+    beam.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+    );
+    beam.visible = false;
+    scene.add(beam);
+    energyBeams.push(beam);
+}
+
+// Multi-layered dimensional particle systems
+const particleCount = 2000;
+
+// Energy particles
+const energyParticleGeometry = new THREE.BufferGeometry();
+const energyPositions = new Float32Array(particleCount * 3);
+const energyVelocities = new Float32Array(particleCount * 3);
+const energySizes = new Float32Array(particleCount);
+const energyTypes = new Float32Array(particleCount); // Different particle types
+
+for (let i = 0; i < particleCount; i++) {
+    const i3 = i * 3;
+    const radius = 200 + Math.random() * 600;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    
+    energyPositions[i3] = radius * Math.sin(phi) * Math.cos(theta);
+    energyPositions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+    energyPositions[i3 + 2] = radius * Math.cos(phi);
+    
+    // Complex motion patterns
+    energyVelocities[i3] = (Math.random() - 0.5) * 0.5;
+    energyVelocities[i3 + 1] = (Math.random() - 0.5) * 0.5;
+    energyVelocities[i3 + 2] = (Math.random() - 0.5) * 0.5;
+    
+    energySizes[i] = 1.0 + Math.random() * 4.0;
+    energyTypes[i] = Math.floor(Math.random() * 4); // 4 different particle types
+}
+
+energyParticleGeometry.setAttribute('position', new THREE.BufferAttribute(energyPositions, 3));
+energyParticleGeometry.setAttribute('size', new THREE.BufferAttribute(energySizes, 1));
+energyParticleGeometry.setAttribute('particleType', new THREE.BufferAttribute(energyTypes, 1));
+
+const energyParticleMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+        time: { value: 0.0 },
+        opacity: { value: 0.0 }
+    },
+    vertexShader: `
+        attribute float size;
+        attribute float particleType;
+        uniform float time;
+        uniform float opacity;
+        varying float vOpacity;
+        varying float vType;
+        varying vec3 vPosition;
+        
+        void main() {
+            vOpacity = opacity;
+            vType = particleType;
+            vPosition = position;
+            
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            float distanceScale = 400.0 / -mvPosition.z;
+            
+            // Pulsing size based on type and time
+            float pulse = sin(time * (2.0 + particleType) + length(position) * 0.01) * 0.5 + 0.5;
+            float finalSize = size * (0.5 + pulse * 0.5) * distanceScale;
+            
+            gl_PointSize = finalSize;
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    `,
+    fragmentShader: `
+        uniform float time;
+        varying float vOpacity;
+        varying float vType;
+        varying vec3 vPosition;
+        
+        void main() {
+            vec2 center = gl_PointCoord - 0.5;
+            float dist = length(center);
+            if (dist > 0.5) discard;
+            
+            // Different visual styles based on particle type
+            vec3 color;
+            float alpha;
+            
+            if (vType < 1.0) {
+                // Energy orbs - pulsing bright cores
+                color = vec3(1.0, 0.3, 0.9);
+                float core = 1.0 - smoothstep(0.0, 0.3, dist);
+                alpha = core * vOpacity;
+            } else if (vType < 2.0) {
+                // Dimensional sparks - flickering
+                color = vec3(0.2, 1.0, 1.0);
+                float flicker = sin(time * 10.0 + length(vPosition) * 0.1) * 0.5 + 0.5;
+                alpha = (1.0 - dist * 2.0) * vOpacity * flicker;
+            } else if (vType < 3.0) {
+                // Void fragments - dark with bright edges
+                color = vec3(0.8, 0.2, 1.0);
+                float ring = smoothstep(0.2, 0.4, dist) * (1.0 - smoothstep(0.4, 0.5, dist));
+                alpha = ring * vOpacity * 2.0;
+            } else {
+                // Reality rifts - morphing colors
+                float morph = sin(time * 3.0 + dist * 20.0) * 0.5 + 0.5;
+                color = mix(vec3(1.0, 0.8, 0.2), vec3(0.2, 1.0, 0.4), morph);
+                alpha = (1.0 - dist * 2.0) * vOpacity * 0.8;
+            }
+            
+            // Add subtle glow
+            alpha += (1.0 - dist) * vOpacity * 0.1;
+            
+            gl_FragColor = vec4(color, alpha);
+        }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+});
+
+const energyParticleSystem = new THREE.Points(energyParticleGeometry, energyParticleMaterial);
+scene.add(energyParticleSystem);
 
 // Border lines (keep as is, cool effect)
 const borderLinesGeometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(SPAWN_AREA_SIZE, SPAWN_AREA_SIZE, SPAWN_AREA_SIZE));
@@ -779,145 +1298,6 @@ const borderWalls = new THREE.Mesh(borderWallGeometry, borderWallShaderMaterial)
 scene.add(borderWalls);
 
 let borderHue = 0;
-
-const tempPosition = new THREE.Vector3();
-// Initialization of instanced pellets
-for (let i = 0; i < PELLET_COUNT; i++) {
-    let valid = false;
-    let attempts = 0;
-    let radius = 0;
-
-    // This initial placement can be slow, but only runs once at startup.
-    while (!valid && attempts < 100) {
-        radius = 0.5 + Math.random() * 0.4;
-        const half = SPAWN_AREA_SIZE / 2 - radius;
-        tempPosition.set(
-            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-            (Math.random() - 0.5) * SPAWN_AREA_SIZE
-        );
-        tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
-        tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
-        tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
-
-        valid = tempPosition.lengthSq() > MIN_SPAWN_RADIUS_SQ;
-
-        if (valid) {
-            // Check against other newly placed pellets in this loop
-            for (let j = 0; j < i; j++) {
-                if (pellets[j].active) {
-                    if (tempPosition.distanceTo(pellets[j].position) < radius + pellets[j].radius + 0.1) {
-                        valid = false;
-                        break;
-                    }
-                }
-            }
-        }
-        attempts++;
-    }
-
-    const color = PELLET_COLORS[Math.floor(Math.random() * PELLET_COLORS.length)];
-    tempColor.set(color); 
-
-    pellets.push({
-        position: tempPosition.clone(),
-        radius: radius,
-        active: true,
-        color: tempColor.clone()
-    });
-
-    // Set the matrix for this instance
-    const scale = new THREE.Vector3(radius, radius, radius);
-    tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
-    pelletInstances.setMatrixAt(i, tempMatrix);
-    pelletInstances.setColorAt(i, tempColor);
-}
-pelletInstances.instanceMatrix.needsUpdate = true;
-pelletInstances.instanceColor.needsUpdate = true;
-
-// Add this initialization after the pellets initialization loop
-for (let i = 0; i < LARGE_PINK_COUNT; i++) {
-    let radius = generatePinkBlobRadius();
-    const half = SPAWN_AREA_SIZE / 2 - radius;
-    tempPosition.set(
-        (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-        (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-        (Math.random() - 0.5) * SPAWN_AREA_SIZE
-    );
-    tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
-    tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
-    tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
-
-    largePinkSpheres.push({
-        position: tempPosition.clone(),
-        radius: radius,
-        active: true,
-        rotationSpeed: (Math.random() - 0.5) * 0.002,
-        rotationAxis: new THREE.Vector3(
-            Math.random() - 0.5,
-            Math.random() - 0.5,
-            Math.random() - 0.5
-        ).normalize(),
-        currentRotation: 0
-    });
-
-    const scale = new THREE.Vector3(radius, radius, radius);
-    tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
-    largePinkInstances.setMatrixAt(i, tempMatrix);
-}
-
-for (let i = 0; i < bots_COUNT; i++) {
-    let valid = false;
-    let attempts = 0;
-    let radius = 0;
-
-    // This initial placement can be slow, but only runs once at startup.
-    while (!valid && attempts < 100) {
-        radius = generateBotRadius();
-        const half = SPAWN_AREA_SIZE / 2 - radius;
-        tempPosition.set(
-            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-            (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-            (Math.random() - 0.5) * SPAWN_AREA_SIZE
-        );
-        tempPosition.x = Math.max(-half, Math.min(half, tempPosition.x));
-        tempPosition.y = Math.max(-half, Math.min(half, tempPosition.y));
-        tempPosition.z = Math.max(-half, Math.min(half, tempPosition.z));
-
-        valid = tempPosition.lengthSq() > MIN_SPAWN_RADIUS_SQ;
-
-        if (valid) {
-            // Check against other newly placed spheres in this loop
-            for (let j = 0; j < i; j++) {
-                if (bots[j] && bots[j].active) {
-                    if (tempPosition.distanceTo(bots[j].position) < radius + bots[j].radius + 0.1) {
-                        valid = false;
-                        break;
-                    }
-                }
-            }
-        }
-        attempts++;
-    }
-
-    const color = bots_color; // Use a single color for bots
-    tempColor.set(color); 
-
-    bots.push({
-        position: tempPosition.clone(),
-        radius: radius,
-        active: true,
-        color: tempColor.clone()
-    });
-
-    // Set the matrix for this instance
-    const scale = new THREE.Vector3(radius, radius, radius);
-    tempMatrix.compose(tempPosition, new THREE.Quaternion(), scale);
-    botsInstances.setMatrixAt(i, tempMatrix);
-}
-
-largePinkInstances.instanceMatrix.needsUpdate = true;
-botsInstances.instanceMatrix.needsUpdate = true;
 
 const light = new THREE.DirectionalLight(0xffffff, 5);
 light.position.set(10, 20, 15);
@@ -1008,7 +1388,7 @@ function updateCamera() {
 let examineForward = new THREE.Vector3(0, 0, -1);
 let lastLeaderboardUpdateTime = 0;
 const botsToRemove = [];
-const largePinkSpheresToRemove = [];
+const nebulosaToRemove = [];
 
 function updateLeaderboard() {
     const playersForLeaderboard = [];
@@ -1078,7 +1458,7 @@ function checkEatCondition(radius1, radius2, distance) {
 function animate() {
     requestAnimationFrame(animate);
     if (!gameStarted) {
-        pinkOverlay.style.display = 'none';
+        nebulosaBgMaterial.opacity = 0.0;
         return;
     }
     const now = performance.now() * 0.001;
@@ -1087,18 +1467,144 @@ function animate() {
     const deltaTime = Math.min(now - animate.lastTime, 0.1); // clamp to avoid big jumps
     animate.lastTime = now;
 
-    // Pink overlay logic: show if camera is inside any pink blob
-    let insidePink = false;
-    for (let i = 0; i < largePinkSpheres.length; i++) {
-        const pink = largePinkSpheres[i];
-        if (!pink.active) continue;
-        const dist = camera.position.distanceTo(pink.position);
-        if (dist < pink.radius) {
-            insidePink = true;
+    // Check if camera is inside any Nebulosa
+    let cameraInsideNebulosa = false;
+    for (let i = 0; i < nebulosa.length; i++) {
+        if (!nebulosa[i].active) continue;
+        const dist = camera.position.distanceTo(nebulosa[i].position);
+        if (dist < nebulosa[i].radius) {
+            cameraInsideNebulosa = true;
             break;
         }
     }
-    pinkOverlay.style.display = insidePink ? '' : 'none';
+    // Animate background opacity for smooth transition and change fog color
+    if (cameraInsideNebulosa) {
+        nebulosaBackgroundStrength += 0.08;
+        // Change fog color to pink when inside Nebulosa
+        if (!DEBUG && scene.fog) {
+            // Blend between normal fog color and pink
+            const t = Math.min(nebulosaBackgroundStrength, 1);
+            const normalR = (FOG_COLOR >> 16) & 0xff;
+            const normalG = (FOG_COLOR >> 8) & 0xff;
+            const normalB = FOG_COLOR & 0xff;
+            const pinkR = 0xff;
+            const pinkG = 0x69;
+            const pinkB = 0xb4;
+            
+            const blendedR = Math.round(normalR + (pinkR - normalR) * t * 0.5);
+            const blendedG = Math.round(normalG + (pinkG - normalG) * t * 0.5);
+            const blendedB = Math.round(normalB + (pinkB - normalB) * t * 0.5);
+            const blendedColor = (blendedR << 16) | (blendedG << 8) | blendedB;
+            
+            scene.fog.color.setHex(blendedColor);
+            renderer.setClearColor(blendedColor);
+        }
+    } else {
+        nebulosaBackgroundStrength -= 0.08;
+        // Restore normal fog color
+        if (!DEBUG && scene.fog) {
+            const t = Math.max(nebulosaBackgroundStrength, 0);
+            const normalR = (FOG_COLOR >> 16) & 0xff;
+            const normalG = (FOG_COLOR >> 8) & 0xff;
+            const normalB = FOG_COLOR & 0xff;
+            const pinkR = 0xff;
+            const pinkG = 0x69;
+            const pinkB = 0xb4;
+            
+            const blendedR = Math.round(normalR + (pinkR - normalR) * t * 0.5);
+            const blendedG = Math.round(normalG + (pinkG - normalG) * t * 0.5);
+            const blendedB = Math.round(normalB + (pinkB - normalB) * t * 0.5);
+            const blendedColor = (blendedR << 16) | (blendedG << 8) | blendedB;
+            
+            scene.fog.color.setHex(blendedColor);
+            renderer.setClearColor(blendedColor);
+        }
+    }
+    nebulosaBackgroundStrength = Math.max(0, Math.min(1, nebulosaBackgroundStrength));
+    
+    // Update enhanced nebula background effects - DISABLED (particles only)
+    // nebulosaBgMaterial.uniforms.opacity.value = 0.8 * nebulosaBackgroundStrength;
+    // nebulosaBgMaterial.uniforms.time.value = now;
+    // nebulosaBgMaterial.uniforms.cameraPos.value.copy(camera.position);
+    // nebulosaBgMaterial.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
+    
+    // Update dimensional layers
+    dimensionalLayers.forEach((layer, index) => {
+        layer.material.uniforms.time.value = now;
+        layer.material.uniforms.opacity.value = nebulosaBackgroundStrength * (0.3 + index * 0.1);
+    });
+    
+    // Update energy beams
+    energyBeams.forEach((beam, index) => {
+        beam.visible = nebulosaBackgroundStrength > 0.1;
+        if (beam.visible) {
+            beam.material.uniforms.time.value = now;
+            beam.material.uniforms.opacity.value = nebulosaBackgroundStrength;
+            // Animate beam rotation
+            beam.rotation.z += 0.01 * (1 + index * 0.1);
+            // Move beams around
+            beam.position.x += Math.sin(now * 0.5 + index) * 0.1;
+            beam.position.y += Math.cos(now * 0.3 + index * 2) * 0.1;
+        }
+    });
+    
+    // Update energy particle system
+    energyParticleMaterial.uniforms.opacity.value = nebulosaBackgroundStrength;
+    energyParticleMaterial.uniforms.time.value = now;
+    
+    // Animate particles with complex motion
+    if (nebulosaBackgroundStrength > 0) {
+        // Energy particles - complex orbital motion
+        const energyPositions = energyParticleGeometry.attributes.position.array;
+        for (let i = 0; i < particleCount; i++) {
+            const i3 = i * 3;
+            
+            // Orbital motion around camera
+            const orbitSpeed = 0.2 + (i % 10) * 0.05;
+            const orbitRadius = 100 + (i % 50) * 10;
+            const verticalOscillation = Math.sin(now * 0.5 + i * 0.1) * 50;
+            
+            energyPositions[i3] += Math.sin(now * orbitSpeed + i) * 0.5;
+            energyPositions[i3 + 1] += verticalOscillation * 0.01;
+            energyPositions[i3 + 2] += Math.cos(now * orbitSpeed + i) * 0.5;
+            
+            // Keep particles around camera
+            const dx = energyPositions[i3] - camera.position.x;
+            const dy = energyPositions[i3 + 1] - camera.position.y;
+            const dz = energyPositions[i3 + 2] - camera.position.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            
+            if (dist > 900) {
+                // Respawn near camera with dimensional portal effect
+                const angle = Math.random() * Math.PI * 2;
+                const height = (Math.random() - 0.5) * 400;
+                const radius = 150 + Math.random() * 300;
+                
+                energyPositions[i3] = camera.position.x + Math.cos(angle) * radius;
+                energyPositions[i3 + 1] = camera.position.y + height;
+                energyPositions[i3 + 2] = camera.position.z + Math.sin(angle) * radius;
+            }
+        }
+        energyParticleGeometry.attributes.position.needsUpdate = true;
+    }
+    
+    // Reality distortion effect - modify fog and lighting based on dimension strength
+    if (nebulosaBackgroundStrength > 0.5) {
+        // Alter ambient light color in the dimension
+        const dimensionIntensity = (nebulosaBackgroundStrength - 0.5) * 2;
+        ambientLight.color.setHSL(0.8 + Math.sin(now * 0.5) * 0.2, 0.7, 0.4 + dimensionIntensity * 0.3);
+        
+        // Add slight camera shake for reality distortion
+        if (cameraMode === 'normal') {
+            const shakeIntensity = dimensionIntensity * 0.02;
+            camera.position.x += (Math.random() - 0.5) * shakeIntensity;
+            camera.position.y += (Math.random() - 0.5) * shakeIntensity;
+            camera.position.z += (Math.random() - 0.5) * shakeIntensity;
+        }
+    } else {
+        // Restore normal lighting
+        ambientLight.color.setHex(0xffffff);
+    }
 
     // Update leaderboard periodically
     if (now - lastLeaderboardUpdateTime > 1) { // Update every second
@@ -1109,7 +1615,7 @@ function animate() {
     // --- Bot Logic (Movement, Eating) ---
     let botsMatrixNeedsUpdate = false;
     botsToRemove.length = 0;
-    largePinkSpheresToRemove.length = 0;
+    nebulosaToRemove.length = 0;
 
     for (let i = 0; i < bots.length; i++) {
         const bot = bots[i];
@@ -1195,15 +1701,15 @@ function animate() {
             }
         }
 
-        // Bot vs. Large Pink Spheres
-        for (let j = 0; j < largePinkSpheres.length; j++) {
-            const pink = largePinkSpheres[j];
-            if (pink.active) {
-                const dist = bot.position.distanceTo(pink.position);
-                if (checkEatCondition(bot.radius, pink.radius, dist)) {
-                    bot.radius = Math.sqrt(bot.radius ** 2 + pink.radius ** 2);
-                    pink.active = false;
-                    largePinkSpheresToRemove.push(j);
+        // Bot vs. Nebulosa
+        for (let j = 0; j < nebulosa.length; j++) {
+            const selectedNebulosa = nebulosa[j];
+            if (selectedNebulosa.active) {
+                const dist = bot.position.distanceTo(selectedNebulosa.position);
+                if (checkEatCondition(bot.radius, selectedNebulosa.radius, dist)) {
+                    bot.radius = Math.sqrt(bot.radius ** 2 + selectedNebulosa.radius ** 2);
+                    selectedNebulosa.active = false;
+                    nebulosaToRemove.push(j);
                 }
             }
         }
@@ -1278,20 +1784,20 @@ function animate() {
         botsInstances.instanceMatrix.needsUpdate = true;
     }
 
-    // Deactivate eaten large pink spheres
-    const uniquePinkToRemove = [...new Set(largePinkSpheresToRemove)];
-    let pinkMatrixNeedsUpdate = false;
-    for (const index of uniquePinkToRemove) {
-        if (largePinkSpheres[index]) {
-            largePinkSpheres[index].active = false;
+    // Deactivate eaten Nebulosa
+    const uniqueNebulosaToRemove = [...new Set(nebulosaToRemove)];
+    let nebulosaMatrixNeedsUpdate = false;
+    for (const index of uniqueNebulosaToRemove) {
+        if (nebulosa[index]) {
+            nebulosa[index].active = false;
             const scale = new THREE.Vector3(0, 0, 0);
-            tempMatrix.compose(largePinkSpheres[index].position, new THREE.Quaternion(), scale);
-            largePinkInstances.setMatrixAt(index, tempMatrix);
-            pinkMatrixNeedsUpdate = true;
+            tempMatrix.compose(nebulosa[index].position, new THREE.Quaternion(), scale);
+            nebulosaInstances.setMatrixAt(index, tempMatrix);
+            nebulosaMatrixNeedsUpdate = true;
         }
     }
-    if(pinkMatrixNeedsUpdate) {
-        largePinkInstances.instanceMatrix.needsUpdate = true;
+    if(nebulosaMatrixNeedsUpdate) {
+        nebulosaInstances.instanceMatrix.needsUpdate = true;
     }
 
 
@@ -1455,7 +1961,7 @@ function animate() {
         pelletInstances.setMatrixAt(index, tempMatrix);
         matrixNeedsUpdate = true;
 
-        // Find a valid random position and new color/size to respawn
+        // Find a valid random position and new color/size to respawn, using 5x more likely in Nebulosa
         let valid = false;
         let attempts = 0;
         let pos = new THREE.Vector3();
@@ -1464,14 +1970,37 @@ function animate() {
         while (!valid && attempts < 100) {
             newSphereRadius = 0.5 + Math.random() * 0.4;
             const half = SPAWN_AREA_SIZE / 2 - newSphereRadius;
-            pos.set(
-                (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-                (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-                (Math.random() - 0.5) * SPAWN_AREA_SIZE
-            );
-            pos.x = Math.max(-half, Math.min(half, pos.x));
-            pos.y = Math.max(-half, Math.min(half, pos.y));
-            pos.z = Math.max(-half, Math.min(half, pos.z));
+            let tryInsideNebulosa = false;
+            // 5/6 chance to try inside a Nebulosa, 1/6 normal
+            if (nebulosa.length > 0 && Math.random() < 5/6) {
+                const nebulosaCandidates = nebulosa.filter(p => p.active);
+                if (nebulosaCandidates.length > 0) {
+                    const selectedNebulosa = nebulosaCandidates[Math.floor(Math.random() * nebulosaCandidates.length)];
+                    // Random point inside the Nebulosa
+                    const u = Math.random();
+                    const v = Math.random();
+                    const w = Math.random();
+                    const theta = 2 * Math.PI * u;
+                    const phi = Math.acos(2 * v - 1);
+                    const r = Math.cbrt(w) * (selectedNebulosa.radius - newSphereRadius - 0.2);
+                    pos.set(
+                        selectedNebulosa.position.x + r * Math.sin(phi) * Math.cos(theta),
+                        selectedNebulosa.position.y + r * Math.sin(phi) * Math.sin(theta),
+                        selectedNebulosa.position.z + r * Math.cos(phi)
+                    );
+                    tryInsideNebulosa = true;
+                }
+            }
+            if (!tryInsideNebulosa) {
+                pos.set(
+                    (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+                    (Math.random() - 0.5) * SPAWN_AREA_SIZE,
+                    (Math.random() - 0.5) * SPAWN_AREA_SIZE
+                );
+                pos.x = Math.max(-half, Math.min(half, pos.x));
+                pos.y = Math.max(-half, Math.min(half, pos.y));
+                pos.z = Math.max(-half, Math.min(half, pos.z));
+            }
 
             valid = pos.distanceTo(mainSphere.position) > mainSphere.geometry.parameters.radius + newSphereRadius + 0.1;
 
