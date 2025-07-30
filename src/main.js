@@ -1,206 +1,96 @@
-import { io } from 'socket.io-client';
-
-const socket = io('https://383b24bec174.ngrok-free.app');
-const otherPlayers = {};
-
-function createOtherPlayerSphere(player) {
-    const geometry = new THREE.SphereGeometry(player.radius || 1, 32, 32);
-    const material = new THREE.MeshStandardMaterial({ color: 0xff4444, opacity: 0.7, transparent: true });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(player.x, player.y, player.z);
-    return mesh;
-}
-
-socket.on('players', (players) => {
-    for (const id in otherPlayers) {
-        scene.remove(otherPlayers[id].mesh);
-        delete otherPlayers[id];
-    }
-    for (const id in players) {
-        if (id !== socket.id) {
-            const mesh = createOtherPlayerSphere(players[id]);
-            scene.add(mesh);
-            otherPlayers[id] = { mesh, name: players[id].name };
-        }
-    }
-});
-
-socket.on('player-joined', (player) => {
-    if (player.id !== socket.id && !otherPlayers[player.id]) {
-        const mesh = createOtherPlayerSphere(player);
-        scene.add(mesh);
-        otherPlayers[player.id] = { mesh, name: player.name };
-    }
-});
-
-socket.on('player-moved', (player) => {
-    if (player.id !== socket.id && otherPlayers[player.id]) {
-        const mesh = otherPlayers[player.id].mesh;
-        mesh.position.set(player.x, player.y, player.z);
-        if (mesh.geometry.parameters.radius !== player.radius) {
-            mesh.geometry.dispose();
-            mesh.geometry = new THREE.SphereGeometry(player.radius, 32, 32);
-        }
-    }
-});
-
-socket.on('player-left', (id) => {
-    if (otherPlayers[id]) {
-        scene.remove(otherPlayers[id].mesh);
-        delete otherPlayers[id];
-    }
-});
-
-// Update the 'you-were-eaten' event to accept a killer name
-socket.on('you-were-eaten', (data) => {
-    handlePlayerDeath(data);
-});
-
-function handlePlayerDeath(data) {
-    if (!gameStarted) return; // Prevent multiple death triggers
-    gameStarted = false;
-    scene.remove(mainSphere);
-    // Show the renderer and coordinates on death UI
-    renderer.domElement.style.display = '';
-    coordsDiv.style.display = '';
-    if (document.pointerLockElement) {
-        document.exitPointerLock();
-    }
-    lastSurvivalTime = ((Date.now() - gameStartTime) / 1000).toFixed(1);
-    lastMass = Math.floor(mainSphere.geometry.parameters.radius ** 2);
-    let absorbedBy = '';
-    if (data && data.killerName) {
-        absorbedBy = `Absorbed by <b>${data.killerName ? data.killerName : 'a player'}</b>`;
-    } else {
-        absorbedBy = 'Absorbed by <b>a player</b>';
-    }
-    deathStatsDiv.innerHTML = `Survival Time: <b>${lastSurvivalTime}</b> seconds<br>Final Mass: <b>${lastMass}</b><br>${absorbedBy}`;
-    deathMenu.style.display = 'flex';
-    startMenu.style.display = 'none';
-    escMenu.style.display = 'none';
-}
-
-
-// Debug mode toggle
-let DEBUG = false;
-
-
-// Operator UI (hidden by default)
-const operatorDiv = document.createElement('div');
-operatorDiv.style.position = 'fixed';
-operatorDiv.style.top = '20px';
-operatorDiv.style.left = '20px';
-operatorDiv.style.zIndex = '5000';
-operatorDiv.style.background = 'rgba(30,30,40,0.97)';
-operatorDiv.style.border = '2px solid #0077ff';
-operatorDiv.style.borderRadius = '1em';
-operatorDiv.style.padding = '1.2em 1.5em 1.2em 1.5em';
-operatorDiv.style.boxShadow = '0 4px 24px rgba(0,0,0,0.25)';
-operatorDiv.style.display = 'none';
-operatorDiv.style.minWidth = '180px';
-operatorDiv.style.color = 'white';
-operatorDiv.style.fontFamily = 'sans-serif';
-operatorDiv.innerHTML = `<div style="font-size:1.2em;font-weight:bold;margin-bottom:0.7em;letter-spacing:0.04em;">Operator UI</div>`;
-
-// +100 mass button
-const addMassBtn = document.createElement('button');
-addMassBtn.textContent = '+ 100 mass';
-addMassBtn.style.fontSize = '1.1em';
-addMassBtn.style.padding = '0.5em 1.2em';
-addMassBtn.style.borderRadius = '0.5em';
-addMassBtn.style.border = 'none';
-addMassBtn.style.background = '#222';
-addMassBtn.style.color = 'white';
-addMassBtn.style.cursor = 'pointer';
-addMassBtn.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
-addMassBtn.style.marginBottom = '0.5em';
-operatorDiv.appendChild(addMassBtn);
-
-document.body.appendChild(operatorDiv);
-
-addMassBtn.addEventListener('click', () => {
-    // Add 100 mass to the player (mass = radius^2)
-    const currentRadius = mainSphere.geometry.parameters.radius;
-    const newMass = currentRadius * currentRadius + 100;
-    const newRadius = Math.sqrt(newMass);
-    // Camera orbit fix: accumulate any remaining lerp distance from previous presses
-    const prevOrbitRatio = orbitRadius / currentRadius;
-    let remainingDistance = 0;
-    if (orbitLerpActive) {
-        // Compute how much of the previous lerp was left
-        let t = Math.min(orbitLerpTime / orbitLerpDuration, 1);
-        t = t * t * (3 - 2 * t); // smoothstep
-        const currentLerpRadius = prevOrbitRadius + (targetOrbitRadius - prevOrbitRadius) * t;
-        remainingDistance = targetOrbitRadius - currentLerpRadius;
-        prevOrbitRadius = currentLerpRadius;
-    } else {
-        prevOrbitRadius = orbitRadius;
-    }
-    targetOrbitRadius = prevOrbitRatio * newRadius + remainingDistance;
-    orbitLerpTime = 0;
-    orbitLerpActive = true;
-    const newGeometry = new THREE.SphereGeometry(newRadius, 32, 32);
-    mainSphere.geometry.dispose();
-    mainSphere.geometry = newGeometry;
-});
-
-// Keyboard shortcuts: 'D' for debug mode, Right Shift for Operator UI (in debug mode)
-let operatorUIVisible = false;
-window.addEventListener('keydown', (event) => {
-    // Toggle debug mode with D
-    if (event.key === 'x' || event.key === 'X') {
-        DEBUG = !DEBUG;
-        if (DEBUG) {
-            disableGameFog();
-            // Show all overlays for debugging
-            coordsDiv.style.display = '';
-            fpsDiv.style.display = '';
-            leaderboardDiv.style.display = '';
-            modeBtn.style.display = 'block';
-            renderer.domElement.style.display = '';
-        } else {
-            if (gameStarted) enableGameFog();
-            // Hide overlays if not in game
-            if (!gameStarted) {
-                coordsDiv.style.display = 'none';
-                fpsDiv.style.display = 'none';
-                leaderboardDiv.style.display = 'none';
-                modeBtn.style.display = 'none';
-            }
-            // Hide operator UI if open
-            operatorDiv.style.display = 'none';
-            operatorUIVisible = false;
-            renderer.domElement.style.cursor = 'none';
-        }
-        console.log('DEBUG mode:', DEBUG);
-    }
-
-    // Toggle Operator UI with Right Shift (only in debug mode)
-    if (DEBUG && event.key === 'Shift' && event.code === 'ShiftRight') {
-        operatorUIVisible = !operatorUIVisible;
-        if (operatorUIVisible) {
-            operatorDiv.style.display = '';
-            // Show mouse cursor for UI interaction
-            renderer.domElement.style.cursor = 'auto';
-            // If pointer lock is active, exit it so mouse can move freely
-            if (document.pointerLockElement === renderer.domElement) {
-                document.exitPointerLock();
-            }
-        } else {
-            operatorDiv.style.display = 'none';
-            // Hide cursor if not in UI and not in menu
-            if (escMenu.style.display === 'none') {
-                renderer.domElement.style.cursor = 'none';
-            }
-        }
-    }
-});
-
+// ========================================================================================
+// AGAR3D - CLEAN MAIN ENTRY POINT
+// ========================================================================================
 import * as THREE from 'three';
+import { initEntities, updateEntities } from './entities.js';
+import { initNetworking } from './networking.js';
+import { initUI } from './ui.js';
+import { initPlayer, updatePlayer } from './player.js';
+import { initEnvironment, updateEnvironment } from './environment.js';
+import { initGame, updateGame, getGameStarted} from './game.js';
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// ========================================================================================
+// CORE APP STATE
+// ========================================================================================
+const state = {
+    scene: new THREE.Scene(),
+    camera: new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000),
+    renderer: new THREE.WebGLRenderer({ antialias: true }),
+    mainSphere: new THREE.Mesh(
+        new THREE.SphereGeometry(1, 32, 32),
+        new THREE.MeshStandardMaterial({ color: 0x0077ff, opacity: 0.6, transparent: true })
+    ),
+    gameStarted: false,
+    playerName: '',
+    // Add other shared state properties here
+};
+
+// ========================================================================================
+// INITIALIZATION
+// ========================================================================================
+function init() {
+    // Setup renderer
+    state.renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(state.renderer.domElement);
+    state.scene.add(state.mainSphere);
+
+    // Initialize all modules, passing the shared state object
+    initUI(state);
+    initEntities(state);
+    initEnvironment(state);
+    initNetworking(state);
+    initPlayer(state);
+    initGame(state);
+
+    // Global event listeners to connect modules
+    window.addEventListener('startGame', (e) => {
+        setPlayerName(e.detail.playerName);
+        window.dispatchEvent(new CustomEvent('gameStart'));
+    });
+
+    window.addEventListener('resize', () => {
+        state.camera.aspect = window.innerWidth / window.innerHeight;
+        state.camera.updateProjectionMatrix();
+        state.renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Start the main animation loop
+    animate();
+}
+
+// ========================================================================================
+// MAIN ANIMATION LOOP
+// ========================================================================================
+function animate() {
+    requestAnimationFrame(animate);
+
+    const now = performance.now() * 0.001;
+    const deltaTime = Math.min(now - (animate.lastTime || now), 0.1);
+    animate.lastTime = now;
+
+    if (!getGameStarted()) {
+        // Potentially animate something in the main menu
+        state.renderer.render(state.scene, state.camera);
+        return;
+    }
+
+    // Core game loop updates
+    updatePlayer(deltaTime);
+    updateEnvironment(now);
+    updateEntities(deltaTime);
+    updateGame(deltaTime);
+    
+    // Render the scene
+    state.renderer.render(state.scene, state.camera);
+}
+
+// Start the application
+init();
+
+
+export const scene = new THREE.Scene();
+export const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+export const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 // Fog settings for gameplay
@@ -242,117 +132,6 @@ function updateFogForPlayerSize(playerRadius) {
         scene.fog.far = FOG_FAR;
     }
 }
-
-// --- Start Menu Overlay ---
-
-// Camera mode: 'normal' or 'examine'
-let cameraMode = 'normal';
-
-// Escape menu overlay
-const escMenu = document.createElement('div');
-escMenu.style.position = 'fixed';
-escMenu.style.top = '0';
-escMenu.style.left = '0';
-escMenu.style.width = '100vw';
-escMenu.style.height = '100vh';
-escMenu.style.background = 'rgba(0,0,0,0.7)';
-escMenu.style.display = 'none';
-escMenu.style.flexDirection = 'column';
-escMenu.style.justifyContent = 'center';
-escMenu.style.alignItems = 'center';
-escMenu.style.zIndex = '2000';
-escMenu.innerHTML = `
-  <div style="background:#222;padding:2em 3em;border-radius:1em;box-shadow:0 0 30px #000;display:flex;flex-direction:column;align-items:center;">
-    <h2 style="color:white;margin-bottom:1em;">Leave Game?</h2>
-    <div style="display:flex;gap:2em;">
-      <button id="escYesBtn" style="font-size:1.2em;padding:0.5em 2em;border-radius:0.5em;border:none;background:#ff4444;color:white;cursor:pointer;">Yes</button>
-      <button id="escNoBtn" style="font-size:1.2em;padding:0.5em 2em;border-radius:0.5em;border:none;background:#0077ff;color:white;cursor:pointer;">No</button>
-    </div>
-  </div>
-`;
-document.body.appendChild(escMenu);
-const startMenu = document.createElement('div');
-startMenu.style.position = 'fixed';
-startMenu.style.top = '0';
-startMenu.style.left = '0';
-startMenu.style.width = '100vw';
-startMenu.style.height = '100vh';
-startMenu.style.background = 'rgba(0,0,0,0.85)';
-startMenu.style.display = 'flex';
-startMenu.style.flexDirection = 'column';
-startMenu.style.justifyContent = 'center';
-startMenu.style.alignItems = 'center';
-startMenu.style.zIndex = '1000';
-startMenu.innerHTML = `
-  <h1 style="color:white;font-size:3em;margin-bottom:1em;">Agar3D</h1>
-  <input id="playerNameInput" type="text" placeholder="Enter your name (optional)" style="font-size:1.3em;padding:0.4em 1em;margin-bottom:1em;border-radius:0.5em;border:none;outline:none;width:300px;max-width:80vw;box-sizing:border-box;" />
-  <button id="playBtn" style="font-size:2em;padding:0.5em 2em;border-radius:0.5em;border:none;background:#0077ff;color:white;cursor:pointer;">Play</button>
-`;
-document.body.appendChild(startMenu);
-document.body.appendChild(renderer.domElement);
-
-// Remove scrollbars from the game
-document.body.style.overflow = 'hidden';
-document.body.style.margin = '0';
-document.body.style.padding = '0';
-document.documentElement.style.overflow = 'hidden';
-document.documentElement.style.margin = '0';
-document.documentElement.style.padding = '0';
-
-let playerName = '';
-let gameStarted = false;
-
-// Track survival time
-let gameStartTime = 0;
-let lastSurvivalTime = 0;
-let lastMass = 0;
-
-// Death UI overlay
-const deathMenu = document.createElement('div');
-deathMenu.style.position = 'fixed';
-deathMenu.style.top = '0';
-deathMenu.style.left = '0';
-deathMenu.style.width = '100vw';
-deathMenu.style.height = '100vh';
-deathMenu.style.background = 'rgba(0,0,0,0.85)';
-deathMenu.style.display = 'none';
-deathMenu.style.flexDirection = 'column';
-deathMenu.style.justifyContent = 'center';
-deathMenu.style.alignItems = 'center';
-deathMenu.style.zIndex = '3000';
-deathMenu.innerHTML = `
-  <div style="background:#222;padding:2em 3em;border-radius:1em;box-shadow:0 0 30px #000;display:flex;flex-direction:column;align-items:center;min-width:320px;">
-    <h2 style="color:white;margin-bottom:1em;">You Died!</h2>
-    <div id="deathStats" style="color:white;font-size:1.2em;margin-bottom:1.5em;text-align:center;"></div>
-    <div style="display:flex;gap:2em;">
-      <button id="deathHomeBtn" style="font-size:1.2em;padding:0.5em 2em;border-radius:0.5em;border:none;background:#ff4444;color:white;cursor:pointer;">Home</button>
-      <button id="deathPlayBtn" style="font-size:1.2em;padding:0.5em 2em;border-radius:0.5em;border:none;background:#0077ff;color:white;cursor:pointer;">Play Again</button>
-    </div>
-  </div>
-`;
-document.body.appendChild(deathMenu);
-const deathStatsDiv = deathMenu.querySelector('#deathStats');
-const deathHomeBtn = deathMenu.querySelector('#deathHomeBtn');
-const deathPlayBtn = deathMenu.querySelector('#deathPlayBtn');
-
-deathHomeBtn.addEventListener('click', () => {
-    deathMenu.style.display = 'none';
-    startMenu.style.display = 'flex';
-    // Remove the player's sphere and hide all UI elements
-    scene.remove(mainSphere);
-    renderer.domElement.style.display = 'none';
-    coordsDiv.style.display = 'none';
-    fpsDiv.style.display = 'none';
-    modeBtn.style.display = 'none'; // Hide examine mode button
-    leaderboardDiv.style.display = 'none';
-    gameStarted = false;
-    disableGameFog();
-});
-
-deathPlayBtn.addEventListener('click', () => {
-    deathMenu.style.display = 'none';
-    startGame();
-});
 
 function findSafeSpawnPosition() {
     const radius = mainSphere.geometry.parameters.radius;
@@ -611,7 +390,7 @@ const MIN_SPAWN_RADIUS_SQ = 5 * 5;
 
 const mainSphereGeometry = new THREE.SphereGeometry(1, 32, 32);
 const mainSphereMaterial = new THREE.MeshStandardMaterial({ color: 0x0077ff, opacity: 0.6, transparent: true });
-const mainSphere = new THREE.Mesh(mainSphereGeometry, mainSphereMaterial);
+export const mainSphere = new THREE.Mesh(mainSphereGeometry, mainSphereMaterial);
 scene.add(mainSphere);
 
 
@@ -691,7 +470,7 @@ const nebulosaMaterial = new THREE.MeshStandardMaterial({
     side: THREE.DoubleSide, // Render both sides for immersive interior
     blending: THREE.NormalBlending
 });
-const nebulosaInstances = new THREE.InstancedMesh(nebulosaGeometry, nebulosaMaterial, NEBULOSA_COUNT);
+export const nebulosaInstances = new THREE.InstancedMesh(nebulosaGeometry, nebulosaMaterial, NEBULOSA_COUNT);
 scene.add(nebulosaInstances);
 
 const tempMatrix = new THREE.Matrix4();
@@ -756,7 +535,7 @@ nebulosaInstances.instanceMatrix.needsUpdate = true;
 const pellets = []; // To hold data like position, radius, color
 const pelletGeometry = new THREE.SphereGeometry(1, 16, 16); // Base geometry, scaled by instance matrix
 const pelletMaterial = new THREE.MeshStandardMaterial(); // { vertexColors: true} was set in parenthasis
-const pelletInstances = new THREE.InstancedMesh(pelletGeometry, pelletMaterial, PELLET_COUNT);
+export const pelletInstances = new THREE.InstancedMesh(pelletGeometry, pelletMaterial, PELLET_COUNT);
 scene.add(pelletInstances);
 
 // Now initialize pellets, using Nebulosa positions/volumes
@@ -851,7 +630,7 @@ pelletInstances.instanceColor.needsUpdate = true;
 const bots = [];
 const botsGeometry = new THREE.SphereGeometry(1, 32, 32);
 const botsMaterial = new THREE.MeshStandardMaterial({ color: bots_color });
-const botsInstances = new THREE.InstancedMesh(botsGeometry, botsMaterial, bots_COUNT);
+export const botsInstances = new THREE.InstancedMesh(botsGeometry, botsMaterial, bots_COUNT);
 scene.add(botsInstances);
 
 for (let i = 0; i < bots_COUNT; i++) {
@@ -909,7 +688,7 @@ botsInstances.instanceMatrix.needsUpdate = true;
 
 // Nebulosa background effect
 let nebulosaBackgroundActive = false;
-let nebulosaBackgroundStrength = 0.0; // 0.0 = off, 1.0 = full
+export let nebulosaBackgroundStrength = 0.0; // 0.0 = off, 1.0 = full
 
 // Enhanced Nebulosa background with multi-dimensional shader
 const nebulosaBgGeometry = new THREE.PlaneGeometry(2000, 2000, 1, 1);
@@ -990,7 +769,7 @@ nebulosaBgMesh.position.set(0, 0, -900); // Far behind everything
 // Background disabled - only particles: scene.add(nebulosaBgMesh);
 
 // Add multiple background layers for depth
-const dimensionalLayers = [];
+export const dimensionalLayers = [];
 for (let i = 0; i < 3; i++) {
     const layerGeometry = new THREE.SphereGeometry(800 + i * 200, 32, 32);
     const layerMaterial = new THREE.ShaderMaterial({
@@ -1102,7 +881,7 @@ const beamMaterial = new THREE.ShaderMaterial({
     blending: THREE.AdditiveBlending
 });
 
-const energyBeams = [];
+export const energyBeams = [];
 for (let i = 0; i < beamCount; i++) {
     const beam = new THREE.Mesh(beamGeometry, beamMaterial.clone());
     beam.position.set(
@@ -1153,7 +932,7 @@ energyParticleGeometry.setAttribute('position', new THREE.BufferAttribute(energy
 energyParticleGeometry.setAttribute('size', new THREE.BufferAttribute(energySizes, 1));
 energyParticleGeometry.setAttribute('particleType', new THREE.BufferAttribute(energyTypes, 1));
 
-const energyParticleMaterial = new THREE.ShaderMaterial({
+export const energyParticleMaterial = new THREE.ShaderMaterial({
     uniforms: {
         time: { value: 0.0 },
         opacity: { value: 0.0 }
@@ -1236,13 +1015,13 @@ scene.add(energyParticleSystem);
 
 // Border lines (keep as is, cool effect)
 const borderLinesGeometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(SPAWN_AREA_SIZE, SPAWN_AREA_SIZE, SPAWN_AREA_SIZE));
-const borderLinesMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+export const borderLinesMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
 const borderLines = new THREE.LineSegments(borderLinesGeometry, borderLinesMaterial);
 scene.add(borderLines);
 
 // Border walls (faces) with animated shader
 const borderWallGeometry = new THREE.BoxGeometry(SPAWN_AREA_SIZE, SPAWN_AREA_SIZE, SPAWN_AREA_SIZE);
-const borderWallShaderMaterial = new THREE.ShaderMaterial({
+export const borderWallShaderMaterial = new THREE.ShaderMaterial({
     uniforms: {
         cameraPos: { value: new THREE.Vector3() },
         // Match fog distance for faces and border lines
@@ -1303,7 +1082,7 @@ const light = new THREE.DirectionalLight(0xffffff, 5);
 light.position.set(10, 20, 15);
 scene.add(light);
 
-const ambientLight = new THREE.AmbientLight(0xffffff, 2.5);
+export const ambientLight = new THREE.AmbientLight(0xffffff, 2.5);
 scene.add(ambientLight);
 
 const hemiLight = new THREE.HemisphereLight(0xffffff, 0x8888ff, 1.5);
@@ -1319,16 +1098,16 @@ let dHeld = false;
 let velocity = 0;
 let strafeVelocity = 0;
 
-let orbitRadius = 10;
-let targetOrbitRadius = orbitRadius;
-let orbitLerpTime = 0;
-let orbitLerpDuration = 4; // seconds
-let orbitLerpActive = false;
+export let orbitRadius = 10;
+export let targetOrbitRadius = orbitRadius;
+export let orbitLerpTime = 0;
+export let orbitLerpDuration = 4; // seconds
+export let orbitLerpActive = false;
 let prevOrbitRadius = orbitRadius;
-let orbitAzimuth = 0;
-let orbitPolar = Math.PI / 2;
-const minPolar = 0.1;
-const maxPolar = Math.PI - 0.1;
+export let orbitAzimuth = 0;
+export let orbitPolar = Math.PI / 2;
+export const minPolar = 0.1;
+export const maxPolar = Math.PI - 0.1;
 
 const forwardVector = new THREE.Vector3();
 
@@ -1452,632 +1231,6 @@ function checkEatCondition(radius1, radius2, distance) {
     // New: 1.2 * radius2 + sqrt(radius1^2 - 0.16 * radius2^2)
     const thresholdDistance = 0.8 * radius2 + Math.sqrt(radius1 * radius1 - 0.36 * radius2 * radius2);
     return distance < thresholdDistance;
-}
-
-
-function animate() {
-    requestAnimationFrame(animate);
-    if (!gameStarted) {
-        nebulosaBgMaterial.opacity = 0.0;
-        return;
-    }
-    const now = performance.now() * 0.001;
-    // Use deltaTime for more accurate interpolation
-    animate.lastTime = animate.lastTime || now;
-    const deltaTime = Math.min(now - animate.lastTime, 0.1); // clamp to avoid big jumps
-    animate.lastTime = now;
-
-    // Check if camera is inside any Nebulosa
-    let cameraInsideNebulosa = false;
-    for (let i = 0; i < nebulosa.length; i++) {
-        if (!nebulosa[i].active) continue;
-        const dist = camera.position.distanceTo(nebulosa[i].position);
-        if (dist < nebulosa[i].radius) {
-            cameraInsideNebulosa = true;
-            break;
-        }
-    }
-    // Animate background opacity for smooth transition and change fog color
-    if (cameraInsideNebulosa) {
-        nebulosaBackgroundStrength += 0.08;
-        // Change fog color to pink when inside Nebulosa
-        if (!DEBUG && scene.fog) {
-            // Blend between normal fog color and pink
-            const t = Math.min(nebulosaBackgroundStrength, 1);
-            const normalR = (FOG_COLOR >> 16) & 0xff;
-            const normalG = (FOG_COLOR >> 8) & 0xff;
-            const normalB = FOG_COLOR & 0xff;
-            const pinkR = 0xff;
-            const pinkG = 0x69;
-            const pinkB = 0xb4;
-            
-            const blendedR = Math.round(normalR + (pinkR - normalR) * t * 0.5);
-            const blendedG = Math.round(normalG + (pinkG - normalG) * t * 0.5);
-            const blendedB = Math.round(normalB + (pinkB - normalB) * t * 0.5);
-            const blendedColor = (blendedR << 16) | (blendedG << 8) | blendedB;
-            
-            scene.fog.color.setHex(blendedColor);
-            renderer.setClearColor(blendedColor);
-        }
-    } else {
-        nebulosaBackgroundStrength -= 0.08;
-        // Restore normal fog color
-        if (!DEBUG && scene.fog) {
-            const t = Math.max(nebulosaBackgroundStrength, 0);
-            const normalR = (FOG_COLOR >> 16) & 0xff;
-            const normalG = (FOG_COLOR >> 8) & 0xff;
-            const normalB = FOG_COLOR & 0xff;
-            const pinkR = 0xff;
-            const pinkG = 0x69;
-            const pinkB = 0xb4;
-            
-            const blendedR = Math.round(normalR + (pinkR - normalR) * t * 0.5);
-            const blendedG = Math.round(normalG + (pinkG - normalG) * t * 0.5);
-            const blendedB = Math.round(normalB + (pinkB - normalB) * t * 0.5);
-            const blendedColor = (blendedR << 16) | (blendedG << 8) | blendedB;
-            
-            scene.fog.color.setHex(blendedColor);
-            renderer.setClearColor(blendedColor);
-        }
-    }
-    nebulosaBackgroundStrength = Math.max(0, Math.min(1, nebulosaBackgroundStrength));
-    
-    // Update enhanced nebula background effects - DISABLED (particles only)
-    // nebulosaBgMaterial.uniforms.opacity.value = 0.8 * nebulosaBackgroundStrength;
-    // nebulosaBgMaterial.uniforms.time.value = now;
-    // nebulosaBgMaterial.uniforms.cameraPos.value.copy(camera.position);
-    // nebulosaBgMaterial.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
-    
-    // Update dimensional layers
-    dimensionalLayers.forEach((layer, index) => {
-        layer.material.uniforms.time.value = now;
-        layer.material.uniforms.opacity.value = nebulosaBackgroundStrength * (0.3 + index * 0.1);
-    });
-    
-    // Update energy beams
-    energyBeams.forEach((beam, index) => {
-        beam.visible = nebulosaBackgroundStrength > 0.1;
-        if (beam.visible) {
-            beam.material.uniforms.time.value = now;
-            beam.material.uniforms.opacity.value = nebulosaBackgroundStrength;
-            // Animate beam rotation
-            beam.rotation.z += 0.01 * (1 + index * 0.1);
-            // Move beams around
-            beam.position.x += Math.sin(now * 0.5 + index) * 0.1;
-            beam.position.y += Math.cos(now * 0.3 + index * 2) * 0.1;
-        }
-    });
-    
-    // Update energy particle system
-    energyParticleMaterial.uniforms.opacity.value = nebulosaBackgroundStrength;
-    energyParticleMaterial.uniforms.time.value = now;
-    
-    // Animate particles with complex motion
-    if (nebulosaBackgroundStrength > 0) {
-        // Energy particles - complex orbital motion
-        const energyPositions = energyParticleGeometry.attributes.position.array;
-        for (let i = 0; i < particleCount; i++) {
-            const i3 = i * 3;
-            
-            // Orbital motion around camera
-            const orbitSpeed = 0.2 + (i % 10) * 0.05;
-            const orbitRadius = 100 + (i % 50) * 10;
-            const verticalOscillation = Math.sin(now * 0.5 + i * 0.1) * 50;
-            
-            energyPositions[i3] += Math.sin(now * orbitSpeed + i) * 0.5;
-            energyPositions[i3 + 1] += verticalOscillation * 0.01;
-            energyPositions[i3 + 2] += Math.cos(now * orbitSpeed + i) * 0.5;
-            
-            // Keep particles around camera
-            const dx = energyPositions[i3] - camera.position.x;
-            const dy = energyPositions[i3 + 1] - camera.position.y;
-            const dz = energyPositions[i3 + 2] - camera.position.z;
-            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            
-            if (dist > 900) {
-                // Respawn near camera with dimensional portal effect
-                const angle = Math.random() * Math.PI * 2;
-                const height = (Math.random() - 0.5) * 400;
-                const radius = 150 + Math.random() * 300;
-                
-                energyPositions[i3] = camera.position.x + Math.cos(angle) * radius;
-                energyPositions[i3 + 1] = camera.position.y + height;
-                energyPositions[i3 + 2] = camera.position.z + Math.sin(angle) * radius;
-            }
-        }
-        energyParticleGeometry.attributes.position.needsUpdate = true;
-    }
-    
-    // Reality distortion effect - modify fog and lighting based on dimension strength
-    if (nebulosaBackgroundStrength > 0.5) {
-        // Alter ambient light color in the dimension
-        const dimensionIntensity = (nebulosaBackgroundStrength - 0.5) * 2;
-        ambientLight.color.setHSL(0.8 + Math.sin(now * 0.5) * 0.2, 0.7, 0.4 + dimensionIntensity * 0.3);
-        
-        // Add slight camera shake for reality distortion
-        if (cameraMode === 'normal') {
-            const shakeIntensity = dimensionIntensity * 0.02;
-            camera.position.x += (Math.random() - 0.5) * shakeIntensity;
-            camera.position.y += (Math.random() - 0.5) * shakeIntensity;
-            camera.position.z += (Math.random() - 0.5) * shakeIntensity;
-        }
-    } else {
-        // Restore normal lighting
-        ambientLight.color.setHex(0xffffff);
-    }
-
-    // Update leaderboard periodically
-    if (now - lastLeaderboardUpdateTime > 1) { // Update every second
-        updateLeaderboard();
-        lastLeaderboardUpdateTime = now;
-    }
-
-    // --- Bot Logic (Movement, Eating) ---
-    let botsMatrixNeedsUpdate = false;
-    botsToRemove.length = 0;
-    nebulosaToRemove.length = 0;
-
-    for (let i = 0; i < bots.length; i++) {
-        const bot = bots[i];
-        if (!bot.active) continue;
-
-        // Calculate this bot's MAXfog distance (same as FOG_FAR for its radius)
-        const minRadius = 1;
-        const maxRadius = 100;
-        const t = Math.min(1, Math.max(0, (bot.radius - minRadius) / (maxRadius - minRadius)));
-        const botFogFar = FOG_FAR_BASE + t * (FOG_FAR_MAX - FOG_FAR_BASE);
-
-        // Gather all entities (main player, all network players, all bots except self)
-        const allEntities = [];
-        allEntities.push({ radius: mainSphere.geometry.parameters.radius, position: mainSphere.position, type: 'player' });
-        for (const id in otherPlayers) {
-            allEntities.push({ radius: otherPlayers[id].mesh.geometry.parameters.radius, position: otherPlayers[id].mesh.position, type: 'otherPlayer', id });
-        }
-        for (let j = 0; j < bots.length; j++) {
-            if (i === j || !bots[j].active) continue;
-            allEntities.push({ radius: bots[j].radius, position: bots[j].position, type: 'bot', botIndex: j });
-        }
-
-        // Find the closest smaller bot/player within MAXfog distance
-        let target = null;
-        let minDistSq = Infinity;
-        let chosenTargetType = 'pellet';
-        let chosenTargetInfo = null;
-        for (const entity of allEntities) {
-            if (entity.radius < bot.radius) {
-                const distSq = bot.position.distanceToSquared(entity.position);
-                if (distSq < botFogFar * botFogFar && distSq < minDistSq) {
-                    minDistSq = distSq;
-                    target = entity.position;
-                    chosenTargetType = entity.type;
-                    chosenTargetInfo = entity;
-                }
-            }
-        }
-
-        // If no smaller bot/player in fog range, go for closest pellet
-        if (target === null) {
-            minDistSq = Infinity;
-            for (let j = 0; j < pellets.length; j++) {
-                const pellet = pellets[j];
-                if (pellet.active) {
-                    const distSq = bot.position.distanceToSquared(pellet.position);
-                    if (distSq < minDistSq) {
-                        minDistSq = distSq;
-                        target = pellet.position;
-                        chosenTargetType = 'pellet';
-                        chosenTargetInfo = { pelletIndex: j };
-                    }
-                }
-            }
-        }
-
-        // Debug output
-        const isSmallest = (chosenTargetType === 'pellet');
-        // Uncomment for debugging:
-        // console.log(`Bot ${i}: radius=${bot.radius.toFixed(2)}, isSmallest=${isSmallest}`);
-        // console.log(`Bot ${i}: targeting ${chosenTargetType}${chosenTargetType === 'bot' && chosenTargetInfo ? ' #' + chosenTargetInfo.botIndex : ''}${chosenTargetType === 'otherPlayer' && chosenTargetInfo ? ' id=' + chosenTargetInfo.id : ''}${chosenTargetType === 'pellet' && chosenTargetInfo ? ' #' + chosenTargetInfo.pelletIndex : ''}`);
-
-        // --- Bot Movement ---
-        if (target) {
-            const direction = new THREE.Vector3().subVectors(target, bot.position).normalize();
-            bot.position.add(direction.multiplyScalar(BOT_SPEED * deltaTime));
-            const half = SPAWN_AREA_SIZE / 2 - bot.radius;
-            bot.position.x = Math.max(-half, Math.min(half, bot.position.x));
-            bot.position.y = Math.max(-half, Math.min(half, bot.position.y));
-            bot.position.z = Math.max(-half, Math.min(half, bot.position.z));
-        }
-
-        // --- Bot Eating Logic ---
-
-        // Bot vs. Pellets
-        for (let j = 0; j < pellets.length; j++) {
-            const pellet = pellets[j];
-            if (pellet.active && bot.position.distanceTo(pellet.position) < bot.radius + pellet.radius) {
-                if (bot.radius > pellet.radius) { // Bots can always eat small pellets
-                    bot.radius = Math.sqrt(bot.radius ** 2 + pellet.radius ** 2);
-                    pellet.active = false; // Mark pellet as eaten
-                }
-            }
-        }
-
-        // Bot vs. Nebulosa
-        for (let j = 0; j < nebulosa.length; j++) {
-            const selectedNebulosa = nebulosa[j];
-            if (selectedNebulosa.active) {
-                const dist = bot.position.distanceTo(selectedNebulosa.position);
-                if (checkEatCondition(bot.radius, selectedNebulosa.radius, dist)) {
-                    bot.radius = Math.sqrt(bot.radius ** 2 + selectedNebulosa.radius ** 2);
-                    selectedNebulosa.active = false;
-                    nebulosaToRemove.push(j);
-                }
-            }
-        }
-
-        // Bot vs. Player
-        const playerRadius = mainSphere.geometry.parameters.radius;
-        const distToPlayer = bot.position.distanceTo(mainSphere.position);
-        
-        if (checkEatCondition(bot.radius, playerRadius, distToPlayer)) {
-            socket.emit('i-ate-you', { killerName: `Bot ${i + 1}` });
-            // Directly trigger the death sequence on the client
-            handlePlayerDeath({ killerName: `Bot ${i + 1}` });
-        } else if (checkEatCondition(playerRadius, bot.radius, distToPlayer)) {
-            const newPlayerRadius = Math.sqrt(playerRadius ** 2 + bot.radius ** 2);
-            const newGeometry = new THREE.SphereGeometry(newPlayerRadius, 32, 32);
-            mainSphere.geometry.dispose();
-            mainSphere.geometry = newGeometry;
-            botsToRemove.push(i);
-        }
-
-        // Bot vs. Other Bots
-        for (let j = i + 1; j < bots.length; j++) {
-            const otherBot = bots[j];
-            if (!otherBot.active) continue;
-            const distToOtherBot = bot.position.distanceTo(otherBot.position);
-
-            if (checkEatCondition(bot.radius, otherBot.radius, distToOtherBot)) {
-                bot.radius = Math.sqrt(bot.radius ** 2 + otherBot.radius ** 2);
-                botsToRemove.push(j);
-            } else if (checkEatCondition(otherBot.radius, bot.radius, distToOtherBot)) {
-                otherBot.radius = Math.sqrt(otherBot.radius ** 2 + bot.radius ** 2);
-                botsToRemove.push(i);
-                break; // Current bot 'i' was eaten, so it can't eat anymore this frame
-            }
-        }
-        
-        // Bot vs. Other Players
-        for (const id in otherPlayers) {
-            const otherPlayer = otherPlayers[id].mesh;
-            const otherPlayerRadius = otherPlayer.geometry.parameters.radius;
-            const distToOtherPlayer = bot.position.distanceTo(otherPlayer.position);
-
-            if (checkEatCondition(otherPlayerRadius, bot.radius, distToOtherPlayer)) {
-                // The other player would eat the bot, but we can't credit them from here.
-                // We just remove the bot. The server would handle the player's size increase.
-                botsToRemove.push(i);
-                break;
-            }
-        }
-
-        if (bot.active) {
-            const scale = new THREE.Vector3(bot.radius, bot.radius, bot.radius);
-            tempMatrix.compose(bot.position, new THREE.Quaternion(), scale);
-            botsInstances.setMatrixAt(i, tempMatrix);
-            botsMatrixNeedsUpdate = true;
-        }
-    }
-
-    // Deactivate eaten bots
-    const uniqueBotsToRemove = [...new Set(botsToRemove)];
-    for (const index of uniqueBotsToRemove) {
-        if (bots[index]) {
-            bots[index].active = false;
-            const scale = new THREE.Vector3(0, 0, 0);
-            tempMatrix.compose(bots[index].position, new THREE.Quaternion(), scale);
-            botsInstances.setMatrixAt(index, tempMatrix);
-            botsMatrixNeedsUpdate = true;
-        }
-    }
-
-    if (botsMatrixNeedsUpdate) {
-        botsInstances.instanceMatrix.needsUpdate = true;
-    }
-
-    // Deactivate eaten Nebulosa
-    const uniqueNebulosaToRemove = [...new Set(nebulosaToRemove)];
-    let nebulosaMatrixNeedsUpdate = false;
-    for (const index of uniqueNebulosaToRemove) {
-        if (nebulosa[index]) {
-            nebulosa[index].active = false;
-            const scale = new THREE.Vector3(0, 0, 0);
-            tempMatrix.compose(nebulosa[index].position, new THREE.Quaternion(), scale);
-            nebulosaInstances.setMatrixAt(index, tempMatrix);
-            nebulosaMatrixNeedsUpdate = true;
-        }
-    }
-    if(nebulosaMatrixNeedsUpdate) {
-        nebulosaInstances.instanceMatrix.needsUpdate = true;
-    }
-
-
-    if (orbitLerpActive) {
-        orbitLerpTime += deltaTime;
-        let t = Math.min(orbitLerpTime / orbitLerpDuration, 1);
-        // S-curve (smoothstep)
-        t = t * t * (3 - 2 * t);
-        orbitRadius = prevOrbitRadius + (targetOrbitRadius - prevOrbitRadius) * t;
-        if (t >= 1) {
-            orbitRadius = targetOrbitRadius;
-            orbitLerpActive = false;
-        }
-    }
-
-    // Animate border hue and update shader uniforms
-    borderHue = (borderHue + 0.5) % 360;
-    // Border lines: keep as is
-    borderLinesMaterial.color.setHSL(borderHue / 360, 1, 0.5);
-    // Border wall faces: animated shader
-    borderWallShaderMaterial.uniforms.borderHue.value = borderHue / 360;
-    borderWallShaderMaterial.uniforms.cameraPos.value.copy(camera.position);
-    // Match fog distance for faces and border lines
-    borderWallShaderMaterial.uniforms.fadeNear.value = FOG_NEAR;
-    borderWallShaderMaterial.uniforms.fadeFar.value = FOG_FAR;
-    borderWallShaderMaterial.uniforms.time.value = now;
-
-    // Acceleration and deceleration for all movement axes
-    let forwardTarget = 0;
-    if (wHeld) forwardTarget += 1;
-    if (sHeld) forwardTarget -= 1;
-    if (forwardTarget !== 0) {
-        velocity += (forwardTarget * MAX_SPEED - velocity) * ACCEL * deltaTime;
-    } else {
-        velocity += (0 - velocity) * DECEL * deltaTime;
-    }
-
-    let strafeTarget = 0;
-    if (dHeld) strafeTarget += 1;
-    if (aHeld) strafeTarget -= 1;
-    if (strafeTarget !== 0) {
-        strafeVelocity += (strafeTarget * MAX_SPEED - strafeVelocity) * ACCEL * deltaTime;
-    } else {
-        strafeVelocity += (0 - strafeVelocity) * DECEL * deltaTime;
-    }
-
-    // Remove vertical movement
-
-    // --- Player Movement and Eating ---
-    if (
-        escMenu.style.display === 'none' &&
-        (Math.abs(velocity) > 0.001 || Math.abs(strafeVelocity) > 0.001)
-    ) {
-        let moveDir = new THREE.Vector3();
-        let strafeDir = new THREE.Vector3();
-        let upDir = new THREE.Vector3(0, 1, 0);
-        if (cameraMode === 'normal') {
-            camera.getWorldDirection(moveDir);
-            examineForward.copy(moveDir);
-            // Strafe direction: right vector
-            strafeDir.crossVectors(moveDir, upDir).normalize();
-        } else {
-            moveDir.copy(examineForward);
-            strafeDir.crossVectors(moveDir, upDir).normalize();
-        }
-        // Compose movement vector
-        let movement = new THREE.Vector3();
-        movement.add(moveDir.clone().multiplyScalar(velocity * deltaTime));
-        movement.add(strafeDir.clone().multiplyScalar(strafeVelocity * deltaTime));
-        mainSphere.position.add(movement);
-        const radius = mainSphere.geometry.parameters.radius;
-        const half = SPAWN_AREA_SIZE / 2 - radius;
-        mainSphere.position.x = Math.max(-half, Math.min(half, mainSphere.position.x));
-        mainSphere.position.y = Math.max(-half, Math.min(half, mainSphere.position.y));
-        mainSphere.position.z = Math.max(-half, Math.min(half, mainSphere.position.z));
-
-        // Only emit move if position changed significantly
-        animate.lastEmitPos = animate.lastEmitPos || new THREE.Vector3();
-        const emitThreshold = 0.01;
-        if (mainSphere.position.distanceTo(animate.lastEmitPos) > emitThreshold) {
-            socket.emit('move', {
-                x: mainSphere.position.x,
-                y: mainSphere.position.y,
-                z: mainSphere.position.z,
-                radius: mainSphere.geometry.parameters.radius
-            });
-            animate.lastEmitPos.copy(mainSphere.position);
-        }
-    }
-
-    // Player vs. Pellets
-    let R = mainSphere.geometry.parameters.radius;
-    const toRemoveIndexes = [];
-    let newRadius = R;
-    let anyAbsorbed = false;
-    const maxAbsorbDist = R + 1.5; // Max small sphere radius is ~0.9
-
-    for (let i = 0; i < pellets.length; i++) {
-        const pelletData = pellets[i];
-        if (!pelletData.active) continue;
-
-        const r = pelletData.radius;
-        const d = mainSphere.position.distanceTo(pelletData.position);
-
-        if (d < R + r) {
-            toRemoveIndexes.push(i);
-            newRadius = Math.sqrt(newRadius * newRadius + r * r);
-            anyAbsorbed = true;
-        }
-    }
-
-    if (anyAbsorbed) {
-        // Adjust camera orbitRadius to maintain same % distance, but animate smoothly
-        const prevRadius = R;
-        const prevOrbitRatio = orbitRadius / prevRadius;
-        // If a lerp is already active, accumulate any remaining distance
-        if (orbitLerpActive) {
-            // Compute how much of the previous lerp was left
-            let t = Math.min(orbitLerpTime / orbitLerpDuration, 1);
-            t = t * t * (3 - 2 * t); // smoothstep
-            // The actual radius at this moment is:
-            const currentLerpRadius = prevOrbitRadius + (targetOrbitRadius - prevOrbitRadius) * t;
-            // The remaining distance that was not lerped yet:
-            const remainingDistance = targetOrbitRadius - currentLerpRadius;
-            // Set prevOrbitRadius to the current camera radius
-            prevOrbitRadius = currentLerpRadius;
-            // The new target should be the new proportional target, plus the remaining distance
-            targetOrbitRadius = prevOrbitRatio * newRadius + remainingDistance;
-        } else {
-            prevOrbitRadius = orbitRadius;
-            targetOrbitRadius = prevOrbitRatio * newRadius;
-        }
-        orbitLerpTime = 0;
-        orbitLerpActive = true;
-        const newGeometry = new THREE.SphereGeometry(newRadius, 32, 32);
-        mainSphere.geometry.dispose();
-        mainSphere.geometry = newGeometry;
-    }
-
-    // Respawn eaten pellets
-    let matrixNeedsUpdate = false;
-    let colorNeedsUpdate = false;
-
-    // Add pellets eaten by bots to the respawn queue
-    for (let i = 0; i < pellets.length; i++) {
-        if (!pellets[i].active) {
-            toRemoveIndexes.push(i);
-        }
-    }
-    const uniqueFoodToRemove = [...new Set(toRemoveIndexes)];
-
-    for (const index of uniqueFoodToRemove) {
-        const pelletData = pellets[index];
-        
-        if (!pelletData) continue;
-
-        // Hide it by scaling to zero. We'll move it later if a valid spot is found.
-        pelletInstances.getMatrixAt(index, tempMatrix);
-        tempMatrix.decompose(tempPosition, new THREE.Quaternion(), new THREE.Vector3());
-        tempMatrix.compose(tempPosition, new THREE.Quaternion(), new THREE.Vector3(0, 0, 0));
-        pelletInstances.setMatrixAt(index, tempMatrix);
-        matrixNeedsUpdate = true;
-
-        // Find a valid random position and new color/size to respawn, using 5x more likely in Nebulosa
-        let valid = false;
-        let attempts = 0;
-        let pos = new THREE.Vector3();
-        let newSphereRadius = 0;
-
-        while (!valid && attempts < 100) {
-            newSphereRadius = 0.5 + Math.random() * 0.4;
-            const half = SPAWN_AREA_SIZE / 2 - newSphereRadius;
-            let tryInsideNebulosa = false;
-            // 5/6 chance to try inside a Nebulosa, 1/6 normal
-            if (nebulosa.length > 0 && Math.random() < 5/6) {
-                const nebulosaCandidates = nebulosa.filter(p => p.active);
-                if (nebulosaCandidates.length > 0) {
-                    const selectedNebulosa = nebulosaCandidates[Math.floor(Math.random() * nebulosaCandidates.length)];
-                    // Random point inside the Nebulosa
-                    const u = Math.random();
-                    const v = Math.random();
-                    const w = Math.random();
-                    const theta = 2 * Math.PI * u;
-                    const phi = Math.acos(2 * v - 1);
-                    const r = Math.cbrt(w) * (selectedNebulosa.radius - newSphereRadius - 0.2);
-                    pos.set(
-                        selectedNebulosa.position.x + r * Math.sin(phi) * Math.cos(theta),
-                        selectedNebulosa.position.y + r * Math.sin(phi) * Math.sin(theta),
-                        selectedNebulosa.position.z + r * Math.cos(phi)
-                    );
-                    tryInsideNebulosa = true;
-                }
-            }
-            if (!tryInsideNebulosa) {
-                pos.set(
-                    (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-                    (Math.random() - 0.5) * SPAWN_AREA_SIZE,
-                    (Math.random() - 0.5) * SPAWN_AREA_SIZE
-                );
-                pos.x = Math.max(-half, Math.min(half, pos.x));
-                pos.y = Math.max(-half, Math.min(half, pos.y));
-                pos.z = Math.max(-half, Math.min(half, pos.z));
-            }
-
-            valid = pos.distanceTo(mainSphere.position) > mainSphere.geometry.parameters.radius + newSphereRadius + 0.1;
-
-            if (valid) {
-                // Check against other pellets
-                for (let i = 0; i < pellets.length; i++) {
-                    if (i === index || !pellets[i].active) continue;
-                    const otherR = pellets[i].radius;
-                    if (pos.distanceTo(pellets[i].position) < newSphereRadius + otherR + 0.1) {
-                        valid = false;
-                        break;
-                    }
-                }
-            }
-            if (valid) {
-                // Check against bots
-                for (let i = 0; i < bots.length; i++) {
-                    if (!bots[i].active) continue;
-                    const botR = bots[i].radius;
-                    if (pos.distanceTo(bots[i].position) < newSphereRadius + botR + 0.1) {
-                        valid = false;
-                        break;
-                    }
-                }
-            }
-            attempts++;
-        }
-
-        if (valid) {
-            const newColor = PELLET_COLORS[Math.floor(Math.random() * PELLET_COLORS.length)];
-            tempColor.set(newColor);
-
-            // Update data array
-            pelletData.position.copy(pos);
-            pelletData.radius = newSphereRadius;
-            pelletData.color.copy(tempColor);
-            pelletData.active = true;
-
-            // Update instance
-            const scale = new THREE.Vector3(newSphereRadius, newSphereRadius, newSphereRadius);
-            tempMatrix.compose(pos, new THREE.Quaternion(), scale);
-            pelletInstances.setMatrixAt(index, tempMatrix);
-            pelletInstances.setColorAt(index, tempColor);
-            matrixNeedsUpdate = true;
-            colorNeedsUpdate = true;
-        }
-    }
-
-    if (matrixNeedsUpdate) {
-        pelletInstances.instanceMatrix.needsUpdate = true;
-    }
-    if (colorNeedsUpdate) {
-        pelletInstances.instanceColor.needsUpdate = true;
-    }
-
-
-    const { x, y, z } = mainSphere.position;
-    const currentRadius = mainSphere.geometry.parameters.radius;
-    const mass = Math.floor(currentRadius ** 2);
-    coordsDiv.textContent = `x: ${x.toFixed(2)}, y: ${y.toFixed(2)}, z: ${z.toFixed(2)}\nmass: ${mass}`;
-
-
-    // Update fog based on player size
-    updateFogForPlayerSize(currentRadius);
-
-    // FPS calculation
-    animate._frames = (animate._frames || 0) + 1;
-    animate._lastFpsTime = animate._lastFpsTime || performance.now();
-    const nowFps = performance.now();
-    if (nowFps - animate._lastFpsTime > 500) {
-        const fps = Math.round(1000 * animate._frames / (nowFps - animate._lastFpsTime));
-        fpsDiv.textContent = `FPS: ${fps}`;
-        animate._frames = 0;
-        animate._lastFpsTime = nowFps;
-    }
-    updateCamera();
-    renderer.render(scene, camera);
 }
 
 animate();
