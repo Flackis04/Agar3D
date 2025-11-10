@@ -1,0 +1,8 @@
+add spectator toggle
+
+Three biblioteket har en massa klasser som sig har massa metoder till sig.
+
+Purple = variable
+White = property
+
+docs säger exakta biten och vad den gör!
