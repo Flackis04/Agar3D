@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { cameraPosition } from 'three/tsl';
 
 function main() {
   const canvas = document.querySelector('#c');
@@ -7,20 +8,35 @@ function main() {
   const fov = 75;
   const aspect = 2;
   const near = 0.1;
-  const far = 25;
+  const far = 50;
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
   camera.position.z = 20;
 
   const scene = new THREE.Scene();
 
-  // Lighting
-  
-  const flashlight = new THREE.SpotLight(0xffffff, 5, 30, Math.PI/3, 8, 2);
-  flashlight.position.copy(camera.position);
-  scene.add(flashlight);
-  scene.add(flashlight.target); // required for proper direction
+  const light = new THREE.AmbientLight(0xffffff, 3);
+  scene.add(light);
 
-  // Objects
+  const sphereGeometry = new THREE.SphereGeometry(1, 32, 16);
+  const material = new THREE.MeshStandardMaterial({ color: 0x0077ff });
+  const sphere = new THREE.Mesh(sphereGeometry, material);
+
+  const offset = new THREE.Vector3(0, 0, -5);
+  offset.applyQuaternion(camera.quaternion);
+  sphere.position.copy(camera.position).add(offset);
+
+  scene.add(sphere);
+
+  function addPellet() {
+    const geometry = new THREE.SphereGeometry(0.25, 24, 24);
+    const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const pellet = new THREE.Mesh(geometry, material);
+    const [x, y, z] = Array(3).fill().map(() => THREE.MathUtils.randFloatSpread(100));
+    pellet.position.set(x, y, z);
+    scene.add(pellet);
+  }
+
+  Array(200).fill().forEach(addPellet);
 
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   function makeInstance(geometry, color, x) {
@@ -41,10 +57,9 @@ function main() {
   window.addEventListener('keydown', (e) => (keys[e.key.toLowerCase()] = true));
   window.addEventListener('keyup', (e) => (keys[e.key.toLowerCase()] = false));
 
-  // --- Pointer Lock Setup ---
-  let yaw = 0;   // left-right rotation
-  let pitch = 0; // up-down rotation
-  const sensitivity = 0.002; // adjust mouse sensitivity
+  let yaw = 0;
+  let pitch = 0;
+  const sensitivity = 0.002;
 
   canvas.addEventListener('click', () => {
     canvas.requestPointerLock();
@@ -61,7 +76,7 @@ function main() {
   function onMouseMove(e) {
     yaw -= e.movementX * sensitivity;
     pitch -= e.movementY * sensitivity;
-    pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch)); // clamp look up/down
+    pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
   }
 
   function resizeRendererToDisplaySize(renderer) {
@@ -92,22 +107,12 @@ function main() {
       cube.rotation.y = rot;
     });
 
-    // In render loop, make it follow camera
-    flashlight.position.copy(camera.position);
-    camera.getWorldDirection(flashlight.target.position);
-    flashlight.target.position.addVectors(flashlight.position, flashlight.target.position);
-
-
-
-    // Update camera rotation
-    camera.rotation.order = 'YXZ'; // yaw (Y), pitch (X)
+    camera.rotation.order = 'YXZ';
     camera.rotation.y = yaw;
     camera.rotation.x = pitch;
 
-    // Move camera relative to its facing direction
     const moveSpeed = 0.1;
     camera.getWorldDirection(cameraDirection);
-
     if (keys['w']) camera.position.addScaledVector(cameraDirection, moveSpeed);
 
     renderer.render(scene, camera);
