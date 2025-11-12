@@ -1,11 +1,39 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="/style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #info { position: absolute; top: 10px; width: 100%; text-align: center; color: white; }
+  </style>
 </head>
 <body>
+  <script type="x-shader/x-vertex" id="vertexshader">
+    attribute float size;
+    attribute vec3 customColor;
+    varying vec3 vColor;
+    void main() {
+      vColor = customColor;
+      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = size * (300.0 / -mvPosition.z);
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  </script>
+
+  <script type="x-shader/x-fragment" id="fragmentshader">
+    uniform vec3 color;
+    uniform sampler2D pointTexture;
+    uniform float alphaTest;
+    varying vec3 vColor;
+    void main() {
+      gl_FragColor = vec4(color * vColor, 1.0);
+      gl_FragColor = gl_FragColor * texture2D(pointTexture, gl_PointCoord);
+      if (gl_FragColor.a < alphaTest) discard;
+    }
+  </script>
   <canvas id="c"></canvas>
+  <script type="module" src="/src/border.js"></script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

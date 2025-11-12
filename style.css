@@ -1,12 +1,8 @@
-html,
 body {
-  height: 100%;
   margin: 0;
-  background: #000;
+  overflow: hidden;
+  background: black;
 }
-
-canvas#c {
+canvas {
   display: block;
-  width: 100vw;
-  height: 100vh;
 }

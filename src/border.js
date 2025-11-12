@@ -1,0 +1,94 @@
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js';
+
+let renderer, scene, camera, particles;
+const PARTICLE_SIZE = 20;
+let raycaster, pointer, INTERSECTED;
+
+init();
+
+function init() {
+scene = new THREE.Scene();
+
+camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000);
+camera.position.z = 250;
+
+let boxGeometry = new THREE.BoxGeometry(200, 200, 200, 16, 16, 16);
+boxGeometry.deleteAttribute('normal');
+boxGeometry.deleteAttribute('uv');
+
+const positionAttribute = boxGeometry.getAttribute('position');
+const colors = [];
+const sizes = [];
+const color = new THREE.Color();
+
+for (let i = 0, l = positionAttribute.count; i < l; i++) {
+    color.setHSL(0.01 + 0.1 * (i / l), 1.0, 0.5);
+    color.toArray(colors, i * 3);
+    sizes[i] = PARTICLE_SIZE * 0.5;
+}
+
+const geometry = new THREE.BufferGeometry();
+geometry.setAttribute('position', positionAttribute);
+geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(colors, 3));
+geometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+
+const material = new THREE.ShaderMaterial({
+    uniforms: {
+    color: { value: new THREE.Color(0xffffff) },
+    pointTexture: { value: new THREE.TextureLoader().load('https://threejs.org/examples/textures/sprites/disc.png') },
+    alphaTest: { value: 0.9 }
+    },
+    vertexShader: document.getElementById('vertexshader').textContent,
+    fragmentShader: document.getElementById('fragmentshader').textContent
+});
+
+particles = new THREE.Points(geometry, material);
+scene.add(particles);
+
+renderer = new THREE.WebGLRenderer();
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+raycaster = new THREE.Raycaster();
+pointer = new THREE.Vector2();
+
+window.addEventListener('resize', onWindowResize);
+document.addEventListener('pointermove', onPointerMove);
+
+animate();
+}
+
+function onPointerMove(event) {
+pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+}
+
+function onWindowResize() {
+camera.aspect = window.innerWidth / window.innerHeight;
+camera.updateProjectionMatrix();
+renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function animate() {
+requestAnimationFrame(animate);
+
+raycaster.setFromCamera(pointer, camera);
+const intersects = raycaster.intersectObject(particles);
+
+const attributes = particles.geometry.attributes;
+if (intersects.length > 0) {
+    if (INTERSECTED !== intersects[0].index) {
+    if (INTERSECTED !== undefined) attributes.size.array[INTERSECTED] = PARTICLE_SIZE;
+    INTERSECTED = intersects[0].index;
+    attributes.size.array[INTERSECTED] = PARTICLE_SIZE * 1.25;
+    attributes.size.needsUpdate = true;
+    }
+} else if (INTERSECTED !== undefined) {
+    attributes.size.array[INTERSECTED] = PARTICLE_SIZE;
+    attributes.size.needsUpdate = true;
+    INTERSECTED = undefined;
+}
+
+renderer.render(scene, camera);
+}
