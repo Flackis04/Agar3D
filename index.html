@@ -3,12 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Three.js Particles</title>
   <style>
-    body { margin: 0; overflow: hidden; background: black; }
-    #info { position: absolute; top: 10px; width: 100%; text-align: center; color: white; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: black;
+    }
+    #info {
+      position: absolute;
+      top: 10px;
+      width: 100%;
+      text-align: center;
+      color: white;
+      font-family: sans-serif;
+    }
   </style>
 </head>
 <body>
+  <canvas id="c"></canvas>
+
+  <!-- Vertex Shader -->
   <script type="x-shader/x-vertex" id="vertexshader">
     attribute float size;
     attribute vec3 customColor;
@@ -21,6 +36,7 @@
     }
   </script>
 
+  <!-- Fragment Shader -->
   <script type="x-shader/x-fragment" id="fragmentshader">
     uniform vec3 color;
     uniform sampler2D pointTexture;
@@ -28,12 +44,35 @@
     varying vec3 vColor;
     void main() {
       gl_FragColor = vec4(color * vColor, 1.0);
-      gl_FragColor = gl_FragColor * texture2D(pointTexture, gl_PointCoord);
+      gl_FragColor *= texture2D(pointTexture, gl_PointCoord);
       if (gl_FragColor.a < alphaTest) discard;
     }
   </script>
-  <canvas id="c"></canvas>
-  <script type="module" src="/src/border.js"></script>
+
+  <!-- Import Map for Three.js modules -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <!-- Stats Panel -->
+  <script type="module">
+    import Stats from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/libs/stats.module.js';
+    const stats = new Stats();
+    stats.showPanel(0); // 0 = fps
+    document.body.appendChild(stats.dom);
+    stats.dom.style.position = 'absolute';
+    stats.dom.style.bottom = '0px';
+    stats.dom.style.right = '0px';
+    stats.dom.style.pointerEvents = 'none';
+    window.stats = stats; // optional global reference
+  </script>
+
+  <!-- Main script -->
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
