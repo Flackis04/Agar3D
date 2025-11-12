@@ -90,7 +90,7 @@ export function setupControls(canvas, camera, player, pointer) {
   }
 
   function clampToBoxBounds(position, player) {
-    const BOX_SIZE = 200;
+    const BOX_SIZE = 500;
     const BOX_HALF = BOX_SIZE / 2;
     
     const playerRadius = player.geometry.parameters.radius * Math.max(

@@ -28,9 +28,11 @@
     attribute float size;
     attribute vec3 customColor;
     varying vec3 vColor;
+    varying float vFogDepth;
     void main() {
       vColor = customColor;
       vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+      vFogDepth = -mvPosition.z;
       gl_PointSize = size * (300.0 / -mvPosition.z);
       gl_Position = projectionMatrix * mvPosition;
     }
@@ -41,10 +43,17 @@
     uniform vec3 color;
     uniform sampler2D pointTexture;
     uniform float alphaTest;
+    uniform vec3 fogColor;
+    uniform float fogDensity;
     varying vec3 vColor;
+    varying float vFogDepth;
     void main() {
       gl_FragColor = vec4(color * vColor, 1.0);
       gl_FragColor *= texture2D(pointTexture, gl_PointCoord);
+      
+      float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+      
       if (gl_FragColor.a < alphaTest) discard;
     }
   </script>

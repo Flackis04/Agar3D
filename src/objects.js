@@ -16,7 +16,7 @@ export function createPlayer(scene, camera){
 
   const [x, y, z] = Array(3)
     .fill()
-    .map(() => THREE.MathUtils.randFloatSpread(200));
+    .map(() => THREE.MathUtils.randFloatSpread(500));
 
   player.position.set(x, y, z);
   camera.position.set(x, y, z + 5)
@@ -28,7 +28,7 @@ export function createPlayer(scene, camera){
 export function createBox2(onReady) {
   const PARTICLE_SIZE = 2;
 
-  let boxGeometry = new THREE.BoxGeometry(200, 200, 200, 64, 64, 64);
+  let boxGeometry = new THREE.BoxGeometry(500, 500, 500, 128, 128, 128);
   boxGeometry.deleteAttribute('normal');
   boxGeometry.deleteAttribute('uv');
   boxGeometry = BufferGeometryUtils.mergeVertices(boxGeometry);
@@ -55,7 +55,9 @@ export function createBox2(onReady) {
       uniforms: {
         color: { value: new THREE.Color(0xffffff) },
         pointTexture: { value: texture },
-        alphaTest: { value: 0.9 }
+        alphaTest: { value: 0.9 },
+        fogColor: { value: new THREE.Color(0x080020) },
+        fogDensity: { value: 0.025 }
       },
       vertexShader: document.getElementById('vertexshader').textContent,
       fragmentShader: document.getElementById('fragmentshader').textContent,
@@ -69,22 +71,36 @@ export function createBox2(onReady) {
     onReady(particles, PARTICLE_SIZE);
   });
 }
+// objects.js
+export function createPelletsInstanced(scene, count, colors) {
+  const geometry = new THREE.SphereGeometry(0.3, 8, 8);
+  const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+  const mesh = new THREE.InstancedMesh(geometry, material, count);
 
-export function addPellet(scene, color) {
-  const pelletSize = Math.random() / 2
-  const geometry = new THREE.SphereGeometry(pelletSize, 6, 6);
-  const material = new THREE.MeshStandardMaterial({ 
-    color: color,
-    emissive: color,
-    emissiveIntensity: 0.2,
-    metalness: 0.05,
-  });
-  const pellet = new THREE.Mesh(geometry, material);
+  const dummy = new THREE.Object3D();
+  const halfSize = 250; // half of 500x500x500 cube
 
-  const [x, y, z] = Array(3)
-    .fill()
-    .map(() => THREE.MathUtils.randFloatSpread(200));
+  for (let i = 0; i < count; i++) {
+    const color = new THREE.Color(colors[i % colors.length]);
+    dummy.position.set(
+      (Math.random() - 0.5) * 500, // X: -250 to +250
+      (Math.random() - 0.5) * 500, // Y: -250 to +250
+      (Math.random() - 0.5) * 500  // Z: -250 to +250
+    );
+    dummy.rotation.set(
+      Math.random() * Math.PI,
+      Math.random() * Math.PI,
+      Math.random() * Math.PI
+    );
+    dummy.scale.setScalar(1);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    mesh.setColorAt(i, color);
+  }
 
-  pellet.position.set(x, y, z);
-  scene.add(pellet);
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+
+  scene.add(mesh);
+  return mesh;
 }

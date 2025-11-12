@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { createScene } from './scene.js';
 import { setupControls } from './controls.js';
-import { createBox2, addPellet, createPlayer } from './objects.js';
+import { createBox2, createPelletsInstanced, createPlayer } from './objects.js';
+import { updateDistanceFadeInstanced } from './utils.js';
+import Stats from 'three/addons/libs/stats.module.js';
 
 const canvas = document.querySelector('#c');
 const renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
@@ -11,39 +13,51 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 
 const { scene, camera } = createScene();
+
+const stats = new Stats();
+document.body.appendChild(stats.dom);
+
 const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
-const player = createPlayer(scene, camera)
+
+const player = createPlayer(scene, camera);
 const { updateCamera } = setupControls(canvas, camera, player, pointer);
 
 let PARTICLE_SIZE, particles;
 
-// Create particles **after texture loads**
+// ✅ Load border particles first
 createBox2((loadedParticles, particleSize) => {
   particles = loadedParticles;
   PARTICLE_SIZE = particleSize;
   scene.add(particles);
-  animate(); // Start animation only now
+
+  // ✅ Then spawn pellets and start animation
+  const pelletColors = [
+    0xFF3333, 0x33FF33, 0x3333FF, 0xFFFF33,
+    0xFF33FF, 0x33FFFF, 0xFFA500, 0xFF66B2,
+    0x9966FF, 0x66FF66, 0x66FFFF, 0xFF9966, 0xFFFFFF
+  ];
+  const PELLET_COUNT = 200000;
+  const pelletData = createPelletsInstanced(scene, PELLET_COUNT, pelletColors);
+
+  animate(pelletData);
 });
 
-const pelletColors = [0xFF3333,0x33FF33,0x3333FF,0xFFFF33,0xFF33FF,0x33FFFF,0xFFA500,0xFF66B2,0x9966FF,0x66FF66,0x66FFFF,0xFF9966,0xFFFFFF];
-Array(20000).fill().forEach(() => addPellet(scene, pelletColors[Math.floor(Math.random() * pelletColors.length)]));
+const FADE_START_DISTANCE = 15;
+const FADE_END_DISTANCE = 5;
 
-function animate() {
-  requestAnimationFrame(animate);
+function animate(pelletData) {
+  requestAnimationFrame(() => animate(pelletData));
 
   if (!particles) return;
 
   raycaster.setFromCamera(pointer, camera);
-  // You can keep raycasting if you want hover detection without scaling,
-  // or remove these two lines entirely if not needed
-  // const intersects = raycaster.intersectObject(particles);
-
   updateCamera();
+
+  // optionally fade pellets if utils.js has this function
+  // updateDistanceFadeInstanced(pelletData, player.position, FADE_START_DISTANCE, FADE_END_DISTANCE);
+
   stats.begin();
-
   renderer.render(scene, camera);
-
   stats.end();
 }
-
