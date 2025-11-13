@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { createScene } from './scene.js';
 import { setupControls } from './controls.js';
 import { createBox2, createPelletsInstanced, createPlayer } from './objects.js';
-import { updateDistanceFadeInstanced } from './utils.js';
+import { updateDistanceFadeInstanced, checkEatCondition } from './utils.js';
 import Stats from 'three/addons/libs/stats.module.js';
 
 const canvas = document.querySelector('#c');
@@ -24,6 +24,7 @@ const player = createPlayer(scene, camera);
 const { updateCamera } = setupControls(canvas, camera, player, pointer);
 
 let PARTICLE_SIZE, particles;
+let pelletData = null;
 
 createBox2((loadedParticles, particleSize) => {
   particles = loadedParticles;
@@ -36,22 +37,29 @@ createBox2((loadedParticles, particleSize) => {
     0x9966FF, 0x66FF66, 0x66FFFF, 0xFF9966, 0xFFFFFF
   ];
   const PELLET_COUNT = 200000;
-  const {mesh, pelletTransforms} = createPelletsInstanced(scene, PELLET_COUNT, pelletColors);
+  pelletData = createPelletsInstanced(scene, PELLET_COUNT, pelletColors);
 
-  animate(mesh);
-  console.log(mesh)
+  animate();
 });
 
 const FADE_START_DISTANCE = 15;
 const FADE_END_DISTANCE = 5;
 
-function animate(mesh) {
-  requestAnimationFrame(() => animate(mesh));
+function animate() {
+  requestAnimationFrame(animate);
 
   if (!particles) return;
 
   raycaster.setFromCamera(pointer, camera);
   updateCamera();
+
+  if (pelletData) {
+    const eatenCount = checkEatCondition(player, pelletData);
+    if (eatenCount > 0) {
+      const growthFactor = 1 + eatenCount * 0.01;
+      player.scale.multiplyScalar(growthFactor);
+    }
+  }
 
   // optionally fade pellets if utils.js has this function
   // updateDistanceFadeInstanced(mesh, player.position, FADE_START_DISTANCE, FADE_END_DISTANCE);

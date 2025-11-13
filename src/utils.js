@@ -93,6 +93,37 @@ export function updateBorderFade(borderParticles, playerPosition, fadeStartDista
 // compare it to the sum of their radii. 
 
 // If the distance between the centers is smaller than the sum, they overlap, otherwise they don’t.
-export function checkEatCondition(pelletTransforms){
-  pass
+export function checkEatCondition(player, pelletData) {
+  if (!player || !pelletData) return 0;
+
+  const { mesh, positions, active, radius, dummy } = pelletData;
+  if (!mesh || !positions || !active) return 0;
+
+  const playerScale = Math.max(player.scale.x, player.scale.y, player.scale.z);
+  const playerRadius = player.geometry.parameters.radius * playerScale;
+  const playerPosition = player.position;
+
+  let eatenCount = 0;
+
+  for (let i = 0; i < positions.length; i++) {
+    if (!active[i]) continue;
+
+    const distance = playerPosition.distanceTo(positions[i]);
+    if (distance <= playerRadius + radius) {
+      active[i] = false;
+      eatenCount += 1;
+
+      dummy.position.copy(positions[i]);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(0.0001);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+  }
+
+  if (eatenCount > 0) {
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  return eatenCount;
 }

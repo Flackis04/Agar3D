@@ -77,34 +77,42 @@ export function createPelletsInstanced(scene, count, colors) {
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
   const mesh = new THREE.InstancedMesh(geometry, material, count);
 
-  const pellet = new THREE.Object3D();
-  const halfSize = 250; // half of 500x500x500 cube
+  const dummy = new THREE.Object3D();
+  const positions = [];
+  const active = new Array(count).fill(true);
 
-  const pelletTransforms = []
-  
   for (let i = 0; i < count; i++) {
     const color = new THREE.Color(colors[i % colors.length]);
-    pellet.position.set(
-      (Math.random() - 0.5) * 500, // X: -250 to +250
-      (Math.random() - 0.5) * 500, // Y: -250 to +250
-      (Math.random() - 0.5) * 500  // Z: -250 to +250
+    const position = new THREE.Vector3(
+      (Math.random() - 0.5) * 500,
+      (Math.random() - 0.5) * 500,
+      (Math.random() - 0.5) * 500
     );
-    pellet.rotation.set(
+
+    dummy.position.copy(position);
+    dummy.rotation.set(
       Math.random() * Math.PI,
       Math.random() * Math.PI,
       Math.random() * Math.PI
     );
-    pellet.scale.setScalar(1);
-    pellet.updateMatrix();
-    mesh.setMatrixAt(i, pellet.matrix);
+    dummy.scale.setScalar(1);
+    dummy.updateMatrix();
+
+    mesh.setMatrixAt(i, dummy.matrix);
     mesh.setColorAt(i, color);
-    pelletTransforms.push([pellet.position, pellet.rotation, pellet.scale])
-    console.log(pelletTransforms)
+    positions.push(position.clone());
   }
 
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 
   scene.add(mesh);
-  return {mesh, pelletTransforms};
+
+  return {
+    mesh,
+    positions,
+    active,
+    radius: geometry.parameters.radius,
+    dummy
+  };
 }
