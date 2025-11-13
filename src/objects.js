@@ -77,30 +77,34 @@ export function createPelletsInstanced(scene, count, colors) {
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
   const mesh = new THREE.InstancedMesh(geometry, material, count);
 
-  const dummy = new THREE.Object3D();
+  const pellet = new THREE.Object3D();
   const halfSize = 250; // half of 500x500x500 cube
 
+  const pelletTransforms = []
+  
   for (let i = 0; i < count; i++) {
     const color = new THREE.Color(colors[i % colors.length]);
-    dummy.position.set(
+    pellet.position.set(
       (Math.random() - 0.5) * 500, // X: -250 to +250
       (Math.random() - 0.5) * 500, // Y: -250 to +250
       (Math.random() - 0.5) * 500  // Z: -250 to +250
     );
-    dummy.rotation.set(
+    pellet.rotation.set(
       Math.random() * Math.PI,
       Math.random() * Math.PI,
       Math.random() * Math.PI
     );
-    dummy.scale.setScalar(1);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
+    pellet.scale.setScalar(1);
+    pellet.updateMatrix();
+    mesh.setMatrixAt(i, pellet.matrix);
     mesh.setColorAt(i, color);
+    pelletTransforms.push([pellet.position, pellet.rotation, pellet.scale])
+    console.log(pelletTransforms)
   }
 
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 
   scene.add(mesh);
-  return mesh;
+  return {mesh, pelletTransforms};
 }

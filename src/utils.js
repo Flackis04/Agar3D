@@ -87,3 +87,12 @@ export function updateBorderFade(borderParticles, playerPosition, fadeStartDista
     borderParticles.material.uniforms.opacity.value = opacity;
   }
 }
+
+// To test if two circles or spheres overlap you just have to calculate the 
+// distance between the center points of those circles / spheres and 
+// compare it to the sum of their radii. 
+
+// If the distance between the centers is smaller than the sum, they overlap, otherwise they don’t.
+export function checkEatCondition(pelletTransforms){
+  pass
+}

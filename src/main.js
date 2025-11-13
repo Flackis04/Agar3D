@@ -25,29 +25,28 @@ const { updateCamera } = setupControls(canvas, camera, player, pointer);
 
 let PARTICLE_SIZE, particles;
 
-// ✅ Load border particles first
 createBox2((loadedParticles, particleSize) => {
   particles = loadedParticles;
   PARTICLE_SIZE = particleSize;
   scene.add(particles);
 
-  // ✅ Then spawn pellets and start animation
   const pelletColors = [
     0xFF3333, 0x33FF33, 0x3333FF, 0xFFFF33,
     0xFF33FF, 0x33FFFF, 0xFFA500, 0xFF66B2,
     0x9966FF, 0x66FF66, 0x66FFFF, 0xFF9966, 0xFFFFFF
   ];
   const PELLET_COUNT = 200000;
-  const pelletData = createPelletsInstanced(scene, PELLET_COUNT, pelletColors);
+  const {mesh, pelletTransforms} = createPelletsInstanced(scene, PELLET_COUNT, pelletColors);
 
-  animate(pelletData);
+  animate(mesh);
+  console.log(mesh)
 });
 
 const FADE_START_DISTANCE = 15;
 const FADE_END_DISTANCE = 5;
 
-function animate(pelletData) {
-  requestAnimationFrame(() => animate(pelletData));
+function animate(mesh) {
+  requestAnimationFrame(() => animate(mesh));
 
   if (!particles) return;
 
@@ -55,7 +54,7 @@ function animate(pelletData) {
   updateCamera();
 
   // optionally fade pellets if utils.js has this function
-  // updateDistanceFadeInstanced(pelletData, player.position, FADE_START_DISTANCE, FADE_END_DISTANCE);
+  // updateDistanceFadeInstanced(mesh, player.position, FADE_START_DISTANCE, FADE_END_DISTANCE);
 
   stats.begin();
   renderer.render(scene, camera);
