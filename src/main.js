@@ -42,9 +42,6 @@ createBox2((loadedParticles, particleSize) => {
   animate();
 });
 
-const FADE_START_DISTANCE = 15;
-const FADE_END_DISTANCE = 5;
-
 function animate() {
   requestAnimationFrame(animate);
 
@@ -54,10 +51,21 @@ function animate() {
   updateCamera();
 
   if (pelletData) {
-    const eatenCount = checkEatCondition(player, pelletData);
+    const { eatenCount, eatenSizes } = checkEatCondition(player, pelletData);
     if (eatenCount > 0) {
-      const growthFactor = 1 + eatenCount * 0.01;
-      player.scale.multiplyScalar(growthFactor);
+      // Realistic growth: add exact pellet volumes to player volume
+      const playerRadius = player.geometry.parameters.radius * player.scale.x;
+      const playerVolume = (4/3) * Math.PI * Math.pow(playerRadius, 3);
+      const pelletBaseRadius = pelletData.radius;
+      let pelletsVolume = 0;
+      for (let i = 0; i < eatenSizes.length; i++) {
+        const pelletRadius = pelletBaseRadius * eatenSizes[i];
+        pelletsVolume += (4/3) * Math.PI * Math.pow(pelletRadius, 3);
+      }
+      const newVolume = playerVolume + pelletsVolume;
+      const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
+      const scale = newRadius / player.geometry.parameters.radius;
+      player.scale.setScalar(scale);
     }
   }
 

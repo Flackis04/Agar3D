@@ -73,12 +73,13 @@ export function createBox2(onReady) {
 }
 // objects.js
 export function createPelletsInstanced(scene, count, colors) {
-  const geometry = new THREE.SphereGeometry(0.3, 8, 8);
+  const geometry = new THREE.SphereGeometry(1, 8, 8); // base radius of 1, will be scaled
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
   const mesh = new THREE.InstancedMesh(geometry, material, count);
 
   const dummy = new THREE.Object3D();
   const positions = [];
+  const sizes = []; // store the size of each pellet
   const active = new Array(count).fill(true);
 
   for (let i = 0; i < count; i++) {
@@ -89,13 +90,17 @@ export function createPelletsInstanced(scene, count, colors) {
       (Math.random() - 0.5) * 500
     );
 
+    // Random size between 0.2 and 0.5
+    const size = Math.random() * 0.3 + 0.2;
+    sizes.push(size);
+
     dummy.position.copy(position);
     dummy.rotation.set(
       Math.random() * Math.PI,
       Math.random() * Math.PI,
       Math.random() * Math.PI
     );
-    dummy.scale.setScalar(1);
+    dummy.scale.setScalar(size);
     dummy.updateMatrix();
 
     mesh.setMatrixAt(i, dummy.matrix);
@@ -111,6 +116,7 @@ export function createPelletsInstanced(scene, count, colors) {
   return {
     mesh,
     positions,
+    sizes,
     active,
     radius: geometry.parameters.radius,
     dummy
