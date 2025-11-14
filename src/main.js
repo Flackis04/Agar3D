@@ -23,7 +23,7 @@ document.body.appendChild(stats.dom);
 
 const pointer = new THREE.Vector2();
 
-const player = createPlayer(scene, camera);
+const {player, cameraDistanceFromPlayer} = createPlayer(scene, camera);
 const { updateCamera } = setupControls(canvas, camera, player, pointer);
 
 let PARTICLE_SIZE, particles;
@@ -56,7 +56,7 @@ function animate() {
   updateCamera();
 
   if (pelletData) {
-    const { eatenCount, eatenSizes } = checkEatCondition(player, pelletData);
+    const { eatenCount, eatenSizes } = checkEatCondition(player, pelletData, cameraDistanceFromPlayer);
     if (eatenCount > 0) {
       // Realistic growth: add exact pellet volumes to player volume
       const playerRadius = player.geometry.parameters.radius * player.scale.x;

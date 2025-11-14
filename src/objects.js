@@ -21,10 +21,11 @@ export function createPlayer(scene, camera){
     .map(() => THREE.MathUtils.randFloatSpread(500));
 
   player.position.set(x, y, z);
-  camera.position.set(x, y, z + 5)
+  const cameraDistanceFromPlayer = 5;
+  camera.position.set(x, y, z + cameraDistanceFromPlayer);
   scene.add(player);
 
-  return player
+  return { player, cameraDistanceFromPlayer };
 }
 
 export function createBox2(onReady) {
@@ -32,7 +33,7 @@ export function createBox2(onReady) {
 
   // Performance: Reduced box subdivisions from 128x128x128 to 64x64x64
   // This reduces vertex count from ~2M to ~500K while maintaining visual quality
-  let boxGeometry = new THREE.BoxGeometry(500, 500, 500, 64, 64, 64);
+  let boxGeometry = new THREE.BoxGeometry(500, 500, 500, 96, 96, 96);
   boxGeometry.deleteAttribute('normal');
   boxGeometry.deleteAttribute('uv');
   boxGeometry = BufferGeometryUtils.mergeVertices(boxGeometry);
@@ -77,7 +78,7 @@ export function createBox2(onReady) {
 }
 // objects.js
 export function createPelletsInstanced(scene, count, colors) {
-  const geometry = new THREE.SphereGeometry(0.3, 8, 8);
+  const geometry = new THREE.SphereGeometry(1, 8, 8); // base radius 1, will be scaled per pellet
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
   const mesh = new THREE.InstancedMesh(geometry, material, count);
 
@@ -110,6 +111,30 @@ export function createPelletsInstanced(scene, count, colors) {
     mesh.setMatrixAt(i, dummy.matrix);
     mesh.setColorAt(i, color);
     positions.push(position.clone());
+  }
+
+  // Utility: Check and eat pellets if player overlaps
+  mesh.checkAndEatPellets = function(player) {
+    let eaten = 0;
+    for (let i = 0; i < count; i++) {
+      if (!active[i]) continue;
+      const pelletPos = positions[i];
+      const playerPos = player.position;
+      const playerRadius = player.geometry.parameters.radius * player.scale.x;
+      const dist = playerPos.distanceTo(pelletPos);
+      // Only eat pellet if its center is inside the player sphere
+      if (dist < playerRadius) {
+        active[i] = false;
+        // Hide pellet by scaling to zero
+        dummy.position.copy(pelletPos);
+        dummy.scale.setScalar(0);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        mesh.instanceMatrix.needsUpdate = true;
+        eaten++;
+      }
+    }
+    return eaten;
   }
 
   mesh.instanceMatrix.needsUpdate = true;

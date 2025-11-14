@@ -110,6 +110,8 @@ export function setupControls(canvas, camera, player, pointer) {
   }
 
   function updatePlayerCamera() {
+    if (!player || !player.position) return;
+
     const offset = new THREE.Vector3(
       followDistance * Math.sin(playerRotation.yaw) * Math.cos(playerRotation.pitch),
       followDistance * Math.sin(playerRotation.pitch),
