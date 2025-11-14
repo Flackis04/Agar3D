@@ -1,5 +1,13 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js';
+import * as THREE from 'three';
 
+/**
+ * Sets up camera and player controls, including optional developer (free) camera mode.
+ * @param {HTMLCanvasElement} canvas - The canvas element to attach controls to.
+ * @param {THREE.PerspectiveCamera} camera - The main camera to control.
+ * @param {THREE.Mesh} player - The player mesh to move and rotate.
+ * @param {THREE.Vector2} pointer - Normalized pointer coordinates for mouse tracking.
+ * @returns {Object} - Contains `updateCamera` function to be called each frame.
+ */
 export function setupControls(canvas, camera, player, pointer) {
   const keys = {};
   const playerRotation = { yaw: 0, pitch: 0 };
@@ -12,9 +20,14 @@ export function setupControls(canvas, camera, player, pointer) {
   let devMode = false;
   const devCameraPos = new THREE.Vector3();
 
+  /**
+   * Keyboard input handling
+   */
   window.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
     keys[key] = true;
+
+    // Toggle developer mode with 'X'
     if (key === 'x') toggleDeveloperMode();
   });
 
@@ -22,6 +35,9 @@ export function setupControls(canvas, camera, player, pointer) {
     keys[e.key.toLowerCase()] = false;
   });
 
+  /**
+   * Pointer lock for first-person-style controls
+   */
   canvas.addEventListener('click', async () => {
     try {
       await canvas.requestPointerLock();
@@ -30,11 +46,17 @@ export function setupControls(canvas, camera, player, pointer) {
     }
   });
 
+  /**
+   * Update normalized pointer coordinates on mouse move
+   */
   document.addEventListener('pointermove', (event) => {
     pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
     pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
   });
 
+  /**
+   * Mouse movement handler for player and dev camera rotation
+   */
   function onMouseMove(e) {
     if (devMode) {
       devRotation.yaw -= e.movementX * sensitivity;
@@ -47,6 +69,9 @@ export function setupControls(canvas, camera, player, pointer) {
     }
   }
 
+  /**
+   * Activate or deactivate mousemove events when pointer lock changes
+   */
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement === canvas) {
       document.addEventListener('mousemove', onMouseMove);
@@ -55,9 +80,13 @@ export function setupControls(canvas, camera, player, pointer) {
     }
   });
 
+  /**
+   * Toggle developer free camera mode
+   */
   function toggleDeveloperMode() {
     devMode = !devMode;
     console.log(`Developer mode ${devMode ? 'enabled' : 'disabled'}`);
+    
     if (devMode) {
       devCameraPos.copy(camera.position);
 
@@ -68,6 +97,9 @@ export function setupControls(canvas, camera, player, pointer) {
     }
   }
 
+  /**
+   * Updates camera position depending on current mode
+   */
   function updateCamera() {
     if (devMode) {
       updateDevCamera();
@@ -76,6 +108,9 @@ export function setupControls(canvas, camera, player, pointer) {
     }
   }
 
+  /**
+   * Developer mode camera movement
+   */
   function updateDevCamera() {
     const direction = new THREE.Vector3(
       Math.sin(devRotation.yaw) * Math.cos(devRotation.pitch),
@@ -89,27 +124,38 @@ export function setupControls(canvas, camera, player, pointer) {
     camera.lookAt(devCameraPos.clone().add(direction));
   }
 
+  /**
+   * Clamp player position inside a bounding box
+   * @param {THREE.Vector3} position - Position to clamp
+   * @param {THREE.Mesh} player - Player mesh for radius calculation
+   * @returns {THREE.Vector3} - Clamped position
+   */
   function clampToBoxBounds(position, player) {
     const BOX_SIZE = 500;
     const BOX_HALF = BOX_SIZE / 2;
-    
+
     const playerRadius = player.geometry.parameters.radius * Math.max(
       player.scale.x,
       player.scale.y,
       player.scale.z
     );
-    
+
     const minBound = -BOX_HALF + playerRadius;
     const maxBound = BOX_HALF - playerRadius;
-    
+
     position.x = Math.max(minBound, Math.min(maxBound, position.x));
     position.y = Math.max(minBound, Math.min(maxBound, position.y));
     position.z = Math.max(minBound, Math.min(maxBound, position.z));
-    
+
     return position;
   }
 
+  /**
+   * Update camera to follow player with optional movement
+   */
   function updatePlayerCamera() {
+    if (!player || !player.position) return;
+
     const offset = new THREE.Vector3(
       followDistance * Math.sin(playerRotation.yaw) * Math.cos(playerRotation.pitch),
       followDistance * Math.sin(playerRotation.pitch),
@@ -117,7 +163,7 @@ export function setupControls(canvas, camera, player, pointer) {
     );
 
     const forward = offset.clone().normalize().negate();
-    
+
     if (keys['w']) {
       const nextPosition = player.position.clone().addScaledVector(forward, playerSpeed);
       clampToBoxBounds(nextPosition, player);
