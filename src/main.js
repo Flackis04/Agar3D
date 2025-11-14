@@ -6,7 +6,11 @@ import { updateDistanceFadeInstanced, checkEatCondition } from './utils.js';
 import Stats from 'three/addons/libs/stats.module.js';
 
 const canvas = document.querySelector('#c');
-const renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
+const renderer = new THREE.WebGLRenderer({ 
+  antialias: true, 
+  canvas,
+  powerPreference: 'high-performance' // Performance: Request high-performance GPU
+});
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;

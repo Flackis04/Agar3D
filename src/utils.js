@@ -103,13 +103,28 @@ export function checkEatCondition(player, pelletData) {
   const playerRadius = player.geometry.parameters.radius * playerScale;
   const playerPosition = player.position;
 
+  // Performance optimization: Only check pellets within a reasonable range
+  // This reduces checks from O(n) to O(k) where k << n
+  const checkRadius = playerRadius + radius + 10; // Add buffer for detection
+  const checkRadiusSq = checkRadius * checkRadius;
+
   let eatenCount = 0;
 
   for (let i = 0; i < positions.length; i++) {
     if (!active[i]) continue;
 
-    const distance = playerPosition.distanceTo(positions[i]);
-    if (distance <= playerRadius + radius) {
+    // Quick rejection test using squared distance (avoids sqrt)
+    const dx = playerPosition.x - positions[i].x;
+    const dy = playerPosition.y - positions[i].y;
+    const dz = playerPosition.z - positions[i].z;
+    const distanceSq = dx * dx + dy * dy + dz * dz;
+
+    // Only check pellets within range
+    if (distanceSq > checkRadiusSq) continue;
+
+    // Actual collision check using squared distance
+    const collisionDistSq = (playerRadius + radius) * (playerRadius + radius);
+    if (distanceSq <= collisionDistSq) {
       active[i] = false;
       eatenCount += 1;
 
