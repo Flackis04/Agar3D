@@ -83,6 +83,7 @@ createBox2((loadedParticles, particleSize) => {
  */
 
 let isSplit = false
+let splitProjectile = null; // Store the projectile when isSplit is true
 
 /**
  * Main animation loop
@@ -90,18 +91,21 @@ let isSplit = false
 function animate() {
   requestAnimationFrame(animate);
 
-  if (isSplit == true){
+  if (isSplit == true && splitProjectile){
     const group = new THREE.Group();
 
     // add both spheres to the group
     group.add(player);
-    group.add(p);
+    group.add(splitProjectile);
 
     // add the group to the scene
     scene.add(group);
 
     player.rotation.y += 0.02
-    console.log()
+    console.log('Group created with player and projectile:', group)
+    
+    isSplit = false; // Prevent re-merging every frame
+    splitProjectile = null;
   }
 
 
@@ -149,6 +153,7 @@ function animate() {
       // Space shot: return to player unless detached, 2s passed, and player is NOT moving forward
       if (t > 2) {
         isSplit = true
+        splitProjectile = p; // Store the projectile reference for merging
         // Set peakDist only once when t first exceeds 2
         if (!p.userData.peakDist) {
           p.userData.peakDist = dist;
