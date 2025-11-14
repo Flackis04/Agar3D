@@ -47,7 +47,7 @@ const {player, cameraDistanceFromPlayer, playerDefaultOpacity} = createPlayer(sc
 let projectiles = [];
 let lastShotTime = null;
 let lastShotOpacity = null;
-const { updateCamera } = setupControls(canvas, camera, player, pointer, scene, projectiles, () => {
+const { updateCamera, forwardBtnIsPressed } = setupControls(canvas, camera, player, pointer, scene, projectiles, () => {
   lastShotTime = performance.now();
   lastShotOpacity = player.material.opacity;
   player.material.opacity = 0.2;
@@ -132,8 +132,7 @@ function animate() {
     if (p.userData.isSpaceShot) {
       // Space shot: return to player unless detached, 2s passed, and player is NOT moving forward
       if (t > 2) {
-        const movingForward = window.keys && (window.keys['w'] || window.keys['W']);
-        if (dist > surfaceDist && !movingForward) {
+        if (dist > surfaceDist && !forwardBtnIsPressed) {
           // Return towards player only if detached and player not moving forward
           const step = toPlayer.normalize().multiplyScalar(Math.min(dist - surfaceDist, 0.2));
           p.position.add(step);

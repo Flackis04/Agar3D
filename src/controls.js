@@ -19,6 +19,7 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
   const playerSpeed = 0.12;
   const devSpeed = 1;
   const followDistance = 8;
+  let forwardBtnIsPressed = false
 
   let devMode = false;
   const devCameraPos = new THREE.Vector3();
@@ -33,10 +34,14 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
 
     // Toggle developer mode with 'X'
     if (key === 'x') toggleDeveloperMode();
+    if (key === 'w') forwardBtnIsPressed = true;
   });
 
   window.addEventListener('keyup', (e) => {
-    keys[e.key.toLowerCase()] = false;
+    const key = e.key.toLowerCase();
+    keys[key] = false;
+
+    if (key === 'w') forwardBtnIsPressed = false;
   });
 
   /**
@@ -245,5 +250,5 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     }
   }, true);
 
-  return { updateCamera };
+  return { updateCamera, forwardBtnIsPressed};
 }
