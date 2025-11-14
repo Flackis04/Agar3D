@@ -250,5 +250,5 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     }
   }, true);
 
-  return { updateCamera, forwardBtnIsPressed};
+  return { updateCamera, getForwardButtonPressed: () => forwardBtnIsPressed };
 }

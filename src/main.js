@@ -47,7 +47,7 @@ const {player, cameraDistanceFromPlayer, playerDefaultOpacity} = createPlayer(sc
 let projectiles = [];
 let lastShotTime = null;
 let lastShotOpacity = null;
-const { updateCamera, forwardBtnIsPressed } = setupControls(canvas, camera, player, pointer, scene, projectiles, () => {
+const { updateCamera, getForwardButtonPressed } = setupControls(canvas, camera, player, pointer, scene, projectiles, () => {
   lastShotTime = performance.now();
   lastShotOpacity = player.material.opacity;
   player.material.opacity = 0.2;
@@ -81,14 +81,30 @@ createBox2((loadedParticles, particleSize) => {
 /**
  * Distance thresholds for pellet fading (optional)
  */
-const FADE_START_DISTANCE = 15;
-const FADE_END_DISTANCE = 5;
+
+let isSplit = false
 
 /**
  * Main animation loop
  */
 function animate() {
   requestAnimationFrame(animate);
+
+  if (isSplit == true){
+    const group = new THREE.Group();
+
+    // add both spheres to the group
+    group.add(player);
+    group.add(p);
+
+    // add the group to the scene
+    scene.add(group);
+
+    player.rotation.y += 0.02
+    console.log()
+  }
+
+
   if (!particles) return;
   updateCamera();
   if (scene.userData.animateViruses) {
@@ -132,13 +148,27 @@ function animate() {
     if (p.userData.isSpaceShot) {
       // Space shot: return to player unless detached, 2s passed, and player is NOT moving forward
       if (t > 2) {
-        if (dist > surfaceDist && !forwardBtnIsPressed) {
+        isSplit = true
+        // Set peakDist only once when t first exceeds 2
+        if (!p.userData.peakDist) {
+          p.userData.peakDist = dist;
+        }
+        const peakDist = p.userData.peakDist;
+        const forwardPressed = getForwardButtonPressed();
+        if (dist > surfaceDist && !forwardPressed) {
           // Return towards player only if detached and player not moving forward
           const step = toPlayer.normalize().multiplyScalar(Math.min(dist - surfaceDist, 0.2));
           p.position.add(step);
-        } else if (dist <= surfaceDist) {
-          // Stop at surface-to-surface
-          p.position.copy(player.position.clone().add(toPlayer.normalize().multiplyScalar(surfaceDist)));
+        } 
+        else if (dist > surfaceDist && forwardPressed){
+          p.position.copy(player.position.clone().add(toPlayer.normalize().multiplyScalar(surfaceDist+peakDist)));
+        }
+        else if (dist <= surfaceDist) {
+          // Stop at surface-to-surface, positioned in front of player in current direction
+          const forward = new THREE.Vector3();
+          camera.getWorldDirection(forward);
+          forward.normalize();
+          p.position.copy(player.position.clone().add(forward.multiplyScalar(surfaceDist)));
         }
         // If player is moving forward, projectile stays in place
       } else {
