@@ -30,7 +30,9 @@ export function createPlayer(scene, camera){
 export function createBox2(onReady) {
   const PARTICLE_SIZE = 2;
 
-  let boxGeometry = new THREE.BoxGeometry(500, 500, 500, 128, 128, 128);
+  // Performance: Reduced box subdivisions from 128x128x128 to 64x64x64
+  // This reduces vertex count from ~2M to ~500K while maintaining visual quality
+  let boxGeometry = new THREE.BoxGeometry(500, 500, 500, 64, 64, 64);
   boxGeometry.deleteAttribute('normal');
   boxGeometry.deleteAttribute('uv');
   boxGeometry = BufferGeometryUtils.mergeVertices(boxGeometry);

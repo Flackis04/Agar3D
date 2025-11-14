@@ -22,7 +22,6 @@ const stats = new Stats();
 document.body.appendChild(stats.dom);
 
 const pointer = new THREE.Vector2();
-const raycaster = new THREE.Raycaster();
 
 const player = createPlayer(scene, camera);
 const { updateCamera } = setupControls(canvas, camera, player, pointer);
@@ -49,12 +48,18 @@ createBox2((loadedParticles, particleSize) => {
 const FADE_START_DISTANCE = 15;
 const FADE_END_DISTANCE = 5;
 
+// Performance: Handle window resize efficiently
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
 function animate() {
   requestAnimationFrame(animate);
 
   if (!particles) return;
 
-  raycaster.setFromCamera(pointer, camera);
   updateCamera();
 
   if (pelletData) {
