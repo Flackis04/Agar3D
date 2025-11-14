@@ -1,10 +1,16 @@
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
-export function createPlayer(scene, camera){
-  const playerStartingMass = 1
-  // Performance: Reduced geometry complexity from 24x24 (1152 faces) to 16x16 (512 faces)
-  // This provides sufficient visual quality while improving rendering performance
+/**
+ * Creates the player mesh and positions the camera at a fixed distance behind it.
+ * @param {THREE.Scene} scene - The scene to add the player to.
+ * @param {THREE.PerspectiveCamera} camera - The camera to position relative to the player.
+ * @returns {Object} - Contains `player` mesh and `cameraDistanceFromPlayer`.
+ */
+export function createPlayer(scene, camera) {
+  const playerStartingMass = 1;
+
+  // Lowered geometry resolution for performance (16x16 segments)
   const geometry = new THREE.SphereGeometry(playerStartingMass, 16, 16);
   const material = new THREE.MeshStandardMaterial({ 
     color: 0x00AAFF,
@@ -16,23 +22,29 @@ export function createPlayer(scene, camera){
   });
   const player = new THREE.Mesh(geometry, material);
 
+  // Random initial position inside the box
   const [x, y, z] = Array(3)
     .fill()
     .map(() => THREE.MathUtils.randFloatSpread(500));
 
   player.position.set(x, y, z);
+
   const cameraDistanceFromPlayer = 5;
   camera.position.set(x, y, z + cameraDistanceFromPlayer);
+
   scene.add(player);
 
   return { player, cameraDistanceFromPlayer };
 }
 
+/**
+ * Creates a box of particles for visual effect.
+ * @param {Function} onReady - Callback executed when particles are loaded: receives (particles, PARTICLE_SIZE).
+ */
 export function createBox2(onReady) {
   const PARTICLE_SIZE = 2;
 
-  // Performance: Reduced box subdivisions from 128x128x128 to 64x64x64
-  // This reduces vertex count from ~2M to ~500K while maintaining visual quality
+  // Reduced subdivisions for performance (64x64x64)
   let boxGeometry = new THREE.BoxGeometry(500, 500, 500, 96, 96, 96);
   boxGeometry.deleteAttribute('normal');
   boxGeometry.deleteAttribute('uv');
@@ -42,7 +54,7 @@ export function createBox2(onReady) {
   const colors = [];
   const sizes = [];
 
-  const borderColor = new THREE.Color(0x66AAFF); // modern cyan-blue
+  const borderColor = new THREE.Color(0x66AAFF);
 
   for (let i = 0; i < positionAttribute.count; i++) {
     borderColor.toArray(colors, i * 3);
@@ -76,15 +88,22 @@ export function createBox2(onReady) {
     onReady(particles, PARTICLE_SIZE);
   });
 }
-// objects.js
+
+/**
+ * Creates instanced pellets for the player to interact with.
+ * @param {THREE.Scene} scene - The scene to add the pellets to.
+ * @param {number} count - Number of pellets to generate.
+ * @param {number[]} colors - Array of hex colors for pellets.
+ * @returns {Object} - Contains instanced mesh, positions, sizes, activity status, radius, and dummy object.
+ */
 export function createPelletsInstanced(scene, count, colors) {
-  const geometry = new THREE.SphereGeometry(1, 8, 8); // base radius 1, will be scaled per pellet
+  const geometry = new THREE.SphereGeometry(1, 8, 8); // base radius
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
   const mesh = new THREE.InstancedMesh(geometry, material, count);
 
   const dummy = new THREE.Object3D();
   const positions = [];
-  const sizes = []; // store the size of each pellet
+  const sizes = [];
   const active = new Array(count).fill(true);
 
   for (let i = 0; i < count; i++) {
@@ -95,16 +114,11 @@ export function createPelletsInstanced(scene, count, colors) {
       (Math.random() - 0.5) * 500
     );
 
-    // Random size between 0.2 and 0.5
-    const size = Math.random() * 0.3 + 0.2;
+    const size = Math.random() * 0.3 + 0.2; // random size
     sizes.push(size);
 
     dummy.position.copy(position);
-    dummy.rotation.set(
-      Math.random() * Math.PI,
-      Math.random() * Math.PI,
-      Math.random() * Math.PI
-    );
+    dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
     dummy.scale.setScalar(size);
     dummy.updateMatrix();
 
@@ -113,24 +127,30 @@ export function createPelletsInstanced(scene, count, colors) {
     positions.push(position.clone());
   }
 
-  // Utility: Check and eat pellets if player overlaps
+  /**
+   * Checks if player overlaps any pellet and "eats" it.
+   * @param {THREE.Mesh} player - The player mesh.
+   * @returns {number} - Number of pellets eaten in this check.
+   */
   mesh.checkAndEatPellets = function(player) {
     let eaten = 0;
     for (let i = 0; i < count; i++) {
       if (!active[i]) continue;
+
       const pelletPos = positions[i];
       const playerPos = player.position;
       const playerRadius = player.geometry.parameters.radius * player.scale.x;
       const dist = playerPos.distanceTo(pelletPos);
-      // Only eat pellet if its center is inside the player sphere
+
       if (dist < playerRadius) {
         active[i] = false;
-        // Hide pellet by scaling to zero
+
         dummy.position.copy(pelletPos);
         dummy.scale.setScalar(0);
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
         mesh.instanceMatrix.needsUpdate = true;
+
         eaten++;
       }
     }
@@ -140,17 +160,9 @@ export function createPelletsInstanced(scene, count, colors) {
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 
-  // Performance: Enable frustum culling for better rendering performance
-  mesh.frustumCulled = true;
+  mesh.frustumCulled = true; // improve rendering performance
 
   scene.add(mesh);
 
-  return {
-    mesh,
-    positions,
-    sizes,
-    active,
-    radius: geometry.parameters.radius,
-    dummy
-  };
+  return { mesh, positions, sizes, active, radius: geometry.parameters.radius, dummy };
 }
