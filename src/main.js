@@ -6,7 +6,11 @@ import { updateDistanceFadeInstanced, checkEatCondition } from './utils.js';
 import Stats from 'three/addons/libs/stats.module.js';
 
 const canvas = document.querySelector('#c');
-const renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
+const renderer = new THREE.WebGLRenderer({ 
+  antialias: true, 
+  canvas,
+  powerPreference: 'high-performance' // Performance: Request high-performance GPU
+});
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -18,7 +22,6 @@ const stats = new Stats();
 document.body.appendChild(stats.dom);
 
 const pointer = new THREE.Vector2();
-const raycaster = new THREE.Raycaster();
 
 const player = createPlayer(scene, camera);
 const { updateCamera } = setupControls(canvas, camera, player, pointer);
@@ -42,12 +45,14 @@ createBox2((loadedParticles, particleSize) => {
   animate();
 });
 
+const FADE_START_DISTANCE = 15;
+const FADE_END_DISTANCE = 5;
+
 function animate() {
   requestAnimationFrame(animate);
 
   if (!particles) return;
 
-  raycaster.setFromCamera(pointer, camera);
   updateCamera();
 
   if (pelletData) {

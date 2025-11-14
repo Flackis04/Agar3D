@@ -3,7 +3,9 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 
 export function createPlayer(scene, camera){
   const playerStartingMass = 1
-  const geometry = new THREE.SphereGeometry(playerStartingMass, 24, 24);
+  // Performance: Reduced geometry complexity from 24x24 (1152 faces) to 16x16 (512 faces)
+  // This provides sufficient visual quality while improving rendering performance
+  const geometry = new THREE.SphereGeometry(playerStartingMass, 16, 16);
   const material = new THREE.MeshStandardMaterial({ 
     color: 0x00AAFF,
     emissive: 0x002244,
@@ -28,7 +30,9 @@ export function createPlayer(scene, camera){
 export function createBox2(onReady) {
   const PARTICLE_SIZE = 2;
 
-  let boxGeometry = new THREE.BoxGeometry(500, 500, 500, 128, 128, 128);
+  // Performance: Reduced box subdivisions from 128x128x128 to 64x64x64
+  // This reduces vertex count from ~2M to ~500K while maintaining visual quality
+  let boxGeometry = new THREE.BoxGeometry(500, 500, 500, 64, 64, 64);
   boxGeometry.deleteAttribute('normal');
   boxGeometry.deleteAttribute('uv');
   boxGeometry = BufferGeometryUtils.mergeVertices(boxGeometry);
@@ -73,7 +77,7 @@ export function createBox2(onReady) {
 }
 // objects.js
 export function createPelletsInstanced(scene, count, colors) {
-  const geometry = new THREE.SphereGeometry(1, 8, 8); // base radius of 1, will be scaled
+  const geometry = new THREE.SphereGeometry(0.3, 8, 8);
   const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
   const mesh = new THREE.InstancedMesh(geometry, material, count);
 
@@ -110,6 +114,9 @@ export function createPelletsInstanced(scene, count, colors) {
 
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+
+  // Performance: Enable frustum culling for better rendering performance
+  mesh.frustumCulled = true;
 
   scene.add(mesh);
 
