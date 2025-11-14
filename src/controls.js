@@ -116,6 +116,7 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
    * Developer mode camera movement
    */
   function updateDevCamera() {
+    if (!camera) return;
     const direction = new THREE.Vector3(
       Math.sin(devRotation.yaw) * Math.cos(devRotation.pitch),
       -Math.sin(devRotation.pitch),
@@ -181,7 +182,7 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
   /**
    * Try to shoot a projectile
    */
-  function tryShoot() {
+  function tryShoot(isSpaceShot = false) {
     const now = performance.now();
     if (now - lastShot < 200) return; // 0.05s cooldown
     lastShot = now;
@@ -189,7 +190,17 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     // Calculate projectile radius from 1/8 player volume
     const playerRadius = player.geometry.parameters.radius * player.scale.x;
     const playerVolume = (4/3) * Math.PI * Math.pow(playerRadius, 3);
-    const projVolume = playerVolume / 8;
+    let projVolume = playerVolume / 8;
+    
+    // If space shot, use half the volume and halve player volume
+    if (isSpaceShot) {
+      projVolume = playerVolume / 2;
+      const newPlayerVolume = playerVolume / 2;
+      const newPlayerRadius = Math.cbrt((3 * newPlayerVolume) / (4 * Math.PI));
+      const scale = newPlayerRadius / player.geometry.parameters.radius;
+      player.scale.setScalar(scale);
+    }
+    
     const projRadius = Math.cbrt((3 * projVolume) / (4 * Math.PI));
 
     // Get player color
@@ -209,6 +220,7 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     // Set projectile velocity
     projectile.userData.velocity = forward.multiplyScalar(playerSpeed * 5.5);
     projectile.userData.startTime = performance.now();
+    projectile.userData.isSpaceShot = isSpaceShot;
 
     // Add projectile to scene and projectiles array
     scene.add(projectile);
@@ -220,10 +232,18 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
    * Handle shooting in a loop if 'E' is held down
    */
   function handleShootLoop() {
-    if (keys['e']) tryShoot();
+    if (keys['e']) tryShoot(false);
     requestAnimationFrame(handleShootLoop);
   }
   handleShootLoop();
+
+  // Handle space key for shooting
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      tryShoot(true);
+    }
+  }, true);
 
   return { updateCamera };
 }

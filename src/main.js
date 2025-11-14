@@ -123,15 +123,43 @@ function animate() {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i];
     const t = (now - p.userData.startTime) / 1000;
-    if (t > 2) {
-      scene.remove(p);
-      projectiles.splice(i, 1);
-      continue;
+    const playerRadius = player.geometry.parameters.radius * player.scale.x;
+    const projRadius = p.geometry.parameters.radius * p.scale.x;
+    const surfaceDist = playerRadius + projRadius;
+    const toPlayer = player.position.clone().sub(p.position);
+    const dist = toPlayer.length();
+
+    if (p.userData.isSpaceShot) {
+      // Space shot: return to player unless detached, 2s passed, and player is NOT moving forward
+      if (t > 2) {
+        const movingForward = window.keys && (window.keys['w'] || window.keys['W']);
+        if (dist > surfaceDist && !movingForward) {
+          // Return towards player only if detached and player not moving forward
+          const step = toPlayer.normalize().multiplyScalar(Math.min(dist - surfaceDist, 0.2));
+          p.position.add(step);
+        } else if (dist <= surfaceDist) {
+          // Stop at surface-to-surface
+          p.position.copy(player.position.clone().add(toPlayer.normalize().multiplyScalar(surfaceDist)));
+        }
+        // If player is moving forward, projectile stays in place
+      } else {
+        // Exponential decay: v = v0 * exp(-2t)
+        const decay = Math.exp(-2 * t);
+        const velocity = p.userData.velocity.clone().multiplyScalar(decay);
+        p.position.add(velocity);
+      }
+    } else {
+      // Non-space shots disappear after 2 seconds
+      if (t > 2) {
+        scene.remove(p);
+        projectiles.splice(i, 1);
+        continue;
+      }
+      // Exponential decay: v = v0 * exp(-2t)
+      const decay = Math.exp(-2 * t);
+      const velocity = p.userData.velocity.clone().multiplyScalar(decay);
+      p.position.add(velocity);
     }
-    // Exponential decay: v = v0 * exp(-2t)
-    const decay = Math.exp(-2 * t);
-    const velocity = p.userData.velocity.clone().multiplyScalar(decay);
-    p.position.add(velocity);
   }
 
   if (lastShotTime) {
