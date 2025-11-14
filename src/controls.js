@@ -6,9 +6,12 @@ import * as THREE from 'three';
  * @param {THREE.PerspectiveCamera} camera - The main camera to control.
  * @param {THREE.Mesh} player - The player mesh to move and rotate.
  * @param {THREE.Vector2} pointer - Normalized pointer coordinates for mouse tracking.
+ * @param {THREE.Scene} scene - The scene to add projectiles to.
+ * @param {Array} projectiles - The array to store projectile references.
+ * @param {Function} onShoot - Callback function to trigger when shooting.
  * @returns {Object} - Contains `updateCamera` function to be called each frame.
  */
-export function setupControls(canvas, camera, player, pointer) {
+export function setupControls(canvas, camera, player, pointer, scene, projectiles, onShoot) {
   const keys = {};
   const playerRotation = { yaw: 0, pitch: 0 };
   const devRotation = { yaw: 0, pitch: 0 };
@@ -19,6 +22,7 @@ export function setupControls(canvas, camera, player, pointer) {
 
   let devMode = false;
   const devCameraPos = new THREE.Vector3();
+  let lastShot = 0;
 
   /**
    * Keyboard input handling
@@ -163,7 +167,6 @@ export function setupControls(canvas, camera, player, pointer) {
     );
 
     const forward = offset.clone().normalize().negate();
-
     if (keys['w']) {
       const nextPosition = player.position.clone().addScaledVector(forward, playerSpeed);
       clampToBoxBounds(nextPosition, player);
@@ -172,7 +175,55 @@ export function setupControls(canvas, camera, player, pointer) {
 
     camera.position.copy(player.position.clone().add(offset));
     camera.lookAt(player.position);
+
   }
+
+  /**
+   * Try to shoot a projectile
+   */
+  function tryShoot() {
+    const now = performance.now();
+    if (now - lastShot < 200) return; // 0.05s cooldown
+    lastShot = now;
+
+    // Calculate projectile radius from 1/8 player volume
+    const playerRadius = player.geometry.parameters.radius * player.scale.x;
+    const playerVolume = (4/3) * Math.PI * Math.pow(playerRadius, 3);
+    const projVolume = playerVolume / 8;
+    const projRadius = Math.cbrt((3 * projVolume) / (4 * Math.PI));
+
+    // Get player color
+    const color = player.material.color.clone();
+
+    // Create projectile mesh
+    const geometry = new THREE.SphereGeometry(projRadius, 16, 16);
+    const material = new THREE.MeshStandardMaterial({ color });
+    const projectile = new THREE.Mesh(geometry, material);
+    projectile.position.copy(player.position);
+
+    // Get forward direction
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.normalize();
+
+    // Set projectile velocity
+    projectile.userData.velocity = forward.multiplyScalar(playerSpeed * 5.5);
+    projectile.userData.startTime = performance.now();
+
+    // Add projectile to scene and projectiles array
+    scene.add(projectile);
+    projectiles.push(projectile);
+    if (onShoot) onShoot();
+  }
+
+  /**
+   * Handle shooting in a loop if 'E' is held down
+   */
+  function handleShootLoop() {
+    if (keys['e']) tryShoot();
+    requestAnimationFrame(handleShootLoop);
+  }
+  handleShootLoop();
 
   return { updateCamera };
 }

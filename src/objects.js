@@ -1,5 +1,9 @@
+
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+
+// Shared map size for all functions
+export const mapSize = 500;
 
 /**
  * Creates the player mesh and positions the camera at a fixed distance behind it.
@@ -9,6 +13,7 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
  */
 export function createPlayer(scene, camera) {
   const playerStartingMass = 1;
+  const playerDefaultOpacity = 0.65;
 
   // Lowered geometry resolution for performance (16x16 segments)
   const geometry = new THREE.SphereGeometry(playerStartingMass, 16, 16);
@@ -18,7 +23,7 @@ export function createPlayer(scene, camera) {
     emissiveIntensity: 0.15,
     metalness: 0.1,
     transparent: true,
-    opacity: 0.85
+    opacity: playerDefaultOpacity
   });
   const player = new THREE.Mesh(geometry, material);
 
@@ -34,7 +39,7 @@ export function createPlayer(scene, camera) {
 
   scene.add(player);
 
-  return { player, cameraDistanceFromPlayer };
+  return { player, cameraDistanceFromPlayer, playerDefaultOpacity };
 }
 
 /**
@@ -45,7 +50,7 @@ export function createBox2(onReady) {
   const PARTICLE_SIZE = 2;
 
   // Reduced subdivisions for performance (64x64x64)
-  let boxGeometry = new THREE.BoxGeometry(500, 500, 500, 96, 96, 96);
+  let boxGeometry = new THREE.BoxGeometry(mapSize, mapSize, mapSize, 96, 96, 96);
   boxGeometry.deleteAttribute('normal');
   boxGeometry.deleteAttribute('uv');
   boxGeometry = BufferGeometryUtils.mergeVertices(boxGeometry);
@@ -165,4 +170,50 @@ export function createPelletsInstanced(scene, count, colors) {
   scene.add(mesh);
 
   return { mesh, positions, sizes, active, radius: geometry.parameters.radius, dummy };
+}
+
+/**
+ * Creates virus spheres in the scene.
+ * @param {THREE.Scene} scene - The scene to add the viruses to.
+ */
+export function createViruses(scene) {
+  const VIRUS_COUNT = 250;
+  const VIRUS_SIZE = 2.5;
+  const virusColor = 0x32CD32; // lime green
+  const geometry = new THREE.DodecahedronGeometry(VIRUS_SIZE);
+  const material = new THREE.MeshStandardMaterial({ color: virusColor, opacity: 0.8, transparent: true });
+  const border = mapSize / 2 - VIRUS_SIZE; // keep inside box
+  const positions = [];
+  const viruses = [];
+  for (let i = 0; i < VIRUS_COUNT; i++) {
+    let pos;
+    let tries = 0;
+    do {
+      pos = new THREE.Vector3(
+        (Math.random() * (border * 2 - VIRUS_SIZE * 2)) - (border - VIRUS_SIZE),
+        (Math.random() * (border * 2 - VIRUS_SIZE * 2)) - (border - VIRUS_SIZE),
+        (Math.random() * (border * 2 - VIRUS_SIZE * 2)) - (border - VIRUS_SIZE)
+      );
+      tries++;
+    } while (positions.some(p => p.distanceTo(pos) < VIRUS_SIZE * 2.1) && tries < 20);
+    positions.push(pos);
+    const mesh = new THREE.Mesh(geometry, material.clone());
+    mesh.position.copy(pos);
+    mesh.userData.baseScale = 1;
+    viruses.push(mesh);
+    scene.add(mesh);
+  }
+  // Animation function for viruses
+  function animateViruses(time) {
+    for (let i = 0; i < viruses.length; i++) {
+      const mesh = viruses[i];
+      mesh.rotation.y += 0.005;
+      mesh.rotation.x += 0.002;
+      // Breathing effect
+      const scale = mesh.userData.baseScale + 0.08 * Math.sin(time * 0.001 + i);
+      mesh.scale.setScalar(scale);
+    }
+  }
+  // Attach to scene for main loop
+  scene.userData.animateViruses = animateViruses;
 }

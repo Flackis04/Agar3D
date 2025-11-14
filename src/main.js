@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createScene } from './scene.js';
 import { setupControls } from './controls.js';
-import { createBox2, createPelletsInstanced, createPlayer } from './objects.js';
+import { createBox2, createPelletsInstanced, createPlayer, createViruses } from './objects.js';
 import { updateDistanceFadeInstanced, checkEatCondition } from './utils.js';
 import Stats from 'three/addons/libs/stats.module.js';
 
@@ -27,6 +27,7 @@ renderer.toneMappingExposure = 1.1;
  * Create the main scene and camera
  */
 const { scene, camera } = createScene();
+createViruses(scene);
 
 /**
  * Performance stats overlay
@@ -42,8 +43,15 @@ const pointer = new THREE.Vector2();
 /**
  * Initialize player and camera controls
  */
-const {player, cameraDistanceFromPlayer} = createPlayer(scene, camera);
-const { updateCamera } = setupControls(canvas, camera, player, pointer);
+const {player, cameraDistanceFromPlayer, playerDefaultOpacity} = createPlayer(scene, camera);
+let projectiles = [];
+let lastShotTime = null;
+let lastShotOpacity = null;
+const { updateCamera } = setupControls(canvas, camera, player, pointer, scene, projectiles, () => {
+  lastShotTime = performance.now();
+  lastShotOpacity = player.material.opacity;
+  player.material.opacity = 0.2;
+});
 
 let PARTICLE_SIZE, particles;
 let pelletData = null;
@@ -81,11 +89,11 @@ const FADE_END_DISTANCE = 5;
  */
 function animate() {
   requestAnimationFrame(animate);
-
   if (!particles) return;
-
   updateCamera();
-
+  if (scene.userData.animateViruses) {
+    scene.userData.animateViruses(performance.now());
+  }
   if (pelletData) {
     const { eatenCount, eatenSizes } = checkEatCondition(player, pelletData, cameraDistanceFromPlayer);
 
@@ -109,6 +117,37 @@ function animate() {
       player.scale.setScalar(scale);
     }
   }
+
+  // Update projectiles
+  const now = performance.now();
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    const t = (now - p.userData.startTime) / 1000;
+    if (t > 2) {
+      scene.remove(p);
+      projectiles.splice(i, 1);
+      continue;
+    }
+    // Exponential decay: v = v0 * exp(-2t)
+    const decay = Math.exp(-2 * t);
+    const velocity = p.userData.velocity.clone().multiplyScalar(decay);
+    p.position.add(velocity);
+  }
+
+  if (lastShotTime) {
+    const now = performance.now();
+    const t = (now - lastShotTime) / 1000;
+    const duration = 1.2; // seconds
+
+    if (t >= duration) {
+      player.material.opacity = playerDefaultOpacity;
+      lastShotTime = null;
+    } else {
+      const x = t / duration;
+      player.material.opacity = playerDefaultOpacity * Math.pow(x, 5);
+    }
+  }
+
 
   /**
    * Optionally fade pellets based on distance from player
