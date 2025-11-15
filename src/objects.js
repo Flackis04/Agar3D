@@ -34,12 +34,9 @@ export function createPlayer(scene, camera) {
 
   player.position.set(x, y, z);
 
-  const cameraDistanceFromPlayer = 5;
-  camera.position.set(x, y, z + cameraDistanceFromPlayer);
-
   scene.add(player);
 
-  return { player, cameraDistanceFromPlayer, playerDefaultOpacity };
+  return { player, playerDefaultOpacity };
 }
 
 /**

@@ -126,7 +126,6 @@ export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) 
       eatenSizes.push(sizes[i]);
 
       cameraDistanceFromPlayer += 1; // optional debug log
-      console.log(cameraDistanceFromPlayer);
 
       dummy.position.copy(positions[i]);
       dummy.rotation.set(0, 0, 0);

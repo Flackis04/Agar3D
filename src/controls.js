@@ -166,10 +166,20 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
   function updatePlayerCamera() {
     if (!player || !player.position) return;
 
+    // Calculate player radius (scaled) to adjust camera distance
+    const playerRadius = player.geometry.parameters.radius * Math.max(
+      player.scale.x,
+      player.scale.y,
+      player.scale.z
+    );
+    
+    // Make camera distance proportional to player size so it appears constant on screen
+    const dynamicFollowDistance = playerRadius * 5; // Adjust multiplier for desired screen size
+    
     const offset = new THREE.Vector3(
-      followDistance * Math.sin(playerRotation.yaw) * Math.cos(playerRotation.pitch),
-      followDistance * Math.sin(playerRotation.pitch),
-      followDistance * Math.cos(playerRotation.yaw) * Math.cos(playerRotation.pitch)
+      dynamicFollowDistance * Math.sin(playerRotation.yaw) * Math.cos(playerRotation.pitch),
+      dynamicFollowDistance * Math.sin(playerRotation.pitch),
+      dynamicFollowDistance * Math.cos(playerRotation.yaw) * Math.cos(playerRotation.pitch)
     );
 
     const forward = offset.clone().normalize().negate();

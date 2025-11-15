@@ -99,24 +99,12 @@ createBox2((loadedParticles, particleSize) => {
 
 let isSplit = false;
 let splitProjectile = null;
+let tempPosition = null;
 
 /* --------------------------- Main Loop ---------------------------- */
 
 function animate() {
   requestAnimationFrame(animate);
-
-  /* ---- Handle Split Re-Merging ---- */
-  if (isSplit && splitProjectile) {
-    const group = new THREE.Group();
-    group.add(player);
-    group.add(splitProjectile);
-    scene.add(group);
-
-    player.rotation.y += 0.02;
-
-    isSplit = false;
-    splitProjectile = null;
-  }
 
   if (!particles) return;
 
@@ -196,18 +184,20 @@ function animate() {
               )
             )
           );
-        } else if (dist <= surfaceDist) {
-          const forward = new THREE.Vector3();
-          camera.getWorldDirection(forward);
-          forward.normalize();
-
-          p.position.copy(
-            player.position.clone().add(
-              forward.multiplyScalar(surfaceDist)
-            )
-          );
+        } 
+        if (dist <= surfaceDist) {
+          pass
         }
-      } else {
+      } 
+      
+      else {
+        const pv = (p.isVector3 ? p.clone() : new THREE.Vector3().copy(p.position || p));
+        const back = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
+        const camPos = pv.add(back.multiplyScalar(5));
+        camera.position.copy(camPos);
+        camera.lookAt(pv);
+
+
         const decay = Math.exp(-2 * t);
         const velocity = p.userData.velocity.clone().multiplyScalar(decay);
         p.position.add(velocity);
