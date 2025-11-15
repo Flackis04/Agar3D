@@ -178,7 +178,7 @@ export function createPelletsInstanced(scene, count, colors) {
  */
 export function createViruses(scene) {
   const VIRUS_COUNT = 250;
-  const VIRUS_SIZE = 2.5;
+  const VIRUS_SIZE = 2.25;
   const virusColor = 0x32CD32; // lime green
   const geometry = new THREE.DodecahedronGeometry(VIRUS_SIZE);
   const material = new THREE.MeshStandardMaterial({ color: virusColor, opacity: 0.8, transparent: true });
