@@ -20,9 +20,8 @@ export function createScene() {
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
 
   // Add fog for depth effect
-  // Slightly lighter than background for subtle depth cue
-  const fogColor = new THREE.Color(0x000010);
-  scene.fog = new THREE.FogExp2(fogColor, 0.04);
+  // Match the fog color to the background color
+  scene.fog = new THREE.FogExp2(bgColor, 0.04);
 
   // Lighting setup
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); // soft overall illumination

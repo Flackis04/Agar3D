@@ -30,7 +30,7 @@ export function createPlayer(scene, camera) {
   // Random initial position inside the box
   const [x, y, z] = Array(3)
     .fill()
-    .map(() => THREE.MathUtils.randFloatSpread(500));
+    .map(() => THREE.MathUtils.randFloatSpread(mapSize));
 
   player.position.set(x, y, z);
 
