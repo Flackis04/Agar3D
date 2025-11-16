@@ -9,7 +9,8 @@ import {
 } from './objects.js';
 import { 
   updateDistanceFadeInstanced, 
-  checkEatCondition 
+  checkEatCondition,
+  applyPelletMagnet
 } from './utils.js';
 import Stats from 'three/addons/libs/stats.module.js';
 
@@ -117,6 +118,9 @@ function animate() {
   /* ---------------- Pellet Eating & Growth ---------------- */
 
   if (pelletData) {
+    // Apply pellet magnet effect if active
+    applyPelletMagnet(player, pelletData, pelletData.pelletMagnetToggle);
+
     const { eatenCount, eatenSizes } = checkEatCondition(
       player,
       pelletData,
@@ -192,7 +196,7 @@ function animate() {
       
       else {
         const pv = (p.isVector3 ? p.clone() : new THREE.Vector3().copy(p.position || p));
-        const back = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
+        const back = new THREE.Vector3(0, 0, 1).applyQuaternion(p.quaternion);
         const camPos = pv.add(back.multiplyScalar(5));
         camera.position.copy(camPos);
         camera.lookAt(pv);

@@ -24,6 +24,10 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
   let devMode = false;
   const devCameraPos = new THREE.Vector3();
   let lastShot = 0;
+  
+  // Smooth camera distance tracking
+  let smoothFollowDistance = followDistance;
+  const cameraLerpSpeed = 0.08; // Lower = smoother but slower, higher = faster but more jittery
 
   /**
    * Keyboard input handling
@@ -174,12 +178,15 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     );
     
     // Make camera distance proportional to player size so it appears constant on screen
-    const dynamicFollowDistance = playerRadius * 5; // Adjust multiplier for desired screen size
+    const targetFollowDistance = playerRadius * 8; // Adjust multiplier for desired screen size
+    
+    // Smoothly interpolate (lerp) the camera distance to avoid sudden jumps
+    smoothFollowDistance += (targetFollowDistance - smoothFollowDistance) * cameraLerpSpeed;
     
     const offset = new THREE.Vector3(
-      dynamicFollowDistance * Math.sin(playerRotation.yaw) * Math.cos(playerRotation.pitch),
-      dynamicFollowDistance * Math.sin(playerRotation.pitch),
-      dynamicFollowDistance * Math.cos(playerRotation.yaw) * Math.cos(playerRotation.pitch)
+      smoothFollowDistance * Math.sin(playerRotation.yaw) * Math.cos(playerRotation.pitch),
+      smoothFollowDistance * Math.sin(playerRotation.pitch),
+      smoothFollowDistance * Math.cos(playerRotation.yaw) * Math.cos(playerRotation.pitch)
     );
 
     const forward = offset.clone().normalize().negate();

@@ -100,23 +100,49 @@ export function createBox2(onReady) {
  */
 export function createPelletsInstanced(scene, count, colors) {
   const geometry = new THREE.SphereGeometry(1, 8, 8); // base radius
-  const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
-  const mesh = new THREE.InstancedMesh(geometry, material, count);
+  const materialNormal = new THREE.MeshStandardMaterial({ color: 0xffffff, opacity: 1, transparent: false });
+  const materialPowerup = new THREE.MeshStandardMaterial({ color: 0xffffff, opacity: 0.5, transparent: true });
 
   const dummy = new THREE.Object3D();
   const positions = [];
   const sizes = [];
   const active = new Array(count).fill(true);
+  const powerUps = new Array(count);
+  const pelletToMeshIndex = new Array(count); // Maps global pellet index to mesh-specific index
+
+  // First pass: count powerups and normals
+  let powerupCount = 0;
+  let normalCount = 0;
+  for (let i = 0; i < count; i++) {
+    const color = new THREE.Color(colors[i % colors.length]);
+    const isPowerUp = (
+      color.getHex() === 0xFF3333 &&
+      Math.floor(Math.random() * 8) === 0
+    );
+    powerUps[i] = isPowerUp;
+    if (isPowerUp) powerupCount++;
+    else normalCount++;
+  }
+
+  // Create two separate instanced meshes
+  const meshNormal = new THREE.InstancedMesh(geometry, materialNormal, normalCount);
+  const meshPowerup = new THREE.InstancedMesh(geometry, materialPowerup, powerupCount);
+
+  // Second pass: populate both meshes
+  let normalIdx = 0;
+  let powerupIdx = 0;
 
   for (let i = 0; i < count; i++) {
     const color = new THREE.Color(colors[i % colors.length]);
+    const isPowerUp = powerUps[i];
+
     const position = new THREE.Vector3(
       (Math.random() - 0.5) * 500,
       (Math.random() - 0.5) * 500,
       (Math.random() - 0.5) * 500
     );
 
-    const size = Math.random() * 0.3 + 0.2; // random size
+    const size = Math.random() * 0.3 + 0.2;
     sizes.push(size);
 
     dummy.position.copy(position);
@@ -124,8 +150,17 @@ export function createPelletsInstanced(scene, count, colors) {
     dummy.scale.setScalar(size);
     dummy.updateMatrix();
 
-    mesh.setMatrixAt(i, dummy.matrix);
-    mesh.setColorAt(i, color);
+    if (isPowerUp) {
+      meshPowerup.setMatrixAt(powerupIdx, dummy.matrix);
+      meshPowerup.setColorAt(powerupIdx, color);
+      pelletToMeshIndex[i] = powerupIdx;
+      powerupIdx++;
+    } else {
+      meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+      meshNormal.setColorAt(normalIdx, color);
+      pelletToMeshIndex[i] = normalIdx;
+      normalIdx++;
+    }
     positions.push(position.clone());
   }
 
@@ -134,7 +169,7 @@ export function createPelletsInstanced(scene, count, colors) {
    * @param {THREE.Mesh} player - The player mesh.
    * @returns {number} - Number of pellets eaten in this check.
    */
-  mesh.checkAndEatPellets = function(player) {
+  const checkAndEatPellets = function(player) {
     let eaten = 0;
     for (let i = 0; i < count; i++) {
       if (!active[i]) continue;
@@ -150,23 +185,45 @@ export function createPelletsInstanced(scene, count, colors) {
         dummy.position.copy(pelletPos);
         dummy.scale.setScalar(0);
         dummy.updateMatrix();
-        mesh.setMatrixAt(i, dummy.matrix);
-        mesh.instanceMatrix.needsUpdate = true;
+        
+        const meshIndex = pelletToMeshIndex[i];
+        if (powerUps[i]) {
+          meshPowerup.setMatrixAt(meshIndex, dummy.matrix);
+          meshPowerup.instanceMatrix.needsUpdate = true;
+        } else {
+          meshNormal.setMatrixAt(meshIndex, dummy.matrix);
+          meshNormal.instanceMatrix.needsUpdate = true;
+        }
 
         eaten++;
       }
     }
     return eaten;
-  }
+  };
 
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  meshNormal.instanceMatrix.needsUpdate = true;
+  if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
+  meshPowerup.instanceMatrix.needsUpdate = true;
+  if (meshPowerup.instanceColor) meshPowerup.instanceColor.needsUpdate = true;
 
-  mesh.frustumCulled = true; // improve rendering performance
+  meshNormal.frustumCulled = true;
+  meshPowerup.frustumCulled = true;
 
-  scene.add(mesh);
+  scene.add(meshNormal);
+  scene.add(meshPowerup);
 
-  return { mesh, positions, sizes, active, radius: geometry.parameters.radius, dummy };
+  return { 
+    mesh: meshNormal, 
+    meshPowerup, 
+    positions, 
+    sizes, 
+    active, 
+    radius: geometry.parameters.radius, 
+    dummy, 
+    powerUps, 
+    pelletToMeshIndex,
+    checkAndEatPellets 
+  };
 }
 
 /**

@@ -104,7 +104,7 @@ export function updateBorderFade(borderParticles, playerPosition, fadeStartDista
 export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) {
   if (!player || !pelletData) return { eatenCount: 0, totalSize: 0, eatenSizes: [] };
 
-  const { mesh, positions, sizes, active, radius, dummy } = pelletData;
+  const { mesh, meshPowerup, positions, sizes, active, radius, dummy, powerUps, pelletToMeshIndex } = pelletData;
   if (!mesh || !positions || !active || !sizes) return { eatenCount: 0, totalSize: 0, eatenSizes: [] };
 
   const playerScale = Math.max(player.scale.x, player.scale.y, player.scale.z);
@@ -114,6 +114,7 @@ export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) 
   const eatenSizes = [];
   let eatenCount = 0;
   let totalSize = 0;
+  let newPelletMagnetToggle = pelletData.pelletMagnetToggle || false;
 
   for (let i = 0; i < positions.length; i++) {
     if (!active[i]) continue;
@@ -127,17 +128,119 @@ export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) 
 
       cameraDistanceFromPlayer += 1; // optional debug log
 
+      const isPowerUp = powerUps[i];
+      if (isPowerUp) {
+        newPelletMagnetToggle = togglePelletMagnet(player, pelletData, newPelletMagnetToggle);
+        pelletData.pelletMagnetToggle = newPelletMagnetToggle; // Store the state
+      }
       dummy.position.copy(positions[i]);
       dummy.rotation.set(0, 0, 0);
       dummy.scale.setScalar(0.0001);
       dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
+      
+      const meshIndex = pelletToMeshIndex[i];
+      if (powerUps && powerUps[i]) {
+        meshPowerup.setMatrixAt(meshIndex, dummy.matrix);
+      } else {
+        mesh.setMatrixAt(meshIndex, dummy.matrix);
+      }
     }
   }
 
   if (eatenCount > 0) {
     mesh.instanceMatrix.needsUpdate = true;
+    if (meshPowerup) meshPowerup.instanceMatrix.needsUpdate = true;
   }
 
-  return { eatenCount, totalSize, eatenSizes };
+  return { eatenCount, totalSize, eatenSizes, pelletMagnetToggle: newPelletMagnetToggle };
+}
+
+function togglePelletMagnet(player, pelletData, pelletMagnetToggle){
+  return !pelletMagnetToggle;
+}
+
+/**
+ * Attracts pellets within range towards the player when magnet is active
+ * @param {THREE.Mesh} player - The player mesh
+ * @param {Object} pelletData - The pellet data containing positions, meshes, etc.
+ * @param {boolean} pelletMagnetToggle - Whether the magnet is active
+ * @param {number} magnetRange - Distance within which pellets are attracted (default 10)
+ * @param {number} attractionSpeed - Speed at which pellets move towards player (default 0.15)
+ */
+export function applyPelletMagnet(player, pelletData, pelletMagnetToggle, magnetRange = 5, attractionSpeed = 0.15) {
+  if (!pelletMagnetToggle || !player || !pelletData) return;
+
+  const { mesh, meshPowerup, positions, sizes, active, dummy, powerUps, pelletToMeshIndex } = pelletData;
+  if (!mesh || !positions || !active) return;
+
+  const playerPosition = player.position;
+  const playerRadius = player.geometry.parameters.radius * Math.max(player.scale.x, player.scale.y, player.scale.z);
+  
+  // Pre-calculate squared distances to avoid expensive sqrt operations
+  const magnetRangeSq = magnetRange * magnetRange;
+  const playerRadiusSq = playerRadius * playerRadius;
+  
+  // Cache these for reuse
+  const px = playerPosition.x;
+  const py = playerPosition.y;
+  const pz = playerPosition.z;
+  
+  // Track affected pellets to batch matrix updates
+  const affectedNormal = [];
+  const affectedPowerup = [];
+
+  // First pass: update positions only (fast)
+  for (let i = 0; i < positions.length; i++) {
+    if (!active[i]) continue;
+
+    const pelletPos = positions[i];
+    
+    // Calculate squared distance (faster than distanceTo which uses sqrt)
+    const dx = px - pelletPos.x;
+    const dy = py - pelletPos.y;
+    const dz = pz - pelletPos.z;
+    const distanceSq = dx * dx + dy * dy + dz * dz;
+    
+    // Only attract pellets within magnetRange and outside the player
+    if (distanceSq <= magnetRangeSq && distanceSq > playerRadiusSq) {
+      // Calculate direction and move pellet (no sqrt needed for small movements)
+      const distance = Math.sqrt(distanceSq);
+      const factor = attractionSpeed / distance;
+      
+      pelletPos.x += dx * factor;
+      pelletPos.y += dy * factor;
+      pelletPos.z += dz * factor;
+
+      // Track which pellets were affected
+      const isPowerUp = powerUps && powerUps[i];
+      if (isPowerUp) {
+        affectedPowerup.push({ i, meshIndex: pelletToMeshIndex[i], size: sizes[i] });
+      } else {
+        affectedNormal.push({ i, meshIndex: pelletToMeshIndex[i], size: sizes[i] });
+      }
+    }
+  }
+
+  // Second pass: batch update matrices only for affected pellets
+  if (affectedNormal.length > 0) {
+    for (let j = 0; j < affectedNormal.length; j++) {
+      const { i, meshIndex, size } = affectedNormal[j];
+      dummy.position.copy(positions[i]);
+      dummy.scale.setScalar(size);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(meshIndex, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  if (affectedPowerup.length > 0 && meshPowerup) {
+    for (let j = 0; j < affectedPowerup.length; j++) {
+      const { i, meshIndex, size } = affectedPowerup[j];
+      dummy.position.copy(positions[i]);
+      dummy.scale.setScalar(size);
+      dummy.updateMatrix();
+      meshPowerup.setMatrixAt(meshIndex, dummy.matrix);
+    }
+    meshPowerup.instanceMatrix.needsUpdate = true;
+  }
 }
