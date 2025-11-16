@@ -56,8 +56,8 @@ function Scene() {
       <ambientLight intensity={0.7} />
       <directionalLight position={[100, 200, 100]} intensity={1} />
       
-      {/* Fog */}
-      <fog attach="fog" args={[0x050010, 0, 600]} color={new THREE.Color(0x050010)} />
+      {/* Fog - use FogExp2 */}
+      <fogExp2 attach="fog" args={[0x050010, 0.04]} />
       
       {/* Background */}
       <color attach="background" args={[0x050010]} />

@@ -1,6 +1,6 @@
-# Three.js Vite Starter
+# Agar3D - React Three Fiber
 
-This project uses [three.js](https://threejs.org/) with [Vite](https://vitejs.dev/) for fast development and modern JavaScript support.
+This project is a 3D Agar.io-style game built with [React Three Fiber](https://docs.pmnd.rs/react-three-fiber) and [Vite](https://vitejs.dev/).
 
 ## Getting Started
 
@@ -12,16 +12,43 @@ This project uses [three.js](https://threejs.org/) with [Vite](https://vitejs.de
    ```bash
    npm run dev
    ```
-3. Open your browser to the local server (usually http://localhost:5173) to see the 3D scene.
+3. Open your browser to the local server (usually http://localhost:5173) to play the game.
 
 ## Features
-- Minimal three.js scene with a rotating cube
-- Responsive canvas
+- 3D Agar.io-style gameplay
+- Player movement and camera controls (WASD + mouse)
+- Pellet eating and growth mechanics
+- Projectile shooting system
+- Virus obstacles
+- Particle effects for visual boundaries
+- Developer camera mode (press X to toggle)
+
+## Controls
+- **W**: Move forward
+- **Mouse**: Look around (click to enable pointer lock)
+- **E**: Shoot normal projectiles
+- **Space**: Shoot split projectile
+- **X**: Toggle developer camera mode
+
+## Tech Stack
+- React 18
+- React Three Fiber
+- Three.js
+- Vite
+- @react-three/drei
 
 ## Project Structure
-- `main.js`: Main entry point, sets up the three.js scene
-- `index.html`: Loads the script and sets up the page
+- `src/App.jsx`: Main React application and scene setup
+- `src/main.jsx`: React entry point
+- `src/components/`: React Three Fiber components
+  - `Player.jsx`: Player sphere
+  - `Pellets.jsx`: Instanced pellets for eating
+  - `Viruses.jsx`: Animated virus obstacles
+  - `Particles.jsx`: Border particle effects
+  - `Controls.jsx`: Camera and input controls
+  - `Projectiles.jsx`: Projectile system
+- `src/utils.js`: Utility functions for game mechanics
 
 ---
 
-Feel free to modify the scene in `main.js` to experiment with three.js!
+Feel free to modify the components to experiment with React Three Fiber!
