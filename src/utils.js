@@ -1,6 +1,99 @@
 import * as THREE from 'three';
 
 /**
+ * Resizes the renderer to match the display size if necessary.
+ * @param {THREE.WebGLRenderer} renderer - The renderer to resize.
+ * @returns {boolean} - True if the renderer was resized, false otherwise.
+ */
+export function resizeRendererToDisplaySize(renderer) {
+  const canvas = renderer.domElement;
+  const pixelRatio = window.devicePixelRatio;
+  const width = Math.floor(canvas.clientWidth * pixelRatio);
+  const height = Math.floor(canvas.clientHeight * pixelRatio);
+  const needResize = canvas.width !== width || canvas.height !== height;
+  if (needResize) renderer.setSize(width, height, false);
+  return needResize;
+}
+
+/**
+ * Updates the opacity of instanced pellets based on distance from the player.
+ * @param {Object} pelletData - Pellet information containing instancedMesh, positions, baseColors, opacities.
+ * @param {THREE.Vector3} playerPosition - Current position of the player.
+ * @param {number} fadeStartDistance - Distance at which pellets start fading.
+ * @param {number} fadeEndDistance - Distance at which pellets are fully visible.
+ */
+export function updateDistanceFadeInstanced(pelletData, playerPosition, fadeStartDistance, fadeEndDistance) {
+  const { instancedMesh, positions, baseColors, opacities } = pelletData;
+  const updateDistance = fadeStartDistance + 5; // small buffer
+  let needsUpdate = false;
+
+  for (let i = 0; i < positions.length; i++) {
+    const distance = playerPosition.distanceTo(positions[i]);
+    let opacity = 0;
+
+    if (distance < fadeStartDistance) {
+      if (distance <= fadeEndDistance) {
+        opacity = 1;
+      } else {
+        opacity = 1 - (distance - fadeEndDistance) / (fadeStartDistance - fadeEndDistance);
+      }
+    }
+
+    if (Math.abs(opacities[i] - opacity) > 0.01) {
+      opacities[i] = opacity;
+      needsUpdate = true;
+    }
+  }
+
+  if (needsUpdate && instancedMesh.instanceColor) {
+    const color = new THREE.Color();
+    for (let i = 0; i < positions.length; i++) {
+      color.copy(baseColors[i]);
+      if (opacities[i] < 1) color.multiplyScalar(opacities[i]);
+      instancedMesh.setColorAt(i, color);
+    }
+    instancedMesh.instanceColor.needsUpdate = true;
+  }
+}
+
+/**
+ * Updates the opacity of border particles based on player's proximity to the box edges.
+ * @param {THREE.Points} borderParticles - The particle system representing the box border.
+ * @param {THREE.Vector3} playerPosition - Current position of the player.
+ * @param {number} fadeStartDistance - Distance at which edges start fading.
+ * @param {number} fadeEndDistance - Distance at which edges are fully visible.
+ */
+export function updateBorderFade(borderParticles, playerPosition, fadeStartDistance, fadeEndDistance) {
+  if (!borderParticles || !borderParticles.material) return;
+
+  const BOX_SIZE = 500;
+  const BOX_HALF = BOX_SIZE / 2;
+
+  const px = playerPosition.x;
+  const py = playerPosition.y;
+  const pz = playerPosition.z;
+
+  const nearestDistance = Math.min(
+    Math.abs(px + BOX_HALF), Math.abs(px - BOX_HALF),
+    Math.abs(py + BOX_HALF), Math.abs(py - BOX_HALF),
+    Math.abs(pz + BOX_HALF), Math.abs(pz - BOX_HALF)
+  );
+
+  let opacity = 0;
+  if (nearestDistance < fadeStartDistance) {
+    if (nearestDistance <= fadeEndDistance) {
+      opacity = 1;
+    } else {
+      opacity = 1 - (nearestDistance - fadeEndDistance) / (fadeStartDistance - fadeEndDistance);
+    }
+  }
+
+  if (borderParticles.material.uniforms && borderParticles.material.uniforms.opacity) {
+    borderParticles.material.uniforms.opacity.value = opacity;
+  }
+}
+
+/**
  * Checks whether the player has eaten any pellets.
  * Uses simple sphere-sphere collision detection.
  * @param {THREE.Mesh} player - The player mesh.
@@ -197,8 +290,40 @@ export function updateProjectiles(projectiles, scene, player, camera, getForward
     const toPlayer = player.position.clone().sub(p.position);
     const dist = toPlayer.length();
 
-    // --- NON-space-shot logic first (the inverted branch) ---
-    if (t <= 2) {
+    /* ---- Space Shot Behavior ---- */
+
+    if (t > 2) {
+      isSplit = true;
+      splitProjectile = p;
+
+      if (!p.userData.peakDist) {
+        p.userData.peakDist = dist;
+      }
+
+      const peakDist = p.userData.peakDist;
+      const forwardPressed = getForwardButtonPressed();
+
+      if (dist > surfaceDist && !forwardPressed) {
+        const step = toPlayer.normalize().multiplyScalar(
+          Math.min(dist - surfaceDist, 0.2)
+        );
+        p.position.add(step);
+      } else if (dist > surfaceDist && forwardPressed) {
+        p.position.copy(
+          player.position.clone().add(
+            toPlayer.normalize().multiplyScalar(
+              surfaceDist + peakDist
+            )
+          )
+        );
+      } 
+      if (dist <= surfaceDist) {
+        // pass
+      }
+    } 
+    
+    else {
+      
       const pv = (p.isVector3 ? p.clone() : new THREE.Vector3().copy(p.position || p));
       const back = new THREE.Vector3(0, 0, 1).applyQuaternion(p.quaternion);
       const camPos = pv.add(back.multiplyScalar(5));
@@ -211,43 +336,12 @@ export function updateProjectiles(projectiles, scene, player, camera, getForward
         continue;
       }
 
+
       const decay = Math.exp(-2 * t);
       const velocity = p.userData.velocity.clone().multiplyScalar(decay);
       p.position.add(velocity);
-      continue;
     }
-
-    // --- SPACE SHOT CASE (t > 2) ---
-    isSplit = true;
-    splitProjectile = p;
-
-    if (!p.userData.peakDist) {
-      p.userData.peakDist = dist;
-    }
-
-    const peakDist = p.userData.peakDist;
-    const forwardPressed = getForwardButtonPressed();
-
-    if (dist > surfaceDist && !forwardPressed) {
-      const step = toPlayer.normalize().multiplyScalar(
-        Math.min(dist - surfaceDist, 0.2)
-      );
-      p.position.add(step);
-      continue;
-    }
-
-    if (dist > surfaceDist && forwardPressed) {
-      p.position.copy(
-        player.position.clone().add(
-          toPlayer.normalize().multiplyScalar(surfaceDist + peakDist)
-        )
-      );
-      continue;
-    }
-
-    // dist <= surfaceDist → no-op
   }
-
   return { isSplit, splitProjectile };
 }
 

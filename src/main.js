@@ -11,7 +11,7 @@ import {
   updateProjectiles,
   updatePlayerFade,
   handlePelletEatingAndGrowth
-} from './utils/utils.js';
+} from './utils/playerUtils.js';
 import Stats from 'three/addons/libs/stats.module.js';
 
 const canvas = document.querySelector('#c');

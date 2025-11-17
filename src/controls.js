@@ -201,71 +201,77 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
 
   }
 
-  /**
-   * Try to shoot a projectile
-   */
-  function tryShoot(isSpaceShot = false) {
-    const now = performance.now();
-    if (now - lastShot < 200) return; // 0.05s cooldown
-    lastShot = now;
+function tryShoot(isSpaceShot) {
+  const now = performance.now();
+  if (now - lastShot < 200) return; 
+  lastShot = now;
 
-    // Calculate projectile radius from 1/8 player volume
-    const playerRadius = player.geometry.parameters.radius * player.scale.x;
-    const playerVolume = (4/3) * Math.PI * Math.pow(playerRadius, 3);
-    let projVolume = playerVolume / 8;
-    
-    // If space shot, use half the volume and halve player volume
-    if (isSpaceShot) {
-      projVolume = playerVolume / 2;
-      const newPlayerVolume = playerVolume / 2;
-      const newPlayerRadius = Math.cbrt((3 * newPlayerVolume) / (4 * Math.PI));
-      const scale = newPlayerRadius / player.geometry.parameters.radius;
-      player.scale.setScalar(scale);
-    }
-    
-    const projRadius = Math.cbrt((3 * projVolume) / (4 * Math.PI));
+  // Player radius & volume
+  const baseRadius = player.geometry.parameters.radius;
+  const playerRadius = baseRadius * player.scale.x;
+  const playerVolume = (4/3) * Math.PI * Math.pow(playerRadius, 3);
 
-    // Get player color
-    const color = player.material.color.clone();
+  // Compute projectile volume
+  let projVolume = isSpaceShot ? playerVolume / 2 : playerVolume / 8;
 
-    // Create projectile mesh
-    const geometry = new THREE.SphereGeometry(projRadius, 16, 16);
-    const material = new THREE.MeshStandardMaterial({ color });
-    const projectile = new THREE.Mesh(geometry, material);
-    projectile.position.copy(player.position);
-
-    // Get forward direction
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
-    forward.normalize();
-
-    // Set projectile velocity
-    projectile.userData.velocity = forward.multiplyScalar(playerSpeed * 5.5);
-    projectile.userData.startTime = performance.now();
-    projectile.userData.isSpaceShot = isSpaceShot;
-
-    // Add projectile to scene and projectiles array
-    scene.add(projectile);
-    projectiles.push(projectile);
-    if (onShoot) onShoot();
+  // If space shot, shrink the player (half volume)
+  if (isSpaceShot) {
+    const newPlayerVolume = playerVolume / 2;
+    const newPlayerRadius = Math.cbrt((3 * newPlayerVolume) / (4 * Math.PI));
+    const scale = newPlayerRadius / baseRadius;
+    player.scale.setScalar(scale);
   }
 
-  /**
-   * Handle shooting in a loop if 'E' is held down
-   */
-  function handleShootLoop() {
-    if (keys['e']) tryShoot(false);
-    requestAnimationFrame(handleShootLoop);
-  }
-  handleShootLoop();
+  // Convert projectile volume → radius
+  const projRadius = Math.cbrt((3 * projVolume) / (4 * Math.PI));
 
-  // Handle space key for shooting
-  window.addEventListener('keydown', (e) => {
+  // Create projectile
+  const geometry = new THREE.SphereGeometry(projRadius, 16, 16);
+  const material = new THREE.MeshStandardMaterial({ color: player.material.color.clone() });
+  const projectile = new THREE.Mesh(geometry, material);
+  projectile.position.copy(player.position);
+
+  // Forward direction
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.normalize();
+
+  // Set velocity + metadata
+  projectile.userData.velocity = forward.multiplyScalar(playerSpeed * 5.5);
+  projectile.userData.startTime = now;
+  projectile.userData.isSpaceShot = isSpaceShot;
+
+  // Add to world
+  scene.add(projectile);
+  projectiles.push(projectile);
+
+  if (onShoot) onShoot();
+}
+
+/* ---------------------------
+   Continuous regular shooting
+--------------------------- */
+function handleShootLoop() {
+  if (keys['e']) {
+    tryShoot(false);
+  }
+  requestAnimationFrame(handleShootLoop);
+}
+handleShootLoop();
+
+/* ---------------------------
+   Spacebar → Space Shot
+--------------------------- */
+window.addEventListener(
+  'keydown',
+  e => {
     if (e.code === 'Space') {
       e.preventDefault();
       tryShoot(true);
     }
-  }, true);
+  },
+  true
+);
 
-  return { updateCamera, getForwardButtonPressed: () => forwardBtnIsPressed };
+return { updateCamera, getForwardButtonPressed: () => forwardBtnIsPressed };
 }

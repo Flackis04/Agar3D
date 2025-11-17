@@ -136,14 +136,19 @@ export function createPelletsInstanced(scene, count, colors) {
     const color = new THREE.Color(colors[i % colors.length]);
     const isPowerUp = powerUps[i];
 
-    const position = new THREE.Vector3(
-      (Math.random() - 0.5) * 500,
-      (Math.random() - 0.5) * 500,
-      (Math.random() - 0.5) * 500
-    );
-
     const size = Math.random() * 0.3 + 0.2;
     sizes.push(size);
+
+    // Calculate safe bounds considering pellet size
+    const pelletRadius = size;
+    const halfMapSize = mapSize / 2;
+    const maxPos = halfMapSize - pelletRadius;
+
+    const position = new THREE.Vector3(
+      (Math.random() - 0.5) * 2 * maxPos,
+      (Math.random() - 0.5) * 2 * maxPos,
+      (Math.random() - 0.5) * 2 * maxPos
+    );
 
     dummy.position.copy(position);
     dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
