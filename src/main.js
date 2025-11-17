@@ -37,8 +37,6 @@ createViruses(scene);
 const stats = new Stats();
 document.body.appendChild(stats.dom);
 
-const pointer = new THREE.Vector2();
-
 const {
   playerSphere,
   playerDefaultOpacity
@@ -46,7 +44,6 @@ const {
 
 let projectiles = [];
 let lastShotTime = null;
-let lastShotOpacity = null;
 
 const cameraController = createCameraController(camera, playerSphere);
 
@@ -60,18 +57,15 @@ const {
   projectileRotation,
   setViewingProjectile
 } = setupControls(
-  canvas, 
-  pointer,
+  canvas,
   cameraController
 );
 
-let PARTICLE_SIZE;
 let particles = null;
 let pelletData = null;
 
-createMapBox((loadedParticles, particleSize) => {
+createMapBox((loadedParticles) => {
   particles = loadedParticles;
-  PARTICLE_SIZE = particleSize;
   scene.add(particles);
 
   const pelletColors = [
@@ -87,9 +81,10 @@ createMapBox((loadedParticles, particleSize) => {
   animate();
 });
 
-let isSplit = false;
-let splitProjectile = null;
-let tempPosition = null;
+function onShotFired() {
+  lastShotTime = performance.now();
+  playerSphere.material.opacity = 0.2;
+}
 
 function animate() {
   requestAnimationFrame(animate);
@@ -97,9 +92,7 @@ function animate() {
   if (!particles) return;
 
   const projectileResult = updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed, playerRotation, projectileRotation);
-  isSplit = projectileResult.isSplit;
-  splitProjectile = projectileResult.splitProjectile;
-
+  
   setViewingProjectile(projectileResult.viewingProjectile);
 
   if (!projectileResult.viewingProjectile) {
@@ -121,11 +114,7 @@ function animate() {
 
 function handleShootLoop() {
   if (keys['e']) {
-    const newLastShot = executeSplit(false, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, () => {
-      lastShotTime = performance.now();
-      lastShotOpacity = playerSphere.material.opacity;
-      playerSphere.material.opacity = 0.2;
-    });
+    const newLastShot = executeSplit(false, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, onShotFired);
     if (newLastShot !== lastShot) {
       Object.assign(lastShot, { value: newLastShot });
     }
@@ -139,11 +128,7 @@ window.addEventListener(
   e => {
     if (e.code === 'Space') {
       e.preventDefault();
-      const newLastShot = executeSplit(true, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, () => {
-        lastShotTime = performance.now();
-        lastShotOpacity = playerSphere.material.opacity;
-        playerSphere.material.opacity = 0.2;
-      });
+      const newLastShot = executeSplit(true, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, onShotFired);
       if (newLastShot !== lastShot) {
         Object.assign(lastShot, { value: newLastShot });
       }

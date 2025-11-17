@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
 export function checkEatCondition(playerSphere, pelletData) {
-  if (!playerSphere || !pelletData) return { eatenCount: 0, totalSize: 0, eatenSizes: [] };
+  if (!playerSphere || !pelletData) return { eatenCount: 0, eatenSizes: [] };
 
   const { mesh, meshPowerup, positions, sizes, active, radius, dummy, powerUps, pelletToMeshIndex } = pelletData;
-  if (!mesh || !positions || !active || !sizes) return { eatenCount: 0, totalSize: 0, eatenSizes: [] };
+  if (!mesh || !positions || !active || !sizes) return { eatenCount: 0, eatenSizes: [] };
 
   const playerSphereScale = Math.max(playerSphere.scale.x, playerSphere.scale.y, playerSphere.scale.z);
   const playerSphereRadius = playerSphere.geometry.parameters.radius * playerSphereScale;
@@ -12,7 +12,6 @@ export function checkEatCondition(playerSphere, pelletData) {
 
   const eatenSizes = [];
   let eatenCount = 0;
-  let totalSize = 0;
   let newPelletMagnetToggle = pelletData.pelletMagnetToggle || false;
 
   for (let i = 0; i < positions.length; i++) {
@@ -22,7 +21,6 @@ export function checkEatCondition(playerSphere, pelletData) {
     if (distance <= playerSphereRadius) {
       active[i] = false;
       eatenCount++;
-      totalSize += sizes[i];
       eatenSizes.push(sizes[i]);
 
       const isPowerUp = powerUps[i];
@@ -49,7 +47,7 @@ export function checkEatCondition(playerSphere, pelletData) {
     if (meshPowerup) meshPowerup.instanceMatrix.needsUpdate = true;
   }
 
-  return { eatenCount, totalSize, eatenSizes, pelletMagnetToggle: newPelletMagnetToggle };
+  return { eatenCount, eatenSizes, pelletMagnetToggle: newPelletMagnetToggle };
 }
 
 // Pellet Magnet
@@ -80,9 +78,9 @@ export function applyPelletMagnet(playerSphere, pelletData, pelletMagnetToggle, 
   const magnetRangeSq = magnetRange * magnetRange;
   const playerSphereRadiusSq = playerSphereRadius * playerSphereRadius;
   
-  const px = playerPosition.x;
-  const py = playerPosition.y;
-  const pz = playerPosition.z;
+  const px = playerSpherePosition.x;
+  const py = playerSpherePosition.y;
+  const pz = playerSpherePosition.z;
   
   const affectedNormal = [];
   const affectedPowerup = [];
@@ -154,15 +152,14 @@ export function updatePlayerFade(playerSphere, lastShotTime, playerDefaultOpacit
   }
 }
 
-export function handlePelletEatingAndGrowth(playerSphere, pelletData, cameraDistanceFromPlayer) {
+export function handlePelletEatingAndGrowth(playerSphere, pelletData) {
   if (!pelletData) return;
 
   applyPelletMagnet(playerSphere, pelletData, pelletData.pelletMagnetToggle);
 
   const { eatenCount, eatenSizes } = checkEatCondition(
     playerSphere,
-    pelletData,
-    cameraDistanceFromPlayer
+    pelletData
   );
 
   if (eatenCount > 0) {
@@ -198,7 +195,6 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
 
     const playerSphereRadius = basePlayerSphereRadius * playerSphere.scale.x;
     const projRadius   = otherPlayerSphere.geometry.parameters.radius * otherPlayerSphere.scale.x;
-    // const surfaceDist  = playerRadius + projRadius;
 
     const toPlayerSphere = playerSphere.position.clone().sub(otherPlayerSphere.position);
     const dist     = toPlayerSphere.length();
@@ -206,7 +202,7 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
     // otherPlayer Cam
 
     if (t <= 2) {
-      const projectilePos = (otherPlayerSphere.isVector3 ? otherPlayerSphere.clone() : new THREE.Vector3().copy(otherPlayerSphere.position || otherPlayerSphere));
+      const projectilePos = otherPlayerSphere.position;
       
       const followDistance = 5;
       const offset = new THREE.Vector3(
@@ -215,7 +211,7 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
         followDistance * Math.cos(projectileRotation.yaw) * Math.cos(projectileRotation.pitch)
       );
       
-      camera.position.copy(projectilePos.clone().add(offset));
+      camera.position.copy(projectilePos).add(offset);
       camera.lookAt(projectilePos);
 
       const decay = Math.exp(-2 * t);
@@ -274,8 +270,7 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
 
 export function executeSplit(isSpaceShot, playerSphere, camera, scene, projectiles, playerSphereSpeed, lastShot, onShoot) {
   const now = performance.now();
-  if (now - lastShot < 200) return lastShot; 
-  lastShot = now;
+  if (now - lastShot < 200) return lastShot;
 
   const basePlayerSphereRadius = playerSphere.geometry.parameters.radius;
   const playerSphereRadius = basePlayerSphereRadius * playerSphere.scale.x;
@@ -301,7 +296,6 @@ export function executeSplit(isSpaceShot, playerSphere, camera, scene, projectil
 
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
-  forward.normalize();
 
   projectile.userData.velocity = forward.clone().multiplyScalar(playerSphereSpeed * 5.5);
   projectile.userData.startTime = now;
@@ -312,5 +306,5 @@ export function executeSplit(isSpaceShot, playerSphere, camera, scene, projectil
 
   if (onShoot) onShoot();
 
-  return lastShot;
+  return now;
 }

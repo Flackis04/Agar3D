@@ -1,4 +1,8 @@
-export function setupControls(canvas, pointer, cameraController) {
+function clampPitch(pitch) {
+  return Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
+}
+
+export function setupControls(canvas, cameraController) {
   const keys = {};
   const playerRotation = { yaw: 0, pitch: 0 };
   const projectileRotation = { yaw: 0, pitch: 0 };
@@ -31,22 +35,17 @@ export function setupControls(canvas, pointer, cameraController) {
     }
   });
 
-  document.addEventListener('pointermove', (event) => {
-    pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-    pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
-  });
-
   function onMouseMove(e) {
     if (cameraController.isDevMode()) {
       cameraController.updateDevRotation(e.movementX, e.movementY, sensitivity);
     } else if (viewingProjectile) {
       projectileRotation.yaw -= e.movementX * sensitivity;
       projectileRotation.pitch += e.movementY * sensitivity;
-      projectileRotation.pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, projectileRotation.pitch));
+      projectileRotation.pitch = clampPitch(projectileRotation.pitch);
     } else {
       playerRotation.yaw -= e.movementX * sensitivity;
       playerRotation.pitch += e.movementY * sensitivity;
-      playerRotation.pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, playerRotation.pitch));
+      playerRotation.pitch = clampPitch(playerRotation.pitch);
     }
   }
 

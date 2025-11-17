@@ -144,38 +144,6 @@ export function createPelletsInstanced(scene, count, colors) {
     positions.push(position.clone());
   }
 
-  const checkAndEatPellets = function(player) {
-    let eaten = 0;
-    for (let i = 0; i < count; i++) {
-      if (!active[i]) continue;
-
-      const pelletPos = positions[i];
-      const playerPos = player.position;
-      const playerRadius = player.geometry.parameters.radius * player.scale.x;
-      const dist = playerPos.distanceTo(pelletPos);
-
-      if (dist < playerRadius) {
-        active[i] = false;
-
-        dummy.position.copy(pelletPos);
-        dummy.scale.setScalar(0);
-        dummy.updateMatrix();
-        
-        const meshIndex = pelletToMeshIndex[i];
-        if (powerUps[i]) {
-          meshPowerup.setMatrixAt(meshIndex, dummy.matrix);
-          meshPowerup.instanceMatrix.needsUpdate = true;
-        } else {
-          meshNormal.setMatrixAt(meshIndex, dummy.matrix);
-          meshNormal.instanceMatrix.needsUpdate = true;
-        }
-
-        eaten++;
-      }
-    }
-    return eaten;
-  };
-
   meshNormal.instanceMatrix.needsUpdate = true;
   if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
   meshPowerup.instanceMatrix.needsUpdate = true;
@@ -196,8 +164,7 @@ export function createPelletsInstanced(scene, count, colors) {
     radius: geometry.parameters.radius, 
     dummy, 
     powerUps, 
-    pelletToMeshIndex,
-    checkAndEatPellets 
+    pelletToMeshIndex
   };
 }
 
@@ -238,8 +205,4 @@ export function createViruses(scene) {
     }
   }
   scene.userData.animateViruses = animateViruses;
-}
-
-export function createBots(){
-  pass
 }

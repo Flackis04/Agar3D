@@ -1,5 +1,25 @@
 import * as THREE from 'three';
 
+function clampPitch(pitch) {
+  return Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
+}
+
+function calculateSphereRadius(sphere) {
+  return sphere.geometry.parameters.radius * Math.max(
+    sphere.scale.x,
+    sphere.scale.y,
+    sphere.scale.z
+  );
+}
+
+function calculateDirectionVector(yaw, pitch, scale = 1) {
+  return new THREE.Vector3(
+    scale * Math.sin(yaw) * Math.cos(pitch),
+    scale * Math.sin(pitch),
+    scale * Math.cos(yaw) * Math.cos(pitch)
+  );
+}
+
 export function createCameraController(camera, playerSphere) {
   let devMode = false;
   const devCameraPos = new THREE.Vector3();
@@ -25,11 +45,8 @@ export function createCameraController(camera, playerSphere) {
 
   function updateDevCamera(keys) {
     if (!camera) return;
-    const direction = new THREE.Vector3(
-      Math.sin(devRotation.yaw) * Math.cos(devRotation.pitch),
-      -Math.sin(devRotation.pitch),
-      Math.cos(devRotation.yaw) * Math.cos(devRotation.pitch)
-    );
+    const direction = calculateDirectionVector(devRotation.yaw, devRotation.pitch, 1);
+    direction.y = -direction.y;
 
     if (keys['w']) devCameraPos.addScaledVector(direction, devSpeed);
 
@@ -40,21 +57,13 @@ export function createCameraController(camera, playerSphere) {
   function updatePlayerCamera(playerRotation, keys, playerSpeed) {
     if (!playerSphere || !playerSphere.position) return;
 
-    const playerRadius = playerSphere.geometry.parameters.radius * Math.max(
-      playerSphere.scale.x,
-      playerSphere.scale.y,
-      playerSphere.scale.z
-    );
+    const playerRadius = calculateSphereRadius(playerSphere);
     
     const targetFollowDistance = playerRadius * 8;
     
     smoothFollowDistance += (targetFollowDistance - smoothFollowDistance) * cameraLerpSpeed;
     
-    const offset = new THREE.Vector3(
-      smoothFollowDistance * Math.sin(playerRotation.yaw) * Math.cos(playerRotation.pitch),
-      smoothFollowDistance * Math.sin(playerRotation.pitch),
-      smoothFollowDistance * Math.cos(playerRotation.yaw) * Math.cos(playerRotation.pitch)
-    );
+    const offset = calculateDirectionVector(playerRotation.yaw, playerRotation.pitch, smoothFollowDistance);
 
     const forward = offset.clone().normalize().negate();
     if (keys['w']) {
@@ -71,11 +80,7 @@ export function createCameraController(camera, playerSphere) {
     const BOX_SIZE = 500;
     const BOX_HALF = BOX_SIZE / 2;
 
-    const playerRadius = playerSphere.geometry.parameters.radius * Math.max(
-      playerSphere.scale.x,
-      playerSphere.scale.y,
-      playerSphere.scale.z
-    );
+    const playerRadius = calculateSphereRadius(playerSphere);
 
     const minBound = -BOX_HALF + playerRadius;
     const maxBound = BOX_HALF - playerRadius;
@@ -98,7 +103,7 @@ export function createCameraController(camera, playerSphere) {
   function updateDevRotation(movementX, movementY, sensitivity) {
     devRotation.yaw -= movementX * sensitivity;
     devRotation.pitch += movementY * sensitivity;
-    devRotation.pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, devRotation.pitch));
+    devRotation.pitch = clampPitch(devRotation.pitch);
   }
 
   function isDevMode() {
