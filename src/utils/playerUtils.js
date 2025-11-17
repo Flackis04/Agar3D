@@ -6,9 +6,9 @@ export function checkEatCondition(playerSphere, pelletData) {
   const { mesh, meshPowerup, positions, sizes, active, radius, dummy, powerUps, pelletToMeshIndex } = pelletData;
   if (!mesh || !positions || !active || !sizes) return { eatenCount: 0, totalSize: 0, eatenSizes: [] };
 
-  const playerScale = Math.max(playerSphere.scale.x, playerSphere.scale.y, playerSphere.scale.z);
-  const playerRadius = playerSphere.geometry.parameters.radius * playerScale;
-  const playerPosition = playerSphere.position;
+  const playerSphereScale = Math.max(playerSphere.scale.x, playerSphere.scale.y, playerSphere.scale.z);
+  const playerSphereRadius = playerSphere.geometry.parameters.radius * playerSphereScale;
+  const playerSpherePosition = playerSphere.position;
 
   const eatenSizes = [];
   let eatenCount = 0;
@@ -18,8 +18,8 @@ export function checkEatCondition(playerSphere, pelletData) {
   for (let i = 0; i < positions.length; i++) {
     if (!active[i]) continue;
 
-    const distance = playerPosition.distanceTo(positions[i]);
-    if (distance <= playerRadius) {
+    const distance = playerSpherePosition.distanceTo(positions[i]);
+    if (distance <= playerSphereRadius) {
       active[i] = false;
       eatenCount++;
       totalSize += sizes[i];
@@ -74,11 +74,11 @@ export function applyPelletMagnet(playerSphere, pelletData, pelletMagnetToggle, 
   const { mesh, meshPowerup, positions, sizes, active, dummy, powerUps, pelletToMeshIndex } = pelletData;
   if (!mesh || !positions || !active) return;
 
-  const playerPosition = playerSphere.position;
-  const playerRadius = playerSphere.geometry.parameters.radius * Math.max(playerSphere.scale.x, playerSphere.scale.y, playerSphere.scale.z);
+  const playerSpherePosition = playerSphere.position;
+  const playerSphereRadius = playerSphere.geometry.parameters.radius * Math.max(playerSphere.scale.x, playerSphere.scale.y, playerSphere.scale.z);
   
   const magnetRangeSq = magnetRange * magnetRange;
-  const playerRadiusSq = playerRadius * playerRadius;
+  const playerSphereRadiusSq = playerSphereRadius * playerSphereRadius;
   
   const px = playerPosition.x;
   const py = playerPosition.y;
@@ -97,7 +97,7 @@ export function applyPelletMagnet(playerSphere, pelletData, pelletMagnetToggle, 
     const dz = pz - pelletPos.z;
     const distanceSq = dx * dx + dy * dy + dz * dz;
     
-    if (distanceSq <= magnetRangeSq && distanceSq > playerRadiusSq) {
+    if (distanceSq <= magnetRangeSq && distanceSq > playerSphereRadiusSq) {
       const distance = Math.sqrt(distanceSq);
       const factor = attractionSpeed / distance;
       
@@ -166,8 +166,8 @@ export function handlePelletEatingAndGrowth(playerSphere, pelletData, cameraDist
   );
 
   if (eatenCount > 0) {
-    const playerRadius = playerSphere.geometry.parameters.radius * playerSphere.scale.x;
-    const playerVolume = (4 / 3) * Math.PI * Math.pow(playerRadius, 3);
+    const playerSphereRadius = playerSphere.geometry.parameters.radius * playerSphere.scale.x;
+    const playerSphereVolume = (4 / 3) * Math.PI * Math.pow(playerSphereRadius, 3);
 
     const pelletBaseRadius = pelletData.radius;
     let pelletsVolume = 0;
@@ -177,7 +177,7 @@ export function handlePelletEatingAndGrowth(playerSphere, pelletData, cameraDist
       pelletsVolume += (4 / 3) * Math.PI * Math.pow(pelletRadius, 3);
     }
 
-    const newVolume = playerVolume + pelletsVolume;
+    const newVolume = playerSphereVolume + pelletsVolume;
     const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
     const scale = newRadius / playerSphere.geometry.parameters.radius;
 
@@ -190,18 +190,18 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
   let isSplit = false;
   let splitProjectile = null;
 
-  const basePlayerRadius = playerSphere.geometry.parameters.radius;
+  const basePlayerSphereRadius = playerSphere.geometry.parameters.radius;
 
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const otherPlayerSphere = projectiles[i];
     const t = (now - otherPlayerSphere.userData.startTime) / 1000;
 
-    const playerRadius = basePlayerRadius * playerSphere.scale.x;
+    const playerSphereRadius = basePlayerSphereRadius * playerSphere.scale.x;
     const projRadius   = otherPlayerSphere.geometry.parameters.radius * otherPlayerSphere.scale.x;
     // const surfaceDist  = playerRadius + projRadius;
 
-    const toPlayer = playerSphere.position.clone().sub(otherPlayerSphere.position);
-    const dist     = toPlayer.length();
+    const toPlayerSphere = playerSphere.position.clone().sub(otherPlayerSphere.position);
+    const dist     = toPlayerSphere.length();
 
     // otherPlayer Cam
 
@@ -238,17 +238,17 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
     const forwardPressed = getForwardButtonPressed();
     const epsilon = 0.001;
 
-    if (dist > playerRadius + epsilon && !forwardPressed) {
-      const step = toPlayer.normalize()
-                           .multiplyScalar(Math.min(dist - playerRadius, 0.2));
+    if (dist > playerSphereRadius + epsilon && !forwardPressed) {
+      const step = toPlayerSphere.normalize()
+                           .multiplyScalar(Math.min(dist - playerSphereRadius, 0.2));
       otherPlayerSphere.position.add(step);
       continue;
     }
 
-    else if (dist > playerRadius + epsilon && forwardPressed) {
+    else if (dist > playerSphereRadius + epsilon && forwardPressed) {
       otherPlayerSphere.position.copy(
         playerSphere.position.clone().add(
-          toPlayer.normalize().multiplyScalar(playerRadius + peakDist)
+          toPlayerSphere.normalize().multiplyScalar(playerSphereRadius + peakDist)
         )
       );
       continue;
@@ -258,12 +258,12 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
       scene.remove(otherPlayerSphere);
       projectiles.splice(i, 1);
 
-      const otherPlayerVolume = (4 / 3) * Math.PI * Math.pow(projRadius, 3);
-      const currentPlayerVolume = (4 / 3) * Math.PI * Math.pow(playerRadius, 3);
+      const otherPlayerSphereVolume = (4 / 3) * Math.PI * Math.pow(projRadius, 3);
+      const currentPlayerSphereVolume = (4 / 3) * Math.PI * Math.pow(playerSphereRadius, 3);
 
-      const newVolume = currentPlayerVolume + otherPlayerVolume;
+      const newVolume = currentPlayerSphereVolume + otherPlayerSphereVolume;
       const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
-      const scale = newRadius / basePlayerRadius;
+      const scale = newRadius / basePlayerSphereRadius;
 
       playerSphere.scale.setScalar(scale);
     }
@@ -272,29 +272,29 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
   return { isSplit, splitProjectile };
 }
 
-export function executeSplit(isSpaceShot, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, onShoot) {
+export function executeSplit(isSpaceShot, playerSphere, camera, scene, projectiles, playerSphereSpeed, lastShot, onShoot) {
   const now = performance.now();
   if (now - lastShot < 200) return lastShot; 
   lastShot = now;
 
-  const baseRadius = playerSphere.geometry.parameters.radius;
-  const playerRadius = baseRadius * playerSphere.scale.x;
-  const playerVolume = (4/3) * Math.PI * Math.pow(playerRadius, 3);
+  const basePlayerSphereRadius = playerSphere.geometry.parameters.radius;
+  const playerSphereRadius = basePlayerSphereRadius * playerSphere.scale.x;
+  const playerSphereVolume = (4/3) * Math.PI * Math.pow(playerSphereRadius, 3);
 
-  let projVolume, projRadius;
+  let projSphereVolume, projSphereRadius;
 
   if (isSpaceShot) {
-    projVolume = playerVolume / 2;
-    const newPlayerRadius = Math.cbrt((3 * projVolume) / (4 * Math.PI));
-    const scale = newPlayerRadius / baseRadius;
+    projSphereVolume = playerSphereVolume / 2;
+    const newPlayerSphereRadius = Math.cbrt((3 * projSphereVolume) / (4 * Math.PI));
+    const scale = newPlayerSphereRadius / basePlayerSphereRadius;
     playerSphere.scale.setScalar(scale);
-    projRadius = newPlayerRadius;
+    projSphereRadius = newPlayerSphereRadius;
   } else {
-    projVolume = playerVolume / 8;
-    projRadius = Math.cbrt((3 * projVolume) / (4 * Math.PI));
+    projSphereVolume = playerSphereVolume / 8;
+    projSphereRadius = Math.cbrt((3 * projSphereVolume) / (4 * Math.PI));
   }
 
-  const geometry = new THREE.SphereGeometry(projRadius, 16, 16);
+  const geometry = new THREE.SphereGeometry(projSphereRadius, 16, 16);
   const material = new THREE.MeshStandardMaterial({ color: playerSphere.material.color.clone() });
   const projectile = new THREE.Mesh(geometry, material);
   projectile.position.copy(playerSphere.position);
@@ -303,7 +303,7 @@ export function executeSplit(isSpaceShot, playerSphere, camera, scene, projectil
   camera.getWorldDirection(forward);
   forward.normalize();
 
-  projectile.userData.velocity = forward.clone().multiplyScalar(playerSpeed * 5.5);
+  projectile.userData.velocity = forward.clone().multiplyScalar(playerSphereSpeed * 5.5);
   projectile.userData.startTime = now;
   projectile.userData.isSpaceShot = isSpaceShot;
 
