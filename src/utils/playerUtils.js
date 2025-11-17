@@ -3,22 +3,45 @@ import * as THREE from 'three';
 export function checkEatCondition(playerCell, pelletData) {
   if (!playerCell || !pelletData) return { eatenCount: 0, eatenSizes: [] };
 
-  const { mesh, meshPowerup, positions, sizes, active, radius, dummy, powerUps, pelletToMeshIndex } = pelletData;
+  const { mesh, meshPowerup, positions, sizes, active, radius, dummy, powerUps, pelletToMeshIndex, spatialGrid } = pelletData;
   if (!mesh || !positions || !active || !sizes) return { eatenCount: 0, eatenSizes: [] };
 
   const playerCellScale = Math.max(playerCell.scale.x, playerCell.scale.y, playerCell.scale.z);
   const playerCellRadius = playerCell.geometry.parameters.radius * playerCellScale;
   const playerCellPosition = playerCell.position;
+  const playerCellRadiusSq = playerCellRadius * playerCellRadius;
 
   const eatenSizes = [];
   let eatenCount = 0;
   let newPelletMagnetToggle = pelletData.pelletMagnetToggle || false;
 
-  for (let i = 0; i < positions.length; i++) {
+  // Use spatial grid if available for efficient neighbor queries
+  let candidateIndices;
+  if (spatialGrid) {
+    candidateIndices = spatialGrid.query(playerCellPosition.x, playerCellPosition.y, playerCellPosition.z, playerCellRadius);
+  } else {
+    // Fallback: check all pellets (slower)
+    candidateIndices = [];
+    for (let i = 0; i < positions.length; i++) {
+      if (active[i]) candidateIndices.push(i);
+    }
+  }
+
+  const px = playerCellPosition.x;
+  const py = playerCellPosition.y;
+  const pz = playerCellPosition.z;
+
+  for (let idx = 0; idx < candidateIndices.length; idx++) {
+    const i = candidateIndices[idx];
     if (!active[i]) continue;
 
-    const distance = playerCellPosition.distanceTo(positions[i]);
-    if (distance <= playerCellRadius) {
+    const pelletPos = positions[i];
+    const dx = px - pelletPos.x;
+    const dy = py - pelletPos.y;
+    const dz = pz - pelletPos.z;
+    const distanceSq = dx * dx + dy * dy + dz * dz;
+
+    if (distanceSq <= playerCellRadiusSq) {
       active[i] = false;
       eatenCount++;
       eatenSizes.push(sizes[i]);
@@ -69,7 +92,7 @@ function togglePelletMagnet(playerCell, pelletData, currentToggle) {
 export function applyPelletMagnet(playerCell, pelletData, pelletMagnetToggle, magnetRange = 5, attractionSpeed = 0.3) {
   if (!pelletMagnetToggle || !playerCell || !pelletData) return;
 
-  const { mesh, meshPowerup, positions, sizes, active, dummy, powerUps, pelletToMeshIndex } = pelletData;
+  const { mesh, meshPowerup, positions, sizes, active, dummy, powerUps, pelletToMeshIndex, spatialGrid } = pelletData;
   if (!mesh || !positions || !active) return;
 
   const playerCellPosition = playerCell.position;
@@ -85,9 +108,21 @@ export function applyPelletMagnet(playerCell, pelletData, pelletMagnetToggle, ma
   const affectedNormal = [];
   const affectedPowerup = [];
 
-  //
+  // Use spatial grid if available for efficient neighbor queries
+  let candidateIndices;
+  if (spatialGrid) {
+    candidateIndices = spatialGrid.query(px, py, pz, magnetRange);
+  } else {
+    // Fallback: check all pellets (slower)
+    candidateIndices = [];
+    for (let i = 0; i < positions.length; i++) {
+      if (active[i]) candidateIndices.push(i);
+    }
+  }
 
-  for (let i = 0; i < positions.length; i++) {
+  // Process only nearby pellets
+  for (let idx = 0; idx < candidateIndices.length; idx++) {
+    const i = candidateIndices[idx];
     if (!active[i]) continue;
 
     const pelletPos = positions[i];
@@ -156,6 +191,21 @@ export function updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity
 
 export function handlePelletEatingAndGrowth(playerCell, pelletData) {
   if (!pelletData) return;
+
+  // Rebuild spatial grid periodically or when magnet is active for better performance
+  // Only rebuild if pellets have moved significantly (when magnet is active)
+  if (pelletData.pelletMagnetToggle && pelletData.spatialGrid) {
+    if (!pelletData.lastGridRebuild || performance.now() - pelletData.lastGridRebuild > 100) {
+      pelletData.spatialGrid.clear();
+      const { positions, active } = pelletData;
+      for (let i = 0; i < positions.length; i++) {
+        if (active[i]) {
+          pelletData.spatialGrid.add(positions[i].x, positions[i].y, positions[i].z, i);
+        }
+      }
+      pelletData.lastGridRebuild = performance.now();
+    }
+  }
 
   applyPelletMagnet(playerCell, pelletData, pelletData.pelletMagnetToggle);
 

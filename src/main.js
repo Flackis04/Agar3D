@@ -75,7 +75,7 @@ createMapBox((loadedBorder) => {
     0xFFFFFF
   ];
 
-  const PELLET_COUNT = 200000;
+  const PELLET_COUNT = 500000; // Increased from 200,000 to 500,000
   pelletData = createPelletsInstanced(scene, PELLET_COUNT, pelletColors);
 
   animate();

@@ -1,6 +1,7 @@
 
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+import { SpatialGrid } from './utils/spatialGrid.js';
 
 export const mapSize = 500;
 
@@ -155,6 +156,15 @@ export function createPelletsInstanced(scene, count, colors) {
   scene.add(meshNormal);
   scene.add(meshPowerup);
 
+  // Build spatial grid for efficient queries
+  // Use a cell size that's appropriate for the magnet range (typically 5-10 units)
+  const spatialGrid = new SpatialGrid(mapSize, 20);
+  for (let i = 0; i < count; i++) {
+    if (active[i]) {
+      spatialGrid.add(positions[i].x, positions[i].y, positions[i].z, i);
+    }
+  }
+
   return { 
     mesh: meshNormal, 
     meshPowerup, 
@@ -164,7 +174,8 @@ export function createPelletsInstanced(scene, count, colors) {
     radius: geometry.parameters.radius, 
     dummy, 
     powerUps, 
-    pelletToMeshIndex
+    pelletToMeshIndex,
+    spatialGrid
   };
 }
 
