@@ -56,7 +56,10 @@ const {
   getForwardButtonPressed,
   keys,
   playerSpeed,
-  lastShot
+  lastShot,
+  playerRotation,
+  projectileRotation,
+  setViewingProjectile
 } = setupControls(
   canvas, 
   pointer,
@@ -94,9 +97,11 @@ function animate() {
 
   if (!particles) return;
 
-  const projectileResult = updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed);
+  const projectileResult = updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed, playerRotation, projectileRotation);
   isSplit = projectileResult.isSplit;
   splitProjectile = projectileResult.splitProjectile;
+
+  setViewingProjectile(projectileResult.viewingProjectile);
 
   if (!projectileResult.viewingProjectile) {
     updateCamera();

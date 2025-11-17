@@ -1,10 +1,12 @@
 export function setupControls(canvas, pointer, cameraController) {
   const keys = {};
   const playerRotation = { yaw: 0, pitch: 0 };
+  const projectileRotation = { yaw: 0, pitch: 0 };
   const sensitivity = 0.002;
   const playerSpeed = 0.12;
   let forwardBtnIsPressed = false;
   let lastShot = 0;
+  let viewingProjectile = false;
 
   window.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
@@ -37,6 +39,10 @@ export function setupControls(canvas, pointer, cameraController) {
   function onMouseMove(e) {
     if (cameraController.isDevMode()) {
       cameraController.updateDevRotation(e.movementX, e.movementY, sensitivity);
+    } else if (viewingProjectile) {
+      projectileRotation.yaw -= e.movementX * sensitivity;
+      projectileRotation.pitch += e.movementY * sensitivity;
+      projectileRotation.pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, projectileRotation.pitch));
     } else {
       playerRotation.yaw -= e.movementX * sensitivity;
       playerRotation.pitch += e.movementY * sensitivity;
@@ -56,5 +62,14 @@ export function setupControls(canvas, pointer, cameraController) {
     cameraController.updateCamera(playerRotation, keys, playerSpeed);
   }
 
-  return { updateCamera, getForwardButtonPressed: () => forwardBtnIsPressed, keys, playerSpeed, lastShot, playerRotation };
+  function setViewingProjectile(viewing) {
+    if (viewing && !viewingProjectile) {
+      // Copy current player rotation to projectile rotation when starting to view
+      projectileRotation.yaw = playerRotation.yaw;
+      projectileRotation.pitch = playerRotation.pitch;
+    }
+    viewingProjectile = viewing;
+  }
+
+  return { updateCamera, getForwardButtonPressed: () => forwardBtnIsPressed, keys, playerSpeed, lastShot, playerRotation, projectileRotation, setViewingProjectile };
 }

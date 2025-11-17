@@ -187,7 +187,7 @@ export function handlePelletEatingAndGrowth(playerSphere, pelletData, cameraDist
   }
 }
 
-export function updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed) {
+export function updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed, playerRotation, projectileRotation) {
   const now = performance.now();
   let isSplit = false;
   let splitProjectile = null;
@@ -209,10 +209,15 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
 
     if (t <= 2) {
       const projectilePos = (otherPlayerSphere.isVector3 ? otherPlayerSphere.clone() : new THREE.Vector3().copy(otherPlayerSphere.position || otherPlayerSphere));
-      const cameraOffset = new THREE.Vector3();
-      camera.getWorldDirection(cameraOffset);
-      cameraOffset.normalize();
-      camera.position.copy(projectilePos.clone().sub(cameraOffset.multiplyScalar(5)));
+      
+      const followDistance = 5;
+      const offset = new THREE.Vector3(
+        followDistance * Math.sin(projectileRotation.yaw) * Math.cos(projectileRotation.pitch),
+        followDistance * Math.sin(projectileRotation.pitch),
+        followDistance * Math.cos(projectileRotation.yaw) * Math.cos(projectileRotation.pitch)
+      );
+      
+      camera.position.copy(projectilePos.clone().add(offset));
       camera.lookAt(projectilePos);
 
       const decay = Math.exp(-2 * t);
