@@ -16,7 +16,7 @@ import Stats from 'three/addons/libs/stats.module.js';
 
 const canvas = document.querySelector('#c');
 
-/* ------------------------- Renderer Setup ------------------------- */
+// Renderer Setup
 
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
@@ -29,17 +29,11 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 
-/* ------------------------- Scene & Camera ------------------------- */
-
 const { scene, camera } = createScene();
 createViruses(scene);
 
-/* --------------------------- Perf Stats --------------------------- */
-
 const stats = new Stats();
 document.body.appendChild(stats.dom);
-
-/* ---------------------------- Controls ---------------------------- */
 
 const pointer = new THREE.Vector2();
 
@@ -70,13 +64,9 @@ const {
   }
 );
 
-/* ------------------------- Particles & Pellets ------------------------- */
-
 let PARTICLE_SIZE;
 let particles = null;
 let pelletData = null;
-
-/* ------------------------ Load Particles Box ------------------------ */
 
 createMapBox((loadedParticles, particleSize) => {
   particles = loadedParticles;
@@ -96,13 +86,9 @@ createMapBox((loadedParticles, particleSize) => {
   animate();
 });
 
-/* --------------------------- Split Logic --------------------------- */
-
 let isSplit = false;
 let splitProjectile = null;
 let tempPosition = null;
-
-/* --------------------------- Main Loop ---------------------------- */
 
 function animate() {
   requestAnimationFrame(animate);
@@ -115,21 +101,13 @@ function animate() {
     scene.userData.animateViruses(performance.now());
   }
 
-  /* ---------------- Pellet Eating & Growth ---------------- */
-
   handlePelletEatingAndGrowth(player, pelletData, cameraDistanceFromPlayer);
-
-  /* ------------------------ Projectile Updates ------------------------ */
 
   const projectileResult = updateProjectiles(projectiles, scene, player, camera, getForwardButtonPressed);
   isSplit = projectileResult.isSplit;
   splitProjectile = projectileResult.splitProjectile;
 
-  /* ------------------------ Player Re-Fade After Shooting ------------------------ */
-
   lastShotTime = updatePlayerFade(player, lastShotTime, playerDefaultOpacity);
-
-  /* ------------------------ Rendering ------------------------ */
 
   stats.begin();
   renderer.render(scene, camera);

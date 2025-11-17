@@ -2,20 +2,12 @@
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
-// Shared map size for all functions
 export const mapSize = 500;
 
-/**
- * Creates the player mesh and positions the camera at a fixed distance behind it.
- * @param {THREE.Scene} scene - The scene to add the player to.
- * @param {THREE.PerspectiveCamera} camera - The camera to position relative to the player.
- * @returns {Object} - Contains `player` mesh and `cameraDistanceFromPlayer`.
- */
 export function createPlayer(scene, camera) {
   const playerStartingMass = 1;
   const playerDefaultOpacity = 0.65;
 
-  // Lowered geometry resolution for performance (16x16 segments)
   const geometry = new THREE.SphereGeometry(playerStartingMass, 16, 16);
   const material = new THREE.MeshStandardMaterial({ 
     color: 0x00AAFF,
@@ -27,7 +19,6 @@ export function createPlayer(scene, camera) {
   });
   const player = new THREE.Mesh(geometry, material);
 
-  // Random initial position inside the box
   const [x, y, z] = Array(3)
     .fill()
     .map(() => THREE.MathUtils.randFloatSpread(mapSize));
@@ -39,14 +30,9 @@ export function createPlayer(scene, camera) {
   return { player, playerDefaultOpacity };
 }
 
-/**
- * Creates a box of particles for visual effect.
- * @param {Function} onReady - Callback executed when particles are loaded: receives (particles, PARTICLE_SIZE).
- */
 export function createMapBox(onReady) {
   const PARTICLE_SIZE = 2;
 
-  // Reduced subdivisions for performance (64x64x64)
   let boxGeometry = new THREE.BoxGeometry(mapSize, mapSize, mapSize, 96, 96, 96);
   boxGeometry.deleteAttribute('normal');
   boxGeometry.deleteAttribute('uv');
@@ -91,15 +77,8 @@ export function createMapBox(onReady) {
   });
 }
 
-/**
- * Creates instanced pellets for the player to interact with.
- * @param {THREE.Scene} scene - The scene to add the pellets to.
- * @param {number} count - Number of pellets to generate.
- * @param {number[]} colors - Array of hex colors for pellets.
- * @returns {Object} - Contains instanced mesh, positions, sizes, activity status, radius, and dummy object.
- */
 export function createPelletsInstanced(scene, count, colors) {
-  const geometry = new THREE.SphereGeometry(1, 8, 8); // base radius
+  const geometry = new THREE.SphereGeometry(1, 8, 8);
   const materialNormal = new THREE.MeshStandardMaterial({ color: 0xffffff, opacity: 1, transparent: false });
   const materialPowerup = new THREE.MeshStandardMaterial({ color: 0xffffff, opacity: 0.25, transparent: true });
 
@@ -108,9 +87,8 @@ export function createPelletsInstanced(scene, count, colors) {
   const sizes = [];
   const active = new Array(count).fill(true);
   const powerUps = new Array(count);
-  const pelletToMeshIndex = new Array(count); // Maps global pellet index to mesh-specific index
+  const pelletToMeshIndex = new Array(count);
 
-  // First pass: count powerups and normals
   let powerupCount = 0;
   let normalCount = 0;
   for (let i = 0; i < count; i++) {
@@ -124,11 +102,9 @@ export function createPelletsInstanced(scene, count, colors) {
     else normalCount++;
   }
 
-  // Create two separate instanced meshes
   const meshNormal = new THREE.InstancedMesh(geometry, materialNormal, normalCount);
   const meshPowerup = new THREE.InstancedMesh(geometry, materialPowerup, powerupCount);
 
-  // Second pass: populate both meshes
   let normalIdx = 0;
   let powerupIdx = 0;
 
@@ -139,7 +115,6 @@ export function createPelletsInstanced(scene, count, colors) {
     const size = Math.random() * 0.3 + 0.2;
     sizes.push(size);
 
-    // Calculate safe bounds considering pellet size
     const pelletRadius = size;
     const halfMapSize = mapSize / 2;
     const maxPos = halfMapSize - pelletRadius;
@@ -169,11 +144,6 @@ export function createPelletsInstanced(scene, count, colors) {
     positions.push(position.clone());
   }
 
-  /**
-   * Checks if player overlaps any pellet and "eats" it.
-   * @param {THREE.Mesh} player - The player mesh.
-   * @returns {number} - Number of pellets eaten in this check.
-   */
   const checkAndEatPellets = function(player) {
     let eaten = 0;
     for (let i = 0; i < count; i++) {
@@ -231,17 +201,13 @@ export function createPelletsInstanced(scene, count, colors) {
   };
 }
 
-/**
- * Creates virus spheres in the scene.
- * @param {THREE.Scene} scene - The scene to add the viruses to.
- */
 export function createViruses(scene) {
   const VIRUS_COUNT = 250;
   const VIRUS_SIZE = 2.25;
-  const virusColor = 0x32CD32; // lime green
+  const virusColor = 0x32CD32;
   const geometry = new THREE.DodecahedronGeometry(VIRUS_SIZE);
   const material = new THREE.MeshStandardMaterial({ color: virusColor, opacity: 0.8, transparent: true });
-  const border = mapSize / 2 - VIRUS_SIZE; // keep inside box
+  const border = mapSize / 2 - VIRUS_SIZE;
   const positions = [];
   const viruses = [];
   for (let i = 0; i < VIRUS_COUNT; i++) {
@@ -262,17 +228,14 @@ export function createViruses(scene) {
     viruses.push(mesh);
     scene.add(mesh);
   }
-  // Animation function for viruses
   function animateViruses(time) {
     for (let i = 0; i < viruses.length; i++) {
       const mesh = viruses[i];
       mesh.rotation.y += 0.005;
       mesh.rotation.x += 0.002;
-      // Breathing effect
       const scale = mesh.userData.baseScale + 0.08 * Math.sin(time * 0.001 + i);
       mesh.scale.setScalar(scale);
     }
   }
-  // Attach to scene for main loop
   scene.userData.animateViruses = animateViruses;
 }

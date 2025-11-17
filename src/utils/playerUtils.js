@@ -1,14 +1,5 @@
 import * as THREE from 'three';
 
-/**
- * Checks whether the player has eaten any pellets.
- * Uses simple sphere-sphere collision detection.
- * @param {THREE.Mesh} player - The player mesh.
- * @param {Object} pelletData - The instanced pellet data.
- * @param {number} cameraDistanceFromPlayer - Optional: used for debugging camera adjustments.
- * @returns {Object} - Contains eatenCount, totalSize, and eatenSizes array.
- */
-
 export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) {
   if (!player || !pelletData) return { eatenCount: 0, totalSize: 0, eatenSizes: [] };
 
@@ -34,12 +25,12 @@ export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) 
       totalSize += sizes[i];
       eatenSizes.push(sizes[i]);
 
-      cameraDistanceFromPlayer += 1; // optional debug log
+      cameraDistanceFromPlayer += 1;
 
       const isPowerUp = powerUps[i];
       if (isPowerUp && !newPelletMagnetToggle) {
         newPelletMagnetToggle = togglePelletMagnet(player, pelletData, newPelletMagnetToggle);
-        pelletData.pelletMagnetToggle = newPelletMagnetToggle; // Store the state
+        pelletData.pelletMagnetToggle = newPelletMagnetToggle;
       }
       dummy.position.copy(positions[i]);
       dummy.rotation.set(0, 0, 0);
@@ -63,19 +54,11 @@ export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) 
   return { eatenCount, totalSize, eatenSizes, pelletMagnetToggle: newPelletMagnetToggle };
 }
 
-/**
- * Toggles the pellet magnet on and sets a timer to turn it off after 8 seconds
- * @param {THREE.Mesh} player - The player mesh
- * @param {Object} pelletData - The pellet data
- * @param {boolean} currentToggle - Current toggle state
- * @returns {boolean} - New toggle state
- */
+// Pellet Magnet
 function togglePelletMagnet(player, pelletData, currentToggle) {
-  // Turn on the magnet
   if (!currentToggle) {
     console.log('Pellet magnet activated for 8 seconds!');
     
-    // Set timeout to turn off after 8 seconds
     setTimeout(() => {
       pelletData.pelletMagnetToggle = false;
       console.log('Pellet magnet deactivated!');
@@ -87,14 +70,6 @@ function togglePelletMagnet(player, pelletData, currentToggle) {
   return currentToggle;
 }
 
-/**
- * Attracts pellets within range towards the player when magnet is active
- * @param {THREE.Mesh} player - The player mesh
- * @param {Object} pelletData - The pellet data containing positions, meshes, etc.
- * @param {boolean} pelletMagnetToggle - Whether the magnet is active
- * @param {number} magnetRange - Distance within which pellets are attracted (default 10)
- * @param {number} attractionSpeed - Speed at which pellets move towards player (default 0.15)
- */
 export function applyPelletMagnet(player, pelletData, pelletMagnetToggle, magnetRange = 5, attractionSpeed = 0.15) {
   if (!pelletMagnetToggle || !player || !pelletData) return;
 
@@ -104,34 +79,27 @@ export function applyPelletMagnet(player, pelletData, pelletMagnetToggle, magnet
   const playerPosition = player.position;
   const playerRadius = player.geometry.parameters.radius * Math.max(player.scale.x, player.scale.y, player.scale.z);
   
-  // Pre-calculate squared distances to avoid expensive sqrt operations
   const magnetRangeSq = magnetRange * magnetRange;
   const playerRadiusSq = playerRadius * playerRadius;
   
-  // Cache these for reuse
   const px = playerPosition.x;
   const py = playerPosition.y;
   const pz = playerPosition.z;
   
-  // Track affected pellets to batch matrix updates
   const affectedNormal = [];
   const affectedPowerup = [];
 
-  // First pass: update positions only (fast)
   for (let i = 0; i < positions.length; i++) {
     if (!active[i]) continue;
 
     const pelletPos = positions[i];
     
-    // Calculate squared distance (faster than distanceTo which uses sqrt)
     const dx = px - pelletPos.x;
     const dy = py - pelletPos.y;
     const dz = pz - pelletPos.z;
     const distanceSq = dx * dx + dy * dy + dz * dz;
     
-    // Only attract pellets within magnetRange and outside the player
     if (distanceSq <= magnetRangeSq && distanceSq > playerRadiusSq) {
-      // Calculate direction and move pellet (no sqrt needed for small movements)
       const distance = Math.sqrt(distanceSq);
       const factor = attractionSpeed / distance;
       
@@ -139,7 +107,6 @@ export function applyPelletMagnet(player, pelletData, pelletMagnetToggle, magnet
       pelletPos.y += dy * factor;
       pelletPos.z += dz * factor;
 
-      // Track which pellets were affected
       const isPowerUp = powerUps && powerUps[i];
       if (isPowerUp) {
         affectedPowerup.push({ i, meshIndex: pelletToMeshIndex[i], size: sizes[i] });
@@ -149,7 +116,6 @@ export function applyPelletMagnet(player, pelletData, pelletMagnetToggle, magnet
     }
   }
 
-  // Second pass: batch update matrices only for affected pellets
   if (affectedNormal.length > 0) {
     for (let j = 0; j < affectedNormal.length; j++) {
       const { i, meshIndex, size } = affectedNormal[j];
@@ -173,13 +139,6 @@ export function applyPelletMagnet(player, pelletData, pelletMagnetToggle, magnet
   }
 }
 
-/**
- * Updates player opacity fade after shooting
- * @param {THREE.Mesh} player - The player mesh
- * @param {number} lastShotTime - Timestamp of the last shot
- * @param {number} playerDefaultOpacity - The default opacity to fade back to
- * @returns {number|null} - Updated lastShotTime or null if fade is complete
- */
 export function updatePlayerFade(player, lastShotTime, playerDefaultOpacity) {
   if (!lastShotTime) return null;
 
@@ -197,12 +156,6 @@ export function updatePlayerFade(player, lastShotTime, playerDefaultOpacity) {
   }
 }
 
-/**
- * Handles pellet eating and player growth
- * @param {THREE.Mesh} player - The player mesh
- * @param {Object} pelletData - The pellet data
- * @param {number} cameraDistanceFromPlayer - Camera distance for debugging
- */
 export function handlePelletEatingAndGrowth(player, pelletData, cameraDistanceFromPlayer) {
   if (!pelletData) return;
 
@@ -234,16 +187,6 @@ export function handlePelletEatingAndGrowth(player, pelletData, cameraDistanceFr
   }
 }
 
-
-/**
- * Updates all projectiles in the scene
- * @param {Array} projectiles - Array of projectile objects
- * @param {THREE.Scene} scene - The scene to remove projectiles from
- * @param {THREE.Mesh} player - The player mesh
- * @param {THREE.Camera} camera - The camera for split shot view
- * @param {Function} getForwardButtonPressed - Function that returns if forward button is pressed
- * @returns {Object} - Contains isSplit and splitProjectile
- */
 export function updateProjectiles(projectiles, scene, player, camera, getForwardButtonPressed) {
   const now = performance.now();
   let isSplit = false;
@@ -260,8 +203,6 @@ export function updateProjectiles(projectiles, scene, player, camera, getForward
     const toPlayer = player.position.clone().sub(p.position);
     const dist     = toPlayer.length();
 
-    // Feed
-
     if (t <= 2) {
       const pv = (p.isVector3 ? p.clone() : new THREE.Vector3().copy(p.position || p));
       const back = new THREE.Vector3(0, 0, 1).applyQuaternion(p.quaternion);
@@ -275,8 +216,6 @@ export function updateProjectiles(projectiles, scene, player, camera, getForward
 
       continue;
     }
-
-    // Split
 
     isSplit = true;
     splitProjectile = p;

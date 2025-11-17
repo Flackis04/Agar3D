@@ -1,16 +1,5 @@
 import * as THREE from 'three';
 
-/**
- * Sets up camera and player controls, including optional developer (free) camera mode.
- * @param {HTMLCanvasElement} canvas - The canvas element to attach controls to.
- * @param {THREE.PerspectiveCamera} camera - The main camera to control.
- * @param {THREE.Mesh} player - The player mesh to move and rotate.
- * @param {THREE.Vector2} pointer - Normalized pointer coordinates for mouse tracking.
- * @param {THREE.Scene} scene - The scene to add projectiles to.
- * @param {Array} projectiles - The array to store projectile references.
- * @param {Function} onShoot - Callback function to trigger when shooting.
- * @returns {Object} - Contains `updateCamera` function to be called each frame.
- */
 export function setupControls(canvas, camera, player, pointer, scene, projectiles, onShoot) {
   const keys = {};
   const playerRotation = { yaw: 0, pitch: 0 };
@@ -25,18 +14,13 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
   const devCameraPos = new THREE.Vector3();
   let lastShot = 0;
   
-  // Smooth camera distance tracking
   let smoothFollowDistance = followDistance;
-  const cameraLerpSpeed = 0.005; // Lower = smoother but slower, higher = faster but more jittery
+  const cameraLerpSpeed = 0.005;
 
-  /**
-   * Keyboard input handling
-   */
   window.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
     keys[key] = true;
 
-    // Toggle developer mode with 'X'
     if (key === 'x') toggleDeveloperMode();
     if (key === 'w') forwardBtnIsPressed = true;
   });
@@ -48,9 +32,6 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     if (key === 'w') forwardBtnIsPressed = false;
   });
 
-  /**
-   * Pointer lock for first-person-style controls
-   */
   canvas.addEventListener('click', async () => {
     try {
       await canvas.requestPointerLock();
@@ -59,17 +40,11 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     }
   });
 
-  /**
-   * Update normalized pointer coordinates on mouse move
-   */
   document.addEventListener('pointermove', (event) => {
     pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
     pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
   });
 
-  /**
-   * Mouse movement handler for player and dev camera rotation
-   */
   function onMouseMove(e) {
     if (devMode) {
       devRotation.yaw -= e.movementX * sensitivity;
@@ -82,9 +57,6 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     }
   }
 
-  /**
-   * Activate or deactivate mousemove events when pointer lock changes
-   */
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement === canvas) {
       document.addEventListener('mousemove', onMouseMove);
@@ -93,9 +65,7 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     }
   });
 
-  /**
-   * Toggle developer free camera mode
-   */
+  // Developer Camera
   function toggleDeveloperMode() {
     devMode = !devMode;
     console.log(`Developer mode ${devMode ? 'enabled' : 'disabled'}`);
@@ -110,9 +80,6 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     }
   }
 
-  /**
-   * Updates camera position depending on current mode
-   */
   function updateCamera() {
     if (devMode) {
       updateDevCamera();
@@ -121,9 +88,6 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     }
   }
 
-  /**
-   * Developer mode camera movement
-   */
   function updateDevCamera() {
     if (!camera) return;
     const direction = new THREE.Vector3(
@@ -138,12 +102,6 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     camera.lookAt(devCameraPos.clone().add(direction));
   }
 
-  /**
-   * Clamp player position inside a bounding box
-   * @param {THREE.Vector3} position - Position to clamp
-   * @param {THREE.Mesh} player - Player mesh for radius calculation
-   * @returns {THREE.Vector3} - Clamped position
-   */
   function clampToBoxBounds(position, player) {
     const BOX_SIZE = 500;
     const BOX_HALF = BOX_SIZE / 2;
@@ -164,23 +122,17 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     return position;
   }
 
-  /**
-   * Update camera to follow player with optional movement
-   */
   function updatePlayerCamera() {
     if (!player || !player.position) return;
 
-    // Calculate player radius (scaled) to adjust camera distance
     const playerRadius = player.geometry.parameters.radius * Math.max(
       player.scale.x,
       player.scale.y,
       player.scale.z
     );
     
-    // Make camera distance proportional to player size so it appears constant on screen
-    const targetFollowDistance = playerRadius * 8; // Adjust multiplier for desired screen size
+    const targetFollowDistance = playerRadius * 8;
     
-    // Smoothly interpolate (lerp) the camera distance to avoid sudden jumps
     smoothFollowDistance += (targetFollowDistance - smoothFollowDistance) * cameraLerpSpeed;
     
     const offset = new THREE.Vector3(
@@ -248,9 +200,6 @@ function tryShoot(isSpaceShot) {
   if (onShoot) onShoot();
 }
 
-/* ---------------------------
-   Continuous regular shooting
---------------------------- */
 function handleShootLoop() {
   if (keys['e']) {
     tryShoot(false);
@@ -259,9 +208,6 @@ function handleShootLoop() {
 }
 handleShootLoop();
 
-/* ---------------------------
-   Spacebar → Space Shot
---------------------------- */
 window.addEventListener(
   'keydown',
   e => {
