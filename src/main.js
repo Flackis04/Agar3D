@@ -61,12 +61,12 @@ const {
   cameraController
 );
 
-let particles = null;
+let border = null;
 let pelletData = null;
 
-createMapBox((loadedParticles) => {
-  particles = loadedParticles;
-  scene.add(particles);
+createMapBox((loadedBorder) => {
+  border = loadedBorder;
+  scene.add(border);
 
   const pelletColors = [
     0xFF3333, 0x33FF33, 0x3333FF, 0xFFFF33,
@@ -89,7 +89,7 @@ function onShotFired() {
 function animate() {
   requestAnimationFrame(animate);
 
-  if (!particles) return;
+  if (!border) return;
 
   const projectileResult = updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed, playerRotation, projectileRotation);
   
