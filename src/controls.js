@@ -5,12 +5,12 @@ function clampPitch(pitch) {
 export function setupControls(canvas, cameraController) {
   const keys = {};
   const playerRotation = { yaw: 0, pitch: 0 };
-  const projectileRotation = { yaw: 0, pitch: 0 };
+  const cellRotation = { yaw: 0, pitch: 0 };
   const sensitivity = 0.002;
   const playerSpeed = 0.12;
   let forwardBtnIsPressed = false;
-  let lastShot = 0;
-  let viewingProjectile = false;
+  let lastSplit = 0;
+  let viewingCell = false;
 
   window.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
@@ -38,10 +38,10 @@ export function setupControls(canvas, cameraController) {
   function onMouseMove(e) {
     if (cameraController.isDevMode()) {
       cameraController.updateDevRotation(e.movementX, e.movementY, sensitivity);
-    } else if (viewingProjectile) {
-      projectileRotation.yaw -= e.movementX * sensitivity;
-      projectileRotation.pitch += e.movementY * sensitivity;
-      projectileRotation.pitch = clampPitch(projectileRotation.pitch);
+    } else if (viewingCell) {
+      cellRotation.yaw -= e.movementX * sensitivity;
+      cellRotation.pitch += e.movementY * sensitivity;
+      cellRotation.pitch = clampPitch(cellRotation.pitch);
     } else {
       playerRotation.yaw -= e.movementX * sensitivity;
       playerRotation.pitch += e.movementY * sensitivity;
@@ -61,14 +61,14 @@ export function setupControls(canvas, cameraController) {
     cameraController.updateCamera(playerRotation, keys, playerSpeed);
   }
 
-  function setViewingProjectile(viewing) {
-    if (viewing && !viewingProjectile) {
-      // Copy current player rotation to projectile rotation when starting to view
-      projectileRotation.yaw = playerRotation.yaw;
-      projectileRotation.pitch = playerRotation.pitch;
+  function setViewingCell(viewing) {
+    if (viewing && !viewingCell) {
+      // Copy current player rotation to cell rotation when starting to view
+      cellRotation.yaw = playerRotation.yaw;
+      cellRotation.pitch = playerRotation.pitch;
     }
-    viewingProjectile = viewing;
+    viewingCell = viewing;
   }
 
-  return { updateCamera, getForwardButtonPressed: () => forwardBtnIsPressed, keys, playerSpeed, lastShot, playerRotation, projectileRotation, setViewingProjectile };
+  return { updateCamera, getForwardButtonPressed: () => forwardBtnIsPressed, keys, playerSpeed, lastSplit, playerRotation, cellRotation, setViewingCell };
 }

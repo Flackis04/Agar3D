@@ -9,7 +9,7 @@ import {
   createViruses 
 } from './objects.js';
 import { 
-  updateProjectiles,
+  updateCells,
   updatePlayerFade,
   handlePelletEatingAndGrowth,
   executeSplit
@@ -38,24 +38,24 @@ const stats = new Stats();
 document.body.appendChild(stats.dom);
 
 const {
-  playerSphere,
+  playerCell,
   playerDefaultOpacity
 } = createPlayer(scene, camera);
 
-let projectiles = [];
-let lastShotTime = null;
+let cells = [];
+let lastSplitTime = null;
 
-const cameraController = createCameraController(camera, playerSphere);
+const cameraController = createCameraController(camera, playerCell);
 
 const { 
   updateCamera, 
   getForwardButtonPressed,
   keys,
   playerSpeed,
-  lastShot,
+  lastSplit,
   playerRotation,
-  projectileRotation,
-  setViewingProjectile
+  cellRotation,
+  setViewingCell
 } = setupControls(
   canvas,
   cameraController
@@ -81,9 +81,9 @@ createMapBox((loadedBorder) => {
   animate();
 });
 
-function onShotFired() {
-  lastShotTime = performance.now();
-  playerSphere.material.opacity = 0.2;
+function onSplit() {
+  lastSplitTime = performance.now();
+  playerCell.material.opacity = 0.2;
 }
 
 function animate() {
@@ -91,11 +91,11 @@ function animate() {
 
   if (!border) return;
 
-  const projectileResult = updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed, playerRotation, projectileRotation);
+  const cellResult = updateCells(cells, scene, playerCell, camera, getForwardButtonPressed, playerRotation, cellRotation);
   
-  setViewingProjectile(projectileResult.viewingProjectile);
+  setViewingCell(cellResult.viewingCell);
 
-  if (!projectileResult.viewingProjectile) {
+  if (!cellResult.viewingCell) {
     updateCamera();
   }
 
@@ -103,34 +103,23 @@ function animate() {
     scene.userData.animateViruses(performance.now());
   }
 
-  handlePelletEatingAndGrowth(playerSphere, pelletData);
+  handlePelletEatingAndGrowth(playerCell, pelletData);
 
-  lastShotTime = updatePlayerFade(playerSphere, lastShotTime, playerDefaultOpacity);
+  lastSplitTime = updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity);
 
   stats.begin();
   renderer.render(scene, camera);
   stats.end();
 }
 
-function handleShootLoop() {
-  if (keys['e']) {
-    const newLastShot = executeSplit(false, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, onShotFired);
-    if (newLastShot !== lastShot) {
-      Object.assign(lastShot, { value: newLastShot });
-    }
-  }
-  requestAnimationFrame(handleShootLoop);
-}
-handleShootLoop();
-
 window.addEventListener(
   'keydown',
   e => {
     if (e.code === 'Space') {
       e.preventDefault();
-      const newLastShot = executeSplit(true, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, onShotFired);
-      if (newLastShot !== lastShot) {
-        Object.assign(lastShot, { value: newLastShot });
+      const newLastSplit = executeSplit(playerCell, camera, scene, cells, playerSpeed, lastSplit, onSplit);
+      if (newLastSplit !== lastSplit) {
+        Object.assign(lastSplit, { value: newLastSplit });
       }
     }
   },

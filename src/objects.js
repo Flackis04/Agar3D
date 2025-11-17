@@ -17,17 +17,17 @@ export function createPlayer(scene, camera) {
     transparent: true,
     opacity: playerDefaultOpacity
   });
-  const playerSphere = new THREE.Mesh(geometry, material);
+  const playerCell = new THREE.Mesh(geometry, material);
 
   const [x, y, z] = Array(3)
     .fill()
     .map(() => THREE.MathUtils.randFloatSpread(mapSize));
 
-  playerSphere.position.set(x, y, z);
+  playerCell.position.set(x, y, z);
 
-  scene.add(playerSphere);
+  scene.add(playerCell);
 
-  return { playerSphere, playerDefaultOpacity };
+  return { playerCell, playerDefaultOpacity };
 }
 
 export function createMapBox(onReady) {

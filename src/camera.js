@@ -4,11 +4,11 @@ function clampPitch(pitch) {
   return Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
 }
 
-function calculateSphereRadius(sphere) {
-  return sphere.geometry.parameters.radius * Math.max(
-    sphere.scale.x,
-    sphere.scale.y,
-    sphere.scale.z
+function calculateCellRadius(cell) {
+  return cell.geometry.parameters.radius * Math.max(
+    cell.scale.x,
+    cell.scale.y,
+    cell.scale.z
   );
 }
 
@@ -20,7 +20,7 @@ function calculateDirectionVector(yaw, pitch, scale = 1) {
   );
 }
 
-export function createCameraController(camera, playerSphere) {
+export function createCameraController(camera, playerCell) {
   let devMode = false;
   const devCameraPos = new THREE.Vector3();
   const devRotation = { yaw: 0, pitch: 0 };
@@ -55,9 +55,9 @@ export function createCameraController(camera, playerSphere) {
   }
 
   function updatePlayerCamera(playerRotation, keys, playerSpeed) {
-    if (!playerSphere || !playerSphere.position) return;
+    if (!playerCell || !playerCell.position) return;
 
-    const playerRadius = calculateSphereRadius(playerSphere);
+    const playerRadius = calculateCellRadius(playerCell);
     
     const targetFollowDistance = playerRadius * 8;
     
@@ -67,20 +67,20 @@ export function createCameraController(camera, playerSphere) {
 
     const forward = offset.clone().normalize().negate();
     if (keys['w']) {
-      const nextPosition = playerSphere.position.clone().addScaledVector(forward, playerSpeed);
-      clampToBoxBounds(nextPosition, playerSphere);
-      playerSphere.position.copy(nextPosition);
+      const nextPosition = playerCell.position.clone().addScaledVector(forward, playerSpeed);
+      clampToBoxBounds(nextPosition, playerCell);
+      playerCell.position.copy(nextPosition);
     }
 
-    camera.position.copy(playerSphere.position.clone().add(offset));
-    camera.lookAt(playerSphere.position);
+    camera.position.copy(playerCell.position.clone().add(offset));
+    camera.lookAt(playerCell.position);
   }
 
-  function clampToBoxBounds(position, playerSphere) {
+  function clampToBoxBounds(position, playerCell) {
     const BOX_SIZE = 500;
     const BOX_HALF = BOX_SIZE / 2;
 
-    const playerRadius = calculateSphereRadius(playerSphere);
+    const playerRadius = calculateCellRadius(playerCell);
 
     const minBound = -BOX_HALF + playerRadius;
     const maxBound = BOX_HALF - playerRadius;
