@@ -112,6 +112,10 @@ export function applyPelletMagnet(playerCell, pelletData, pelletMagnetToggle, ma
   let candidateIndices;
   if (spatialGrid) {
     candidateIndices = spatialGrid.query(px, py, pz, magnetRange);
+    // Log performance improvement for debugging
+    if (candidateIndices.length > 0) {
+      console.log(`Magnet optimization: checking ${candidateIndices.length} pellets instead of ${positions.length}`);
+    }
   } else {
     // Fallback: check all pellets (slower)
     candidateIndices = [];
