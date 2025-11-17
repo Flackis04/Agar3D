@@ -1,6 +1,7 @@
 
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+import { SpatialGrid } from './utils/spatialGrid.js';
 
 export const mapSize = 500;
 
@@ -54,27 +55,74 @@ export function createMapBox(onReady) {
   geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(colors, 3));
   geometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
 
+  // Create a simple disc texture programmatically as fallback
+  const createDiscTexture = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    
+    const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.5)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 128, 128);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
+  };
+
   const loader = new THREE.TextureLoader();
-  loader.load('https://threejs.org/examples/textures/sprites/disc.png', (texture) => {
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        color: { value: new THREE.Color(0xffffff) },
-        pointTexture: { value: texture },
-        alphaTest: { value: 0.9 },
-        fogColor: { value: new THREE.Color(0x080020) },
-        fogDensity: { value: 0.025 }
-      },
-      vertexShader: document.getElementById('vertexshader').textContent,
-      fragmentShader: document.getElementById('fragmentshader').textContent,
-      transparent: true,
-      depthWrite: false
-    });
+  loader.load(
+    'https://threejs.org/examples/textures/sprites/disc.png',
+    (texture) => {
+      // Success - use the loaded texture
+      const material = new THREE.ShaderMaterial({
+        uniforms: {
+          color: { value: new THREE.Color(0xffffff) },
+          pointTexture: { value: texture },
+          alphaTest: { value: 0.9 },
+          fogColor: { value: new THREE.Color(0x080020) },
+          fogDensity: { value: 0.025 }
+        },
+        vertexShader: document.getElementById('vertexshader').textContent,
+        fragmentShader: document.getElementById('fragmentshader').textContent,
+        transparent: true,
+        depthWrite: false
+      });
 
-    material.needsUpdate = true;
-    const particles = new THREE.Points(geometry, material);
+      material.needsUpdate = true;
+      const particles = new THREE.Points(geometry, material);
 
-    onReady(particles, PARTICLE_SIZE);
-  });
+      onReady(particles, PARTICLE_SIZE);
+    },
+    undefined,
+    (error) => {
+      // Error - use fallback texture
+      console.log('Using fallback disc texture');
+      const texture = createDiscTexture();
+      const material = new THREE.ShaderMaterial({
+        uniforms: {
+          color: { value: new THREE.Color(0xffffff) },
+          pointTexture: { value: texture },
+          alphaTest: { value: 0.9 },
+          fogColor: { value: new THREE.Color(0x080020) },
+          fogDensity: { value: 0.025 }
+        },
+        vertexShader: document.getElementById('vertexshader').textContent,
+        fragmentShader: document.getElementById('fragmentshader').textContent,
+        transparent: true,
+        depthWrite: false
+      });
+
+      material.needsUpdate = true;
+      const particles = new THREE.Points(geometry, material);
+
+      onReady(particles, PARTICLE_SIZE);
+    }
+  );
 }
 
 export function createPelletsInstanced(scene, count, colors) {
@@ -155,6 +203,15 @@ export function createPelletsInstanced(scene, count, colors) {
   scene.add(meshNormal);
   scene.add(meshPowerup);
 
+  // Build spatial grid for efficient queries
+  // Use a cell size that's appropriate for the magnet range (typically 5-10 units)
+  const spatialGrid = new SpatialGrid(mapSize, 20);
+  for (let i = 0; i < count; i++) {
+    if (active[i]) {
+      spatialGrid.add(positions[i].x, positions[i].y, positions[i].z, i);
+    }
+  }
+
   return { 
     mesh: meshNormal, 
     meshPowerup, 
@@ -164,7 +221,8 @@ export function createPelletsInstanced(scene, count, colors) {
     radius: geometry.parameters.radius, 
     dummy, 
     powerUps, 
-    pelletToMeshIndex
+    pelletToMeshIndex,
+    spatialGrid
   };
 }
 
