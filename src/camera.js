@@ -95,6 +95,7 @@ export function createCameraController(camera, playerCell) {
   function updateCamera(playerRotation, keys, playerSpeed) {
     if (devMode) {
       updateDevCamera(keys);
+      
     } else {
       updatePlayerCamera(playerRotation, keys, playerSpeed);
     }
@@ -111,4 +112,33 @@ export function createCameraController(camera, playerCell) {
   }
 
   return { updateCamera, toggleDeveloperMode, updateDevRotation, isDevMode };
+}
+
+export function removeFogIfDevMode(scene, cameraController, pelletData) {
+  // Store the original fog and background on first call
+  if (!scene._originalFog) scene._originalFog = scene.fog;
+  if (!scene._originalBackground) scene._originalBackground = scene.background;
+
+  if (cameraController.isDevMode && cameraController.isDevMode()) {
+    // Remove fog
+    if (scene.fog) scene.fog = null;
+    if (scene.background && scene.background.isColor) {
+      scene.background = new THREE.Color(0x000000);
+    }
+    // Remove all pellets
+    if (pelletData) {
+      if (pelletData.mesh) scene.remove(pelletData.mesh);
+      if (pelletData.meshPowerup) scene.remove(pelletData.meshPowerup);
+      pelletData._devModeRemoved = true;
+    }
+  } else {
+    // Restore original fog and background
+    if (typeof scene._originalFog !== 'undefined') scene.fog = scene._originalFog;
+    if (typeof scene._originalBackground !== 'undefined') scene.background = scene._originalBackground;
+    if (pelletData && pelletData._devModeRemoved) {
+      if (pelletData.mesh && !scene.children.includes(pelletData.mesh)) scene.add(pelletData.mesh);
+      if (pelletData.meshPowerup && !scene.children.includes(pelletData.meshPowerup)) scene.add(pelletData.meshPowerup);
+      pelletData._devModeRemoved = false;
+    }
+  }
 }

@@ -15,6 +15,8 @@ import {
   executeSplit
 } from './utils/playerUtils.js';
 import Stats from 'three/addons/libs/stats.module.js';
+import { initNetworking, emitPlayerMove, emitJoin } from './multiplayer.js';
+import { removeFogIfDevMode } from './camera.js';
 
 const canvas = document.querySelector('#c');
 
@@ -41,6 +43,11 @@ const {
   playerCell,
   playerDefaultOpacity
 } = createPlayer(scene, camera);
+
+// Multiplayer integration
+let playerName = 'Player';
+initNetworking(scene);
+emitJoin(playerName, playerCell);
 
 let cells = [];
 let lastSplitTime = null;
@@ -91,8 +98,22 @@ function animate() {
 
   if (!border) return;
 
+  removeFogIfDevMode(scene, cameraController, pelletData);
+
+  if (!(cameraController.isDevMode && cameraController.isDevMode())) {
+    handlePelletEatingAndGrowth(playerCell, pelletData);
+    if (pelletData) {
+      if (pelletData.mesh && !scene.children.includes(pelletData.mesh)) scene.add(pelletData.mesh);
+      if (pelletData.meshPowerup && !scene.children.includes(pelletData.meshPowerup)) scene.add(pelletData.meshPowerup);
+    }
+  } else {
+    if (pelletData) {
+      if (pelletData.mesh && scene.children.includes(pelletData.mesh)) scene.remove(pelletData.mesh);
+      if (pelletData.meshPowerup && scene.children.includes(pelletData.meshPowerup)) scene.remove(pelletData.meshPowerup);
+    }
+  }
+
   const cellResult = updateCells(cells, scene, playerCell, camera, getForwardButtonPressed, playerRotation, cellRotation);
-  
   setViewingCell(cellResult.viewingCell);
 
   if (!cellResult.viewingCell) {
@@ -103,9 +124,9 @@ function animate() {
     scene.userData.animateViruses(performance.now());
   }
 
-  handlePelletEatingAndGrowth(playerCell, pelletData);
-
   lastSplitTime = updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity);
+
+  emitPlayerMove(playerCell);
 
   stats.begin();
   renderer.render(scene, camera);

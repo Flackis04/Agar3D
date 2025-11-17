@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -195,6 +194,7 @@ export function createViruses(scene) {
     viruses.push(mesh);
     scene.add(mesh);
   }
+  scene.userData.viruses = viruses;
   function animateViruses(time) {
     for (let i = 0; i < viruses.length; i++) {
       const mesh = viruses[i];
