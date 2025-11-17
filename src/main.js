@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createScene } from './scene.js';
 import { setupControls } from './controls.js';
+import { createCameraController } from './camera.js';
 import { 
   createMapBox, 
   createPelletsInstanced, 
@@ -10,7 +11,8 @@ import {
 import { 
   updateProjectiles,
   updatePlayerFade,
-  handlePelletEatingAndGrowth
+  handlePelletEatingAndGrowth,
+  tryShoot
 } from './utils/playerUtils.js';
 import Stats from 'three/addons/libs/stats.module.js';
 
@@ -47,21 +49,18 @@ let projectiles = [];
 let lastShotTime = null;
 let lastShotOpacity = null;
 
+const cameraController = createCameraController(camera, playerSphere);
+
 const { 
   updateCamera, 
-  getForwardButtonPressed 
+  getForwardButtonPressed,
+  keys,
+  playerSpeed,
+  lastShot
 } = setupControls(
   canvas, 
-  camera, 
-  playerSphere, 
-  pointer, 
-  scene, 
-  projectiles, 
-  () => {
-    lastShotTime = performance.now();
-    lastShotOpacity = playerSphere.material.opacity;
-    playerSphere.material.opacity = 0.2;
-  }
+  pointer,
+  cameraController
 );
 
 let PARTICLE_SIZE;
@@ -95,7 +94,13 @@ function animate() {
 
   if (!particles) return;
 
-  updateCamera();
+  const projectileResult = updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed);
+  isSplit = projectileResult.isSplit;
+  splitProjectile = projectileResult.splitProjectile;
+
+  if (!projectileResult.viewingProjectile) {
+    updateCamera();
+  }
 
   if (scene.userData.animateViruses) {
     scene.userData.animateViruses(performance.now());
@@ -103,14 +108,43 @@ function animate() {
 
   handlePelletEatingAndGrowth(playerSphere, pelletData, cameraDistanceFromPlayer);
 
-  const projectileResult = updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed);
-  isSplit = projectileResult.isSplit;
-  splitProjectile = projectileResult.splitProjectile;
-
   lastShotTime = updatePlayerFade(playerSphere, lastShotTime, playerDefaultOpacity);
 
   stats.begin();
   renderer.render(scene, camera);
   stats.end();
 }
+
+function handleShootLoop() {
+  if (keys['e']) {
+    const newLastShot = tryShoot(false, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, () => {
+      lastShotTime = performance.now();
+      lastShotOpacity = playerSphere.material.opacity;
+      playerSphere.material.opacity = 0.2;
+    });
+    if (newLastShot !== lastShot) {
+      Object.assign(lastShot, { value: newLastShot });
+    }
+  }
+  requestAnimationFrame(handleShootLoop);
+}
+handleShootLoop();
+
+window.addEventListener(
+  'keydown',
+  e => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      const newLastShot = tryShoot(true, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, () => {
+        lastShotTime = performance.now();
+        lastShotOpacity = playerSphere.material.opacity;
+        playerSphere.material.opacity = 0.2;
+      });
+      if (newLastShot !== lastShot) {
+        Object.assign(lastShot, { value: newLastShot });
+      }
+    }
+  },
+  true
+);
 

@@ -192,30 +192,37 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
   let isSplit = false;
   let splitProjectile = null;
 
+  const basePlayerRadius = playerSphere.geometry.parameters.radius;
+
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const otherPlayerSphere = projectiles[i];
     const t = (now - otherPlayerSphere.userData.startTime) / 1000;
 
-    const playerRadius = playerSphere.geometry.parameters.radius * playerSphere.scale.x;
+    const playerRadius = basePlayerRadius * playerSphere.scale.x;
     const projRadius   = otherPlayerSphere.geometry.parameters.radius * otherPlayerSphere.scale.x;
-    const surfaceDist  = playerRadius + projRadius;
+    // const surfaceDist  = playerRadius + projRadius;
 
     const toPlayer = playerSphere.position.clone().sub(otherPlayerSphere.position);
     const dist     = toPlayer.length();
 
+    // otherPlayer Cam
+
     if (t <= 2) {
-      const pv = (otherPlayerSphere.isVector3 ? otherPlayerSphere.clone() : new THREE.Vector3().copy(otherPlayerSphere.position || otherPlayerSphere));
-      const back = new THREE.Vector3(0, 0, 1).applyQuaternion(otherPlayerSphere.quaternion);
-      const camPos = pv.add(back.multiplyScalar(5));
-      camera.position.copy(camPos);
-      camera.lookAt(pv);
+      const projectilePos = (otherPlayerSphere.isVector3 ? otherPlayerSphere.clone() : new THREE.Vector3().copy(otherPlayerSphere.position || otherPlayerSphere));
+      const cameraOffset = new THREE.Vector3();
+      camera.getWorldDirection(cameraOffset);
+      cameraOffset.normalize();
+      camera.position.copy(projectilePos.clone().sub(cameraOffset.multiplyScalar(5)));
+      camera.lookAt(projectilePos);
 
       const decay = Math.exp(-2 * t);
       const velocity = otherPlayerSphere.userData.velocity.clone().multiplyScalar(decay);
       otherPlayerSphere.position.add(velocity);
 
-      continue;
+      return { isSplit: true, splitProjectile: otherPlayerSphere, viewingProjectile: true };
     }
+
+    // player Cam
 
     isSplit = true;
     splitProjectile = otherPlayerSphere;
@@ -226,23 +233,81 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
 
     const peakDist = otherPlayerSphere.userData.peakDist;
     const forwardPressed = getForwardButtonPressed();
+    const epsilon = 0.001;
 
-    if (dist > surfaceDist && !forwardPressed) {
+    if (dist > playerRadius + epsilon && !forwardPressed) {
       const step = toPlayer.normalize()
-                           .multiplyScalar(Math.min(dist - surfaceDist, 0.2));
+                           .multiplyScalar(Math.min(dist - playerRadius, 0.2));
       otherPlayerSphere.position.add(step);
       continue;
     }
 
-    if (dist > surfaceDist && forwardPressed) {
+    else if (dist > playerRadius + epsilon && forwardPressed) {
       otherPlayerSphere.position.copy(
         playerSphere.position.clone().add(
-          toPlayer.normalize().multiplyScalar(surfaceDist + peakDist)
+          toPlayer.normalize().multiplyScalar(playerRadius + peakDist)
         )
       );
       continue;
     }
+
+    else{
+      scene.remove(otherPlayerSphere);
+      projectiles.splice(i, 1);
+
+      const otherPlayerVolume = (4 / 3) * Math.PI * Math.pow(projRadius, 3);
+      const currentPlayerVolume = (4 / 3) * Math.PI * Math.pow(playerRadius, 3);
+
+      const newVolume = currentPlayerVolume + otherPlayerVolume;
+      const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
+      const scale = newRadius / basePlayerRadius;
+
+      playerSphere.scale.setScalar(scale);
+    }
   }
 
   return { isSplit, splitProjectile };
+}
+
+export function tryShoot(isSpaceShot, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, onShoot) {
+  const now = performance.now();
+  if (now - lastShot < 200) return lastShot; 
+  lastShot = now;
+
+  const baseRadius = playerSphere.geometry.parameters.radius;
+  const playerRadius = baseRadius * playerSphere.scale.x;
+  const playerVolume = (4/3) * Math.PI * Math.pow(playerRadius, 3);
+
+  let projVolume, projRadius;
+
+  if (isSpaceShot) {
+    projVolume = playerVolume / 2;
+    const newPlayerRadius = Math.cbrt((3 * projVolume) / (4 * Math.PI));
+    const scale = newPlayerRadius / baseRadius;
+    playerSphere.scale.setScalar(scale);
+    projRadius = newPlayerRadius;
+  } else {
+    projVolume = playerVolume / 8;
+    projRadius = Math.cbrt((3 * projVolume) / (4 * Math.PI));
+  }
+
+  const geometry = new THREE.SphereGeometry(projRadius, 16, 16);
+  const material = new THREE.MeshStandardMaterial({ color: playerSphere.material.color.clone() });
+  const projectile = new THREE.Mesh(geometry, material);
+  projectile.position.copy(playerSphere.position);
+
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.normalize();
+
+  projectile.userData.velocity = forward.clone().multiplyScalar(playerSpeed * 5.5);
+  projectile.userData.startTime = now;
+  projectile.userData.isSpaceShot = isSpaceShot;
+
+  scene.add(projectile);
+  projectiles.push(projectile);
+
+  if (onShoot) onShoot();
+
+  return lastShot;
 }
