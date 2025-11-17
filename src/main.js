@@ -41,7 +41,6 @@ const pointer = new THREE.Vector2();
 
 const {
   playerSphere,
-  cameraDistanceFromPlayer,
   playerDefaultOpacity
 } = createPlayer(scene, camera);
 
@@ -111,7 +110,7 @@ function animate() {
     scene.userData.animateViruses(performance.now());
   }
 
-  handlePelletEatingAndGrowth(playerSphere, pelletData, cameraDistanceFromPlayer);
+  handlePelletEatingAndGrowth(playerSphere, pelletData);
 
   lastShotTime = updatePlayerFade(playerSphere, lastShotTime, playerDefaultOpacity);
 

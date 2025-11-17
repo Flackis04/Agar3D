@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export function checkEatCondition(playerSphere, pelletData, cameraDistanceFromPlayer) {
+export function checkEatCondition(playerSphere, pelletData) {
   if (!playerSphere || !pelletData) return { eatenCount: 0, totalSize: 0, eatenSizes: [] };
 
   const { mesh, meshPowerup, positions, sizes, active, radius, dummy, powerUps, pelletToMeshIndex } = pelletData;
@@ -24,8 +24,6 @@ export function checkEatCondition(playerSphere, pelletData, cameraDistanceFromPl
       eatenCount++;
       totalSize += sizes[i];
       eatenSizes.push(sizes[i]);
-
-      cameraDistanceFromPlayer += 1;
 
       const isPowerUp = powerUps[i];
       if (isPowerUp && !newPelletMagnetToggle) {

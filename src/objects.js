@@ -239,3 +239,7 @@ export function createViruses(scene) {
   }
   scene.userData.animateViruses = animateViruses;
 }
+
+export function createBots(){
+  pass
+}
