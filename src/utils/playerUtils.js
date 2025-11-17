@@ -66,7 +66,7 @@ function togglePelletMagnet(playerCell, pelletData, currentToggle) {
   return currentToggle;
 }
 
-export function applyPelletMagnet(playerCell, pelletData, pelletMagnetToggle, magnetRange = 5, attractionSpeed = 0.15) {
+export function applyPelletMagnet(playerCell, pelletData, pelletMagnetToggle, magnetRange = 5, attractionSpeed = 0.3) {
   if (!pelletMagnetToggle || !playerCell || !pelletData) return;
 
   const { mesh, meshPowerup, positions, sizes, active, dummy, powerUps, pelletToMeshIndex } = pelletData;
@@ -84,6 +84,8 @@ export function applyPelletMagnet(playerCell, pelletData, pelletMagnetToggle, ma
   
   const affectedNormal = [];
   const affectedPowerup = [];
+
+  //
 
   for (let i = 0; i < positions.length; i++) {
     if (!active[i]) continue;
@@ -108,7 +110,7 @@ export function applyPelletMagnet(playerCell, pelletData, pelletMagnetToggle, ma
         affectedPowerup.push({ i, meshIndex: pelletToMeshIndex[i], size: sizes[i] });
       } else {
         affectedNormal.push({ i, meshIndex: pelletToMeshIndex[i], size: sizes[i] });
-      }
+      } 
     }
   }
 

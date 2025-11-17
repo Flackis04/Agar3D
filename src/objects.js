@@ -95,7 +95,7 @@ export function createPelletsInstanced(scene, count, colors) {
     const color = new THREE.Color(colors[i % colors.length]);
     const isPowerUp = (
       color.getHex() === 0xFF3333 &&
-      Math.floor(Math.random() * 8) === 0
+      Math.floor(Math.random() * 3) === 0
     );
     powerUps[i] = isPowerUp;
     if (isPowerUp) powerupCount++;
