@@ -74,15 +74,15 @@ export function updateBorderFade(borderParticles, playerPosition, fadeStartDista
   }
 }
 
-export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) {
-  if (!player || !pelletData) return { eatenCount: 0, totalSize: 0, eatenSizes: [] };
+export function checkEatCondition(playerSphere, pelletData, cameraDistanceFromPlayer) {
+  if (!playerSphere || !pelletData) return { eatenCount: 0, totalSize: 0, eatenSizes: [] };
 
   const { mesh, meshPowerup, positions, sizes, active, radius, dummy, powerUps, pelletToMeshIndex } = pelletData;
   if (!mesh || !positions || !active || !sizes) return { eatenCount: 0, totalSize: 0, eatenSizes: [] };
 
-  const playerScale = Math.max(player.scale.x, player.scale.y, player.scale.z);
-  const playerRadius = player.geometry.parameters.radius * playerScale;
-  const playerPosition = player.position;
+  const playerScale = Math.max(playerSphere.scale.x, playerSphere.scale.y, playerSphere.scale.z);
+  const playerRadius = playerSphere.geometry.parameters.radius * playerScale;
+  const playerPosition = playerSphere.position;
 
   const eatenSizes = [];
   let eatenCount = 0;
@@ -103,7 +103,7 @@ export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) 
 
       const isPowerUp = powerUps[i];
       if (isPowerUp && !newPelletMagnetToggle) {
-        newPelletMagnetToggle = togglePelletMagnet(player, pelletData, newPelletMagnetToggle);
+        newPelletMagnetToggle = togglePelletMagnet(playerSphere, pelletData, newPelletMagnetToggle);
         pelletData.pelletMagnetToggle = newPelletMagnetToggle;
       }
       dummy.position.copy(positions[i]);
@@ -129,7 +129,7 @@ export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) 
 }
 
 // Pellet Magnet
-function togglePelletMagnet(player, pelletData, currentToggle) {
+function togglePelletMagnet(playerSphere, pelletData, currentToggle) {
   if (!currentToggle) {
     console.log('Pellet magnet activated for 8 seconds!');
     
@@ -144,14 +144,14 @@ function togglePelletMagnet(player, pelletData, currentToggle) {
   return currentToggle;
 }
 
-export function applyPelletMagnet(player, pelletData, pelletMagnetToggle, magnetRange = 5, attractionSpeed = 0.15) {
-  if (!pelletMagnetToggle || !player || !pelletData) return;
+export function applyPelletMagnet(playerSphere, pelletData, pelletMagnetToggle, magnetRange = 5, attractionSpeed = 0.15) {
+  if (!pelletMagnetToggle || !playerSphere || !pelletData) return;
 
   const { mesh, meshPowerup, positions, sizes, active, dummy, powerUps, pelletToMeshIndex } = pelletData;
   if (!mesh || !positions || !active) return;
 
-  const playerPosition = player.position;
-  const playerRadius = player.geometry.parameters.radius * Math.max(player.scale.x, player.scale.y, player.scale.z);
+  const playerPosition = playerSphere.position;
+  const playerRadius = playerSphere.geometry.parameters.radius * Math.max(playerSphere.scale.x, playerSphere.scale.y, playerSphere.scale.z);
   
   const magnetRangeSq = magnetRange * magnetRange;
   const playerRadiusSq = playerRadius * playerRadius;
@@ -213,43 +213,57 @@ export function applyPelletMagnet(player, pelletData, pelletMagnetToggle, magnet
   }
 }
 
-export function updateProjectiles(projectiles, scene, player, camera, getForwardButtonPressed) {
+export function updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed) {
   const now = performance.now();
   let isSplit = false;
   let splitProjectile = null;
 
   for (let i = projectiles.length - 1; i >= 0; i--) {
-    const p = projectiles[i];
-    const t = (now - p.userData.startTime) / 1000;
+    const otherPlayerSphere = projectiles[i];
+    const t = (now - otherPlayerSphere.userData.startTime) / 1000;
 
-    const playerRadius = player.geometry.parameters.radius * player.scale.x;
-    const projRadius = p.geometry.parameters.radius * p.scale.x;
+    const playerRadius = playerSphere.geometry.parameters.radius * playerSphere.scale.x;
+    const projRadius = otherPlayerSphere.geometry.parameters.radius * otherPlayerSphere.scale.x;
     const surfaceDist = playerRadius + projRadius;
 
-    const toPlayer = player.position.clone().sub(p.position);
+    const toPlayer = playerSphere.position.clone().sub(otherPlayerSphere.position);
     const dist = toPlayer.length();
+    
+    // cam on p
 
-    /* ---- Space Shot Behavior ---- */
+    if (t < 2) {
+      const pv = (otherPlayerSphere.isVector3 ? otherPlayerSphere.clone() : new THREE.Vector3().copy(otherPlayerSphere.position || otherPlayerSphere));
+      const back = new THREE.Vector3(0, 0, 1).applyQuaternion(otherPlayerSphere.quaternion);
+      const camPos = pv.add(back.multiplyScalar(5));
+      camera.position.copy(camPos);
+      camera.lookAt(pv);
 
-    if (t > 2) {
+      scene.remove(otherPlayerSphere);
+      projectiles.splice(i, 1);
+
+      const decay = Math.exp(-2 * t);
+      const velocity = otherPlayerSphere.userData.velocity.clone().multiplyScalar(decay);
+      otherPlayerSphere.position.add(velocity);
+    }
+    else {
       isSplit = true;
-      splitProjectile = p;
+      splitProjectile = otherPlayerSphere;
 
-      if (!p.userData.peakDist) {
-        p.userData.peakDist = dist;
+      if (!otherPlayerSphere.userData.peakDist) {
+        otherPlayerSphere.userData.peakDist = dist;
       }
 
-      const peakDist = p.userData.peakDist;
+      const peakDist = otherPlayerSphere.userData.peakDist;
       const forwardPressed = getForwardButtonPressed();
 
       if (dist > surfaceDist && !forwardPressed) {
         const step = toPlayer.normalize().multiplyScalar(
           Math.min(dist - surfaceDist, 0.2)
         );
-        p.position.add(step);
+        otherPlayerSphere.position.add(step);
       } else if (dist > surfaceDist && forwardPressed) {
-        p.position.copy(
-          player.position.clone().add(
+        otherPlayerSphere.position.copy(
+          playerSphere.position.clone().add(
             toPlayer.normalize().multiplyScalar(
               surfaceDist + peakDist
             )
@@ -257,34 +271,14 @@ export function updateProjectiles(projectiles, scene, player, camera, getForward
         );
       } 
       if (dist <= surfaceDist) {
-        // pass
+        // pass 
       }
     } 
-    
-    else {
-      
-      const pv = (p.isVector3 ? p.clone() : new THREE.Vector3().copy(p.position || p));
-      const back = new THREE.Vector3(0, 0, 1).applyQuaternion(p.quaternion);
-      const camPos = pv.add(back.multiplyScalar(5));
-      camera.position.copy(camPos);
-      camera.lookAt(pv);
-
-      if (t > 2) {
-        scene.remove(p);
-        projectiles.splice(i, 1);
-        continue;
-      }
-
-
-      const decay = Math.exp(-2 * t);
-      const velocity = p.userData.velocity.clone().multiplyScalar(decay);
-      p.position.add(velocity);
-    }
   }
   return { isSplit, splitProjectile };
 }
 
-export function updatePlayerFade(player, lastShotTime, playerDefaultOpacity) {
+export function updatePlayerFade(playerSphere, lastShotTime, playerDefaultOpacity) {
   if (!lastShotTime) return null;
 
   const now = performance.now();
@@ -292,28 +286,28 @@ export function updatePlayerFade(player, lastShotTime, playerDefaultOpacity) {
   const duration = 1.2;
 
   if (t >= duration) {
-    player.material.opacity = playerDefaultOpacity;
+    playerSphere.material.opacity = playerDefaultOpacity;
     return null;
   } else {
     const x = t / duration;
-    player.material.opacity = playerDefaultOpacity * Math.pow(x, 5);
+    playerSphere.material.opacity = playerDefaultOpacity * Math.pow(x, 5);
     return lastShotTime;
   }
 }
 
-export function handlePelletEatingAndGrowth(player, pelletData, cameraDistanceFromPlayer) {
+export function handlePelletEatingAndGrowth(playerSphere, pelletData, cameraDistanceFromPlayer) {
   if (!pelletData) return;
 
-  applyPelletMagnet(player, pelletData, pelletData.pelletMagnetToggle);
+  applyPelletMagnet(playerSphere, pelletData, pelletData.pelletMagnetToggle);
 
   const { eatenCount, eatenSizes } = checkEatCondition(
-    player,
+    playerSphere,
     pelletData,
     cameraDistanceFromPlayer
   );
 
   if (eatenCount > 0) {
-    const playerRadius = player.geometry.parameters.radius * player.scale.x;
+    const playerRadius = playerSphere.geometry.parameters.radius * playerSphere.scale.x;
     const playerVolume = (4 / 3) * Math.PI * Math.pow(playerRadius, 3);
 
     const pelletBaseRadius = pelletData.radius;
@@ -326,8 +320,8 @@ export function handlePelletEatingAndGrowth(player, pelletData, cameraDistanceFr
 
     const newVolume = playerVolume + pelletsVolume;
     const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
-    const scale = newRadius / player.geometry.parameters.radius;
+    const scale = newRadius / playerSphere.geometry.parameters.radius;
 
-    player.scale.setScalar(scale);
+    playerSphere.scale.setScalar(scale);
   }
 }

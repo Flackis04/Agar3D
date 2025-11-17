@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export function setupControls(canvas, camera, player, pointer, scene, projectiles, onShoot) {
+export function setupControls(canvas, camera, playerSphere, pointer, scene, projectiles, onShoot) {
   const keys = {};
   const playerRotation = { yaw: 0, pitch: 0 };
   const devRotation = { yaw: 0, pitch: 0 };
@@ -102,14 +102,14 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
     camera.lookAt(devCameraPos.clone().add(direction));
   }
 
-  function clampToBoxBounds(position, player) {
+  function clampToBoxBounds(position, playerSphere) {
     const BOX_SIZE = 500;
     const BOX_HALF = BOX_SIZE / 2;
 
-    const playerRadius = player.geometry.parameters.radius * Math.max(
-      player.scale.x,
-      player.scale.y,
-      player.scale.z
+    const playerRadius = playerSphere.geometry.parameters.radius * Math.max(
+      playerSphere.scale.x,
+      playerSphere.scale.y,
+      playerSphere.scale.z
     );
 
     const minBound = -BOX_HALF + playerRadius;
@@ -123,12 +123,12 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
   }
 
   function updatePlayerCamera() {
-    if (!player || !player.position) return;
+    if (!playerSphere || !playerSphere.position) return;
 
-    const playerRadius = player.geometry.parameters.radius * Math.max(
-      player.scale.x,
-      player.scale.y,
-      player.scale.z
+    const playerRadius = playerSphere.geometry.parameters.radius * Math.max(
+      playerSphere.scale.x,
+      playerSphere.scale.y,
+      playerSphere.scale.z
     );
     
     const targetFollowDistance = playerRadius * 8;
@@ -143,13 +143,13 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
 
     const forward = offset.clone().normalize().negate();
     if (keys['w']) {
-      const nextPosition = player.position.clone().addScaledVector(forward, playerSpeed);
-      clampToBoxBounds(nextPosition, player);
-      player.position.copy(nextPosition);
+      const nextPosition = playerSphere.position.clone().addScaledVector(forward, playerSpeed);
+      clampToBoxBounds(nextPosition, playerSphere);
+      playerSphere.position.copy(nextPosition);
     }
 
-    camera.position.copy(player.position.clone().add(offset));
-    camera.lookAt(player.position);
+    camera.position.copy(playerSphere.position.clone().add(offset));
+    camera.lookAt(playerSphere.position);
 
   }
 
@@ -158,30 +158,25 @@ function tryShoot(isSpaceShot) {
   if (now - lastShot < 200) return; 
   lastShot = now;
 
-  // Player radius & volume
-  const baseRadius = player.geometry.parameters.radius;
-  const playerRadius = baseRadius * player.scale.x;
+  const baseRadius = playerSphere.geometry.parameters.radius;
+  const playerRadius = baseRadius * playerSphere.scale.x;
   const playerVolume = (4/3) * Math.PI * Math.pow(playerRadius, 3);
 
-  // Compute projectile volume
   let projVolume = isSpaceShot ? playerVolume / 2 : playerVolume / 8;
 
-  // If space shot, shrink the player (half volume)
   if (isSpaceShot) {
     const newPlayerVolume = playerVolume / 2;
     const newPlayerRadius = Math.cbrt((3 * newPlayerVolume) / (4 * Math.PI));
     const scale = newPlayerRadius / baseRadius;
-    player.scale.setScalar(scale);
+    playerSphere.scale.setScalar(scale);
   }
 
-  // Convert projectile volume → radius
   const projRadius = Math.cbrt((3 * projVolume) / (4 * Math.PI));
 
-  // Create projectile
   const geometry = new THREE.SphereGeometry(projRadius, 16, 16);
-  const material = new THREE.MeshStandardMaterial({ color: player.material.color.clone() });
+  const material = new THREE.MeshStandardMaterial({ color: playerSphere.material.color.clone() });
   const projectile = new THREE.Mesh(geometry, material);
-  projectile.position.copy(player.position);
+  projectile.position.copy(playerSphere.position);
 
   // Forward direction
   const forward = new THREE.Vector3();

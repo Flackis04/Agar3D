@@ -38,7 +38,7 @@ document.body.appendChild(stats.dom);
 const pointer = new THREE.Vector2();
 
 const {
-  player,
+  playerSphere,
   cameraDistanceFromPlayer,
   playerDefaultOpacity
 } = createPlayer(scene, camera);
@@ -53,14 +53,14 @@ const {
 } = setupControls(
   canvas, 
   camera, 
-  player, 
+  playerSphere, 
   pointer, 
   scene, 
   projectiles, 
   () => {
     lastShotTime = performance.now();
-    lastShotOpacity = player.material.opacity;
-    player.material.opacity = 0.2;
+    lastShotOpacity = playerSphere.material.opacity;
+    playerSphere.material.opacity = 0.2;
   }
 );
 
@@ -101,13 +101,13 @@ function animate() {
     scene.userData.animateViruses(performance.now());
   }
 
-  handlePelletEatingAndGrowth(player, pelletData, cameraDistanceFromPlayer);
+  handlePelletEatingAndGrowth(playerSphere, pelletData, cameraDistanceFromPlayer);
 
-  const projectileResult = updateProjectiles(projectiles, scene, player, camera, getForwardButtonPressed);
+  const projectileResult = updateProjectiles(projectiles, scene, playerSphere, camera, getForwardButtonPressed);
   isSplit = projectileResult.isSplit;
   splitProjectile = projectileResult.splitProjectile;
 
-  lastShotTime = updatePlayerFade(player, lastShotTime, playerDefaultOpacity);
+  lastShotTime = updatePlayerFade(playerSphere, lastShotTime, playerDefaultOpacity);
 
   stats.begin();
   renderer.render(scene, camera);
