@@ -12,7 +12,7 @@ import {
   updateProjectiles,
   updatePlayerFade,
   handlePelletEatingAndGrowth,
-  tryShoot
+  executeSplit
 } from './utils/playerUtils.js';
 import Stats from 'three/addons/libs/stats.module.js';
 
@@ -121,7 +121,7 @@ function animate() {
 
 function handleShootLoop() {
   if (keys['e']) {
-    const newLastShot = tryShoot(false, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, () => {
+    const newLastShot = executeSplit(false, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, () => {
       lastShotTime = performance.now();
       lastShotOpacity = playerSphere.material.opacity;
       playerSphere.material.opacity = 0.2;
@@ -139,7 +139,7 @@ window.addEventListener(
   e => {
     if (e.code === 'Space') {
       e.preventDefault();
-      const newLastShot = tryShoot(true, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, () => {
+      const newLastShot = executeSplit(true, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, () => {
         lastShotTime = performance.now();
         lastShotOpacity = playerSphere.material.opacity;
         playerSphere.material.opacity = 0.2;

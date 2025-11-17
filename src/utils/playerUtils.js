@@ -272,7 +272,7 @@ export function updateProjectiles(projectiles, scene, playerSphere, camera, getF
   return { isSplit, splitProjectile };
 }
 
-export function tryShoot(isSpaceShot, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, onShoot) {
+export function executeSplit(isSpaceShot, playerSphere, camera, scene, projectiles, playerSpeed, lastShot, onShoot) {
   const now = performance.now();
   if (now - lastShot < 200) return lastShot; 
   lastShot = now;
