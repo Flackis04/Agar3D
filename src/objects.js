@@ -43,7 +43,7 @@ export function createPlayer(scene, camera) {
  * Creates a box of particles for visual effect.
  * @param {Function} onReady - Callback executed when particles are loaded: receives (particles, PARTICLE_SIZE).
  */
-export function createBox2(onReady) {
+export function createMapBox(onReady) {
   const PARTICLE_SIZE = 2;
 
   // Reduced subdivisions for performance (64x64x64)
@@ -101,7 +101,7 @@ export function createBox2(onReady) {
 export function createPelletsInstanced(scene, count, colors) {
   const geometry = new THREE.SphereGeometry(1, 8, 8); // base radius
   const materialNormal = new THREE.MeshStandardMaterial({ color: 0xffffff, opacity: 1, transparent: false });
-  const materialPowerup = new THREE.MeshStandardMaterial({ color: 0xffffff, opacity: 0.5, transparent: true });
+  const materialPowerup = new THREE.MeshStandardMaterial({ color: 0xffffff, opacity: 0.25, transparent: true });
 
   const dummy = new THREE.Object3D();
   const positions = [];

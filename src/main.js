@@ -2,16 +2,16 @@ import * as THREE from 'three';
 import { createScene } from './scene.js';
 import { setupControls } from './controls.js';
 import { 
-  createBox2, 
+  createMapBox, 
   createPelletsInstanced, 
   createPlayer, 
   createViruses 
 } from './objects.js';
 import { 
-  updateDistanceFadeInstanced, 
-  checkEatCondition,
-  applyPelletMagnet
-} from './utils.js';
+  updateProjectiles,
+  updatePlayerFade,
+  handlePelletEatingAndGrowth
+} from './utils/utils.js';
 import Stats from 'three/addons/libs/stats.module.js';
 
 const canvas = document.querySelector('#c');
@@ -78,7 +78,7 @@ let pelletData = null;
 
 /* ------------------------ Load Particles Box ------------------------ */
 
-createBox2((loadedParticles, particleSize) => {
+createMapBox((loadedParticles, particleSize) => {
   particles = loadedParticles;
   PARTICLE_SIZE = particleSize;
   scene.add(particles);
@@ -117,125 +117,17 @@ function animate() {
 
   /* ---------------- Pellet Eating & Growth ---------------- */
 
-  if (pelletData) {
-    // Apply pellet magnet effect if active
-    applyPelletMagnet(player, pelletData, pelletData.pelletMagnetToggle);
-
-    const { eatenCount, eatenSizes } = checkEatCondition(
-      player,
-      pelletData,
-      cameraDistanceFromPlayer
-    );
-
-    if (eatenCount > 0) {
-      const playerRadius = player.geometry.parameters.radius * player.scale.x;
-      const playerVolume = (4 / 3) * Math.PI * Math.pow(playerRadius, 3);
-
-      const pelletBaseRadius = pelletData.radius;
-      let pelletsVolume = 0;
-
-      for (let i = 0; i < eatenSizes.length; i++) {
-        const pelletRadius = pelletBaseRadius * eatenSizes[i];
-        pelletsVolume += (4 / 3) * Math.PI * Math.pow(pelletRadius, 3);
-      }
-
-      const newVolume = playerVolume + pelletsVolume;
-      const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
-      const scale = newRadius / player.geometry.parameters.radius;
-
-      player.scale.setScalar(scale);
-    }
-  }
+  handlePelletEatingAndGrowth(player, pelletData, cameraDistanceFromPlayer);
 
   /* ------------------------ Projectile Updates ------------------------ */
 
-  const now = performance.now();
-
-  for (let i = projectiles.length - 1; i >= 0; i--) {
-    const p = projectiles[i];
-    const t = (now - p.userData.startTime) / 1000;
-
-    const playerRadius = player.geometry.parameters.radius * player.scale.x;
-    const projRadius = p.geometry.parameters.radius * p.scale.x;
-    const surfaceDist = playerRadius + projRadius;
-
-    const toPlayer = player.position.clone().sub(p.position);
-    const dist = toPlayer.length();
-
-    /* ---- Space Shot Behavior ---- */
-    if (p.userData.isSpaceShot) {
-      if (t > 2) {
-        isSplit = true;
-        splitProjectile = p;
-
-        if (!p.userData.peakDist) {
-          p.userData.peakDist = dist;
-        }
-
-        const peakDist = p.userData.peakDist;
-        const forwardPressed = getForwardButtonPressed();
-
-        if (dist > surfaceDist && !forwardPressed) {
-          const step = toPlayer.normalize().multiplyScalar(
-            Math.min(dist - surfaceDist, 0.2)
-          );
-          p.position.add(step);
-        } else if (dist > surfaceDist && forwardPressed) {
-          p.position.copy(
-            player.position.clone().add(
-              toPlayer.normalize().multiplyScalar(
-                surfaceDist + peakDist
-              )
-            )
-          );
-        } 
-        if (dist <= surfaceDist) {
-          pass
-        }
-      } 
-      
-      else {
-        const pv = (p.isVector3 ? p.clone() : new THREE.Vector3().copy(p.position || p));
-        const back = new THREE.Vector3(0, 0, 1).applyQuaternion(p.quaternion);
-        const camPos = pv.add(back.multiplyScalar(5));
-        camera.position.copy(camPos);
-        camera.lookAt(pv);
-
-
-        const decay = Math.exp(-2 * t);
-        const velocity = p.userData.velocity.clone().multiplyScalar(decay);
-        p.position.add(velocity);
-      }
-    }
-
-    /* ---- Normal Shot ---- */
-    else {
-      if (t > 2) {
-        scene.remove(p);
-        projectiles.splice(i, 1);
-        continue;
-      }
-
-      const decay = Math.exp(-2 * t);
-      const velocity = p.userData.velocity.clone().multiplyScalar(decay);
-      p.position.add(velocity);
-    }
-  }
+  const projectileResult = updateProjectiles(projectiles, scene, player, camera, getForwardButtonPressed);
+  isSplit = projectileResult.isSplit;
+  splitProjectile = projectileResult.splitProjectile;
 
   /* ------------------------ Player Re-Fade After Shooting ------------------------ */
 
-  if (lastShotTime) {
-    const t = (now - lastShotTime) / 1000;
-    const duration = 1.2;
-
-    if (t >= duration) {
-      player.material.opacity = playerDefaultOpacity;
-      lastShotTime = null;
-    } else {
-      const x = t / duration;
-      player.material.opacity = playerDefaultOpacity * Math.pow(x, 5);
-    }
-  }
+  lastShotTime = updatePlayerFade(player, lastShotTime, playerDefaultOpacity);
 
   /* ------------------------ Rendering ------------------------ */
 

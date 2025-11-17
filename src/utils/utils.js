@@ -1,99 +1,6 @@
 import * as THREE from 'three';
 
 /**
- * Resizes the renderer to match the display size if necessary.
- * @param {THREE.WebGLRenderer} renderer - The renderer to resize.
- * @returns {boolean} - True if the renderer was resized, false otherwise.
- */
-export function resizeRendererToDisplaySize(renderer) {
-  const canvas = renderer.domElement;
-  const pixelRatio = window.devicePixelRatio;
-  const width = Math.floor(canvas.clientWidth * pixelRatio);
-  const height = Math.floor(canvas.clientHeight * pixelRatio);
-  const needResize = canvas.width !== width || canvas.height !== height;
-  if (needResize) renderer.setSize(width, height, false);
-  return needResize;
-}
-
-/**
- * Updates the opacity of instanced pellets based on distance from the player.
- * @param {Object} pelletData - Pellet information containing instancedMesh, positions, baseColors, opacities.
- * @param {THREE.Vector3} playerPosition - Current position of the player.
- * @param {number} fadeStartDistance - Distance at which pellets start fading.
- * @param {number} fadeEndDistance - Distance at which pellets are fully visible.
- */
-export function updateDistanceFadeInstanced(pelletData, playerPosition, fadeStartDistance, fadeEndDistance) {
-  const { instancedMesh, positions, baseColors, opacities } = pelletData;
-  const updateDistance = fadeStartDistance + 5; // small buffer
-  let needsUpdate = false;
-
-  for (let i = 0; i < positions.length; i++) {
-    const distance = playerPosition.distanceTo(positions[i]);
-    let opacity = 0;
-
-    if (distance < fadeStartDistance) {
-      if (distance <= fadeEndDistance) {
-        opacity = 1;
-      } else {
-        opacity = 1 - (distance - fadeEndDistance) / (fadeStartDistance - fadeEndDistance);
-      }
-    }
-
-    if (Math.abs(opacities[i] - opacity) > 0.01) {
-      opacities[i] = opacity;
-      needsUpdate = true;
-    }
-  }
-
-  if (needsUpdate && instancedMesh.instanceColor) {
-    const color = new THREE.Color();
-    for (let i = 0; i < positions.length; i++) {
-      color.copy(baseColors[i]);
-      if (opacities[i] < 1) color.multiplyScalar(opacities[i]);
-      instancedMesh.setColorAt(i, color);
-    }
-    instancedMesh.instanceColor.needsUpdate = true;
-  }
-}
-
-/**
- * Updates the opacity of border particles based on player's proximity to the box edges.
- * @param {THREE.Points} borderParticles - The particle system representing the box border.
- * @param {THREE.Vector3} playerPosition - Current position of the player.
- * @param {number} fadeStartDistance - Distance at which edges start fading.
- * @param {number} fadeEndDistance - Distance at which edges are fully visible.
- */
-export function updateBorderFade(borderParticles, playerPosition, fadeStartDistance, fadeEndDistance) {
-  if (!borderParticles || !borderParticles.material) return;
-
-  const BOX_SIZE = 500;
-  const BOX_HALF = BOX_SIZE / 2;
-
-  const px = playerPosition.x;
-  const py = playerPosition.y;
-  const pz = playerPosition.z;
-
-  const nearestDistance = Math.min(
-    Math.abs(px + BOX_HALF), Math.abs(px - BOX_HALF),
-    Math.abs(py + BOX_HALF), Math.abs(py - BOX_HALF),
-    Math.abs(pz + BOX_HALF), Math.abs(pz - BOX_HALF)
-  );
-
-  let opacity = 0;
-  if (nearestDistance < fadeStartDistance) {
-    if (nearestDistance <= fadeEndDistance) {
-      opacity = 1;
-    } else {
-      opacity = 1 - (nearestDistance - fadeEndDistance) / (fadeStartDistance - fadeEndDistance);
-    }
-  }
-
-  if (borderParticles.material.uniforms && borderParticles.material.uniforms.opacity) {
-    borderParticles.material.uniforms.opacity.value = opacity;
-  }
-}
-
-/**
  * Checks whether the player has eaten any pellets.
  * Uses simple sphere-sphere collision detection.
  * @param {THREE.Mesh} player - The player mesh.
@@ -129,7 +36,7 @@ export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) 
       cameraDistanceFromPlayer += 1; // optional debug log
 
       const isPowerUp = powerUps[i];
-      if (isPowerUp) {
+      if (isPowerUp && !newPelletMagnetToggle) {
         newPelletMagnetToggle = togglePelletMagnet(player, pelletData, newPelletMagnetToggle);
         pelletData.pelletMagnetToggle = newPelletMagnetToggle; // Store the state
       }
@@ -155,8 +62,28 @@ export function checkEatCondition(player, pelletData, cameraDistanceFromPlayer) 
   return { eatenCount, totalSize, eatenSizes, pelletMagnetToggle: newPelletMagnetToggle };
 }
 
-function togglePelletMagnet(player, pelletData, pelletMagnetToggle){
-  return !pelletMagnetToggle;
+/**
+ * Toggles the pellet magnet on and sets a timer to turn it off after 8 seconds
+ * @param {THREE.Mesh} player - The player mesh
+ * @param {Object} pelletData - The pellet data
+ * @param {boolean} currentToggle - Current toggle state
+ * @returns {boolean} - New toggle state
+ */
+function togglePelletMagnet(player, pelletData, currentToggle) {
+  // Turn on the magnet
+  if (!currentToggle) {
+    console.log('Pellet magnet activated for 8 seconds!');
+    
+    // Set timeout to turn off after 8 seconds
+    setTimeout(() => {
+      pelletData.pelletMagnetToggle = false;
+      console.log('Pellet magnet deactivated!');
+    }, 8000);
+    
+    return true;
+  }
+  
+  return currentToggle;
 }
 
 /**
@@ -242,5 +169,145 @@ export function applyPelletMagnet(player, pelletData, pelletMagnetToggle, magnet
       meshPowerup.setMatrixAt(meshIndex, dummy.matrix);
     }
     meshPowerup.instanceMatrix.needsUpdate = true;
+  }
+}
+
+/**
+ * Updates all projectiles in the scene
+ * @param {Array} projectiles - Array of projectile objects
+ * @param {THREE.Scene} scene - The scene to remove projectiles from
+ * @param {THREE.Mesh} player - The player mesh
+ * @param {THREE.Camera} camera - The camera for space shot view
+ * @param {Function} getForwardButtonPressed - Function that returns if forward button is pressed
+ * @returns {Object} - Contains isSplit and splitProjectile
+ */
+export function updateProjectiles(projectiles, scene, player, camera, getForwardButtonPressed) {
+  const now = performance.now();
+  let isSplit = false;
+  let splitProjectile = null;
+
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const p = projectiles[i];
+    const t = (now - p.userData.startTime) / 1000;
+
+    const playerRadius = player.geometry.parameters.radius * player.scale.x;
+    const projRadius = p.geometry.parameters.radius * p.scale.x;
+    const surfaceDist = playerRadius + projRadius;
+
+    const toPlayer = player.position.clone().sub(p.position);
+    const dist = toPlayer.length();
+
+    // --- NON-space-shot logic first (the inverted branch) ---
+    if (t <= 2) {
+      const pv = (p.isVector3 ? p.clone() : new THREE.Vector3().copy(p.position || p));
+      const back = new THREE.Vector3(0, 0, 1).applyQuaternion(p.quaternion);
+      const camPos = pv.add(back.multiplyScalar(5));
+      camera.position.copy(camPos);
+      camera.lookAt(pv);
+
+      if (t > 2) {
+        scene.remove(p);
+        projectiles.splice(i, 1);
+        continue;
+      }
+
+      const decay = Math.exp(-2 * t);
+      const velocity = p.userData.velocity.clone().multiplyScalar(decay);
+      p.position.add(velocity);
+      continue;
+    }
+
+    // --- SPACE SHOT CASE (t > 2) ---
+    isSplit = true;
+    splitProjectile = p;
+
+    if (!p.userData.peakDist) {
+      p.userData.peakDist = dist;
+    }
+
+    const peakDist = p.userData.peakDist;
+    const forwardPressed = getForwardButtonPressed();
+
+    if (dist > surfaceDist && !forwardPressed) {
+      const step = toPlayer.normalize().multiplyScalar(
+        Math.min(dist - surfaceDist, 0.2)
+      );
+      p.position.add(step);
+      continue;
+    }
+
+    if (dist > surfaceDist && forwardPressed) {
+      p.position.copy(
+        player.position.clone().add(
+          toPlayer.normalize().multiplyScalar(surfaceDist + peakDist)
+        )
+      );
+      continue;
+    }
+
+    // dist <= surfaceDist → no-op
+  }
+
+  return { isSplit, splitProjectile };
+}
+
+/**
+ * Updates player opacity fade after shooting
+ * @param {THREE.Mesh} player - The player mesh
+ * @param {number} lastShotTime - Timestamp of the last shot
+ * @param {number} playerDefaultOpacity - The default opacity to fade back to
+ * @returns {number|null} - Updated lastShotTime or null if fade is complete
+ */
+export function updatePlayerFade(player, lastShotTime, playerDefaultOpacity) {
+  if (!lastShotTime) return null;
+
+  const now = performance.now();
+  const t = (now - lastShotTime) / 1000;
+  const duration = 1.2;
+
+  if (t >= duration) {
+    player.material.opacity = playerDefaultOpacity;
+    return null;
+  } else {
+    const x = t / duration;
+    player.material.opacity = playerDefaultOpacity * Math.pow(x, 5);
+    return lastShotTime;
+  }
+}
+
+/**
+ * Handles pellet eating and player growth
+ * @param {THREE.Mesh} player - The player mesh
+ * @param {Object} pelletData - The pellet data
+ * @param {number} cameraDistanceFromPlayer - Camera distance for debugging
+ */
+export function handlePelletEatingAndGrowth(player, pelletData, cameraDistanceFromPlayer) {
+  if (!pelletData) return;
+
+  applyPelletMagnet(player, pelletData, pelletData.pelletMagnetToggle);
+
+  const { eatenCount, eatenSizes } = checkEatCondition(
+    player,
+    pelletData,
+    cameraDistanceFromPlayer
+  );
+
+  if (eatenCount > 0) {
+    const playerRadius = player.geometry.parameters.radius * player.scale.x;
+    const playerVolume = (4 / 3) * Math.PI * Math.pow(playerRadius, 3);
+
+    const pelletBaseRadius = pelletData.radius;
+    let pelletsVolume = 0;
+
+    for (let i = 0; i < eatenSizes.length; i++) {
+      const pelletRadius = pelletBaseRadius * eatenSizes[i];
+      pelletsVolume += (4 / 3) * Math.PI * Math.pow(pelletRadius, 3);
+    }
+
+    const newVolume = playerVolume + pelletsVolume;
+    const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
+    const scale = newRadius / player.geometry.parameters.radius;
+
+    player.scale.setScalar(scale);
   }
 }

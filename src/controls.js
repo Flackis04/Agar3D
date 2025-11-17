@@ -27,7 +27,7 @@ export function setupControls(canvas, camera, player, pointer, scene, projectile
   
   // Smooth camera distance tracking
   let smoothFollowDistance = followDistance;
-  const cameraLerpSpeed = 0.08; // Lower = smoother but slower, higher = faster but more jittery
+  const cameraLerpSpeed = 0.005; // Lower = smoother but slower, higher = faster but more jittery
 
   /**
    * Keyboard input handling
