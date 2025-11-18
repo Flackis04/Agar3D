@@ -12,7 +12,8 @@ export function createScene() {
   const far = 600;
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
 
-  scene.fog = new THREE.FogExp2(bgColor, 0.04);
+  const density = 0.04
+  scene.fog = new THREE.FogExp2(bgColor, density);
 
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
   const directionalLight = new THREE.DirectionalLight(0xffffff, 1);

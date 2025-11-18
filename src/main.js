@@ -6,7 +6,8 @@ import {
   createMapBox, 
   createPelletsInstanced, 
   createPlayer, 
-  createViruses 
+  createViruses,
+  createMagnetSphere 
 } from './objects.js';
 import { 
   updateCells,
@@ -43,6 +44,9 @@ const {
   playerCell,
   playerDefaultOpacity
 } = createPlayer(scene, camera);
+
+const magnetSphere = createMagnetSphere();
+scene.add(magnetSphere);
 
 // Multiplayer integration
 let playerName = 'Player';
@@ -101,7 +105,7 @@ function animate() {
   removeFogIfDevMode(scene, cameraController, pelletData);
 
   if (!(cameraController.isDevMode && cameraController.isDevMode())) {
-    handlePelletEatingAndGrowth(playerCell, pelletData);
+    handlePelletEatingAndGrowth(playerCell, pelletData, scene, magnetSphere);
     if (pelletData) {
       if (pelletData.mesh && !scene.children.includes(pelletData.mesh)) scene.add(pelletData.mesh);
       if (pelletData.meshPowerup && !scene.children.includes(pelletData.meshPowerup)) scene.add(pelletData.meshPowerup);
@@ -117,7 +121,8 @@ function animate() {
   setViewingCell(cellResult.viewingCell);
 
   if (!cellResult.viewingCell) {
-    updateCamera();
+    const magnetActive = pelletData && pelletData.pelletMagnetToggle;
+    updateCamera(magnetActive);
   }
 
   if (scene.userData.animateViruses) {

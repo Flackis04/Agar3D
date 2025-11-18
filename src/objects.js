@@ -29,6 +29,35 @@ export function createPlayer(scene, camera) {
   return { playerCell, playerDefaultOpacity };
 }
 
+export function createMagnetSphere(magnetRange = 4) {
+  const geometry = new THREE.SphereGeometry(magnetRange, 32, 32);
+  
+  const solidMaterial = new THREE.MeshBasicMaterial({
+    color: 0xFF3333,
+    transparent: true,
+    opacity: 0.1,
+    side: THREE.DoubleSide
+  });
+  
+  const wireframeMaterial = new THREE.MeshBasicMaterial({
+    color: 0xFF6666,
+    transparent: true,
+    opacity: 0.3,
+    wireframe: true
+  });
+  
+  const magnetSphere = new THREE.Group();
+  
+  const solidMesh = new THREE.Mesh(geometry, solidMaterial);
+  const wireframeMesh = new THREE.Mesh(geometry, wireframeMaterial);
+  
+  magnetSphere.add(solidMesh);
+  magnetSphere.add(wireframeMesh);
+  magnetSphere.visible = false;
+  
+  return magnetSphere;
+}
+
 export function createMapBox(onReady) {
   const PARTICLE_SIZE = 2;
 

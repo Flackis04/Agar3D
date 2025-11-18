@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 
-export function checkEatCondition(playerCell, pelletData) {
-  if (!playerCell || !pelletData) return { eatenCount: 0, eatenSizes: [] };
+export function checkEatCondition(isMagnet, cell, pelletData) {
+  if (!cell || !pelletData) return { eatenCount: 0, eatenSizes: [] };
 
   const { mesh, meshPowerup, positions, sizes, active, radius, dummy, powerUps, pelletToMeshIndex } = pelletData;
   if (!mesh || !positions || !active || !sizes) return { eatenCount: 0, eatenSizes: [] };
 
-  const playerCellScale = Math.max(playerCell.scale.x, playerCell.scale.y, playerCell.scale.z);
-  const playerCellRadius = playerCell.geometry.parameters.radius * playerCellScale;
-  const playerCellPosition = playerCell.position;
+  const cellScale = Math.max(cell.scale.x, cell.scale.y, cell.scale.z);
+  const cellRadius = cell.geometry.parameters.radius * cellScale;
+  const cellPosition = cell.position;
 
   const eatenSizes = [];
   let eatenCount = 0;
@@ -17,15 +17,15 @@ export function checkEatCondition(playerCell, pelletData) {
   for (let i = 0; i < positions.length; i++) {
     if (!active[i]) continue;
 
-    const distance = playerCellPosition.distanceTo(positions[i]);
-    if (distance <= playerCellRadius) {
+    const distance = cellPosition.distanceTo(positions[i]);
+    if (distance <= cellRadius) {
       active[i] = false;
       eatenCount++;
       eatenSizes.push(sizes[i]);
 
       const isPowerUp = powerUps[i];
       if (isPowerUp && !newPelletMagnetToggle) {
-        newPelletMagnetToggle = togglePelletMagnet(playerCell, pelletData, newPelletMagnetToggle);
+        newPelletMagnetToggle = togglePelletMagnet(cell, pelletData, newPelletMagnetToggle);
         pelletData.pelletMagnetToggle = newPelletMagnetToggle;
       }
       dummy.position.copy(positions[i]);
@@ -66,16 +66,29 @@ function togglePelletMagnet(playerCell, pelletData, currentToggle) {
   return currentToggle;
 }
 
-export function applyPelletMagnet(playerCell, pelletData, pelletMagnetToggle, magnetRange = 5, attractionSpeed = 0.3) {
-  if (!pelletMagnetToggle || !playerCell || !pelletData) return;
+export function applyPelletMagnet(animation, playerCell, pelletData, pelletMagnetToggle, scene, magnetSphere, magnetRange, attractionSpeed = 0.3) {
+  if (!playerCell || !pelletData) return;
+
+  const playerCellRadius = playerCell.geometry.parameters.radius * Math.max(playerCell.scale.x, playerCell.scale.y, playerCell.scale.z);
+  const magnetSphereRadius = playerCellRadius * 4;
+  const magnetSphereBaseRadius = 4;
+
+  if (magnetSphere) {
+    magnetSphere.visible = pelletMagnetToggle;
+    if (pelletMagnetToggle) {
+      magnetSphere.position.copy(playerCell.position);
+      magnetSphere.scale.setScalar(magnetSphereRadius / magnetSphereBaseRadius);
+    }
+  }
+
+  if (!pelletMagnetToggle) return;
 
   const { mesh, meshPowerup, positions, sizes, active, dummy, powerUps, pelletToMeshIndex } = pelletData;
   if (!mesh || !positions || !active) return;
 
   const playerCellPosition = playerCell.position;
-  const playerCellRadius = playerCell.geometry.parameters.radius * Math.max(playerCell.scale.x, playerCell.scale.y, playerCell.scale.z);
   
-  const magnetRangeSq = magnetRange * magnetRange;
+  const magnetRangeSq = magnetSphereRadius * magnetSphereRadius;
   const playerCellRadiusSq = playerCellRadius * playerCellRadius;
   
   const px = playerCellPosition.x;
@@ -87,53 +100,59 @@ export function applyPelletMagnet(playerCell, pelletData, pelletMagnetToggle, ma
 
   //
 
-  for (let i = 0; i < positions.length; i++) {
-    if (!active[i]) continue;
+  if (animation){
+    for (let i = 0; i < positions.length; i++) {
+      if (!active[i]) continue;
 
-    const pelletPos = positions[i];
-    
-    const dx = px - pelletPos.x;
-    const dy = py - pelletPos.y;
-    const dz = pz - pelletPos.z;
-    const distanceSq = dx * dx + dy * dy + dz * dz;
-    
-    if (distanceSq <= magnetRangeSq && distanceSq > playerCellRadiusSq) {
-      const distance = Math.sqrt(distanceSq);
-      const factor = attractionSpeed / distance;
+      const pelletPos = positions[i];
       
-      pelletPos.x += dx * factor;
-      pelletPos.y += dy * factor;
-      pelletPos.z += dz * factor;
+      const dx = px - pelletPos.x;
+      const dy = py - pelletPos.y;
+      const dz = pz - pelletPos.z;
+      const distanceSq = dx * dx + dy * dy + dz * dz;
+      
+      if (distanceSq <= magnetRangeSq && distanceSq > playerCellRadiusSq) {
+        const distance = Math.sqrt(distanceSq);
+        const factor = attractionSpeed / distance;
+        
+        pelletPos.x += dx * factor;
+        pelletPos.y += dy * factor;
+        pelletPos.z += dz * factor;
 
-      const isPowerUp = powerUps && powerUps[i];
-      if (isPowerUp) {
-        affectedPowerup.push({ i, meshIndex: pelletToMeshIndex[i], size: sizes[i] });
-      } else {
-        affectedNormal.push({ i, meshIndex: pelletToMeshIndex[i], size: sizes[i] });
-      } 
+        const isPowerUp = powerUps && powerUps[i];
+        if (isPowerUp) {
+          affectedPowerup.push({ i, meshIndex: pelletToMeshIndex[i], size: sizes[i] });
+        } else {
+          affectedNormal.push({ i, meshIndex: pelletToMeshIndex[i], size: sizes[i] });
+        } 
+      }
+    }
+
+    if (affectedNormal.length > 0) {
+      for (let j = 0; j < affectedNormal.length; j++) {
+        const { i, meshIndex, size } = affectedNormal[j];
+        dummy.position.copy(positions[i]);
+        dummy.scale.setScalar(size);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(meshIndex, dummy.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+
+    if (affectedPowerup.length > 0 && meshPowerup) {
+      for (let j = 0; j < affectedPowerup.length; j++) {
+        const { i, meshIndex, size } = affectedPowerup[j];
+        dummy.position.copy(positions[i]);
+        dummy.scale.setScalar(size);
+        dummy.updateMatrix();
+        meshPowerup.setMatrixAt(meshIndex, dummy.matrix);
+      }
+      meshPowerup.instanceMatrix.needsUpdate = true;
     }
   }
-
-  if (affectedNormal.length > 0) {
-    for (let j = 0; j < affectedNormal.length; j++) {
-      const { i, meshIndex, size } = affectedNormal[j];
-      dummy.position.copy(positions[i]);
-      dummy.scale.setScalar(size);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(meshIndex, dummy.matrix);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-  }
-
-  if (affectedPowerup.length > 0 && meshPowerup) {
-    for (let j = 0; j < affectedPowerup.length; j++) {
-      const { i, meshIndex, size } = affectedPowerup[j];
-      dummy.position.copy(positions[i]);
-      dummy.scale.setScalar(size);
-      dummy.updateMatrix();
-      meshPowerup.setMatrixAt(meshIndex, dummy.matrix);
-    }
-    meshPowerup.instanceMatrix.needsUpdate = true;
+  else{
+    const magnetEatenCount = checkEatCondition(true, magnetSphere, pelletData);
+    return magnetEatenCount;
   }
 }
 
@@ -154,25 +173,31 @@ export function updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity
   }
 }
 
-export function handlePelletEatingAndGrowth(playerCell, pelletData) {
+export function handlePelletEatingAndGrowth(playerCell, pelletData, scene, magnetSphere) {
   if (!pelletData) return;
 
-  applyPelletMagnet(playerCell, pelletData, pelletData.pelletMagnetToggle);
+  const magnetResult = applyPelletMagnet(true, playerCell, pelletData, pelletData.pelletMagnetToggle, scene, magnetSphere, );
 
   const { eatenCount, eatenSizes } = checkEatCondition(
+    false,
     playerCell,
     pelletData
   );
 
-  if (eatenCount > 0) {
+  let totalEatenSizes = [...eatenSizes];
+  if (magnetResult && magnetResult.eatenCount > 0) {
+    totalEatenSizes = totalEatenSizes.concat(magnetResult.eatenSizes);
+  }
+
+  if (totalEatenSizes.length > 0) {
     const playerCellRadius = playerCell.geometry.parameters.radius * playerCell.scale.x;
     const playerCellVolume = (4 / 3) * Math.PI * Math.pow(playerCellRadius, 3);
 
     const pelletBaseRadius = pelletData.radius;
     let pelletsVolume = 0;
 
-    for (let i = 0; i < eatenSizes.length; i++) {
-      const pelletRadius = pelletBaseRadius * eatenSizes[i];
+    for (let i = 0; i < totalEatenSizes.length; i++) {
+      const pelletRadius = pelletBaseRadius * totalEatenSizes[i];
       pelletsVolume += (4 / 3) * Math.PI * Math.pow(pelletRadius, 3);
     }
 
@@ -206,7 +231,7 @@ export function updateCells(cells, scene, playerCell, camera, getForwardButtonPr
     if (t <= 2) {
       const cellPos = otherPlayerCell.position;
       
-      const followDistance = 5;
+      const followDistance = 10;
       const offset = new THREE.Vector3(
         followDistance * Math.sin(cellRotation.yaw) * Math.cos(cellRotation.pitch),
         followDistance * Math.sin(cellRotation.pitch),
@@ -281,7 +306,11 @@ export function executeSplit(playerCell, camera, scene, cells, playerCellSpeed, 
   let cellVolume, cellRadius;
 
   const geometry = new THREE.SphereGeometry(cellRadius, 16, 16);
-  const material = new THREE.MeshStandardMaterial({ color: playerCell.material.color.clone() });
+  const material = new THREE.MeshStandardMaterial({ 
+    color: playerCell.material.color.clone(),
+    transparent: true,
+    opacity: playerCell.material.opacity
+  });
   const cell = new THREE.Mesh(geometry, material);
   cell.position.copy(playerCell.position);
 

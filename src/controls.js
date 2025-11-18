@@ -57,8 +57,8 @@ export function setupControls(canvas, cameraController) {
     }
   });
 
-  function updateCamera() {
-    cameraController.updateCamera(playerRotation, keys, playerSpeed);
+  function updateCamera(magnetActive) {
+    cameraController.updateCamera(playerRotation, keys, playerSpeed, magnetActive);
   }
 
   function setViewingCell(viewing) {

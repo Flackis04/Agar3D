@@ -54,12 +54,13 @@ export function createCameraController(camera, playerCell) {
     camera.lookAt(devCameraPos.clone().add(direction));
   }
 
-  function updatePlayerCamera(playerRotation, keys, playerSpeed) {
+  function updatePlayerCamera(playerRotation, keys, playerSpeed, magnetActive = false) {
     if (!playerCell || !playerCell.position) return;
 
     const playerRadius = calculateCellRadius(playerCell);
+    const baseMultiplier = magnetActive ? 12 : 8;
     
-    const targetFollowDistance = playerRadius * 8;
+    const targetFollowDistance = playerRadius * baseMultiplier;
     
     smoothFollowDistance += (targetFollowDistance - smoothFollowDistance) * cameraLerpSpeed;
     
@@ -92,12 +93,12 @@ export function createCameraController(camera, playerCell) {
     return position;
   }
 
-  function updateCamera(playerRotation, keys, playerSpeed) {
+  function updateCamera(playerRotation, keys, playerSpeed, magnetActive) {
     if (devMode) {
       updateDevCamera(keys);
       
     } else {
-      updatePlayerCamera(playerRotation, keys, playerSpeed);
+      updatePlayerCamera(playerRotation, keys, playerSpeed, magnetActive);
     }
   }
 
