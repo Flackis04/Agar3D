@@ -3,14 +3,14 @@ import { mapSize, respawnPellet } from '../objects.js';
 import { smoothLerp } from '../scene.js';
 
 export function checkEatCondition(isMagnet, cell, pelletData) {
-  if (!cell || !pelletData) return { eatenCount: 0, eatenSizes: [] };
 
   const { mesh, meshPowerup, positions, sizes, active, radius, dummy, powerUps, pelletToMeshIndex } = pelletData;
-  if (!mesh || !positions || !active || !sizes) return { eatenCount: 0, eatenSizes: [] };
 
   const cellScale = Math.max(cell.scale.x, cell.scale.y, cell.scale.z);
   const cellRadius = cell.geometry.parameters.radius * cellScale;
   const cellPosition = cell.position;
+
+  
 
   const eatenSizes = [];
   let eatenCount = 0;

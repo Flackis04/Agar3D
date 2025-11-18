@@ -1,31 +1,4 @@
 import { checkEatCondition } from './utils/playerUtils.js';
-// Update all bots: move toward closest pellet and eat
-export function updateBots(bots, pelletData) {
-  if (!bots || !pelletData || !pelletData.positions) return;
-  for (const bot of bots) {
-    const botCell = bot.cell || bot; // support both {cell} and direct mesh
-    // Find closest active pellet
-    let minDist = Infinity;
-    let closestIdx = -1;
-    for (let i = 0; i < pelletData.positions.length; i++) {
-      if (!pelletData.active[i]) continue;
-      const dist = botCell.position.distanceTo(pelletData.positions[i]);
-      if (dist < minDist) {
-        minDist = dist;
-        closestIdx = i;
-      }
-    }
-    // Move bot toward closest pellet
-    if (closestIdx !== -1) {
-      const target = pelletData.positions[closestIdx];
-      const direction = target.clone().sub(botCell.position).normalize();
-      const speed = 0.08; // bot speed
-      botCell.position.addScaledVector(direction, speed);
-    }
-    // Eat pellets if possible
-    checkEatCondition(false, botCell, pelletData);
-  }
-}
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -55,7 +28,7 @@ export function createPlayerCell(isBot, scene, camera) {
   cell.position.set(x, y, z);
   scene.add(cell);
 
-  return { cell, playerDefaultOpacity };
+  return cell;
 }
 
 export function createMagnetSphere(magnetRange = 4) {
@@ -302,11 +275,27 @@ export function createViruses(scene) {
   scene.userData.animateViruses = animateViruses;
 }
 
-export function createBots(botCount, scene, camera){
-  const bots = [];
-  for (let index = 0; index < botCount; index++) {
-    const { cell } = createPlayerCell(true, scene, camera);
-    bots.push(cell);
+export function createBot(scene, camera){
+  const cell = createPlayerCell(true, scene, camera);
+  return cell;
+}
+
+export function updateBot(bot, pelletData) {
+  let minDist = Infinity;
+  let closestIdx = -1;
+  for (let i = 0; i < pelletData.positions.length; i++) {
+    if (!pelletData.active[i]) continue;
+    const dist = bot.position.distanceTo(pelletData.positions[i]);
+    if (dist < minDist) {
+      minDist = dist;
+      closestIdx = i;
+    }
   }
-  return bots;
+  if (closestIdx !== -1) {
+    const target = pelletData.positions[closestIdx];
+    const direction = target.clone().sub(bot.position).normalize();
+    const speed = 0.08;
+    bot.position.addScaledVector(direction, speed);
+  }
+  checkEatCondition(false, bot, pelletData);
 }

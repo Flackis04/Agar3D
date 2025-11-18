@@ -8,8 +8,8 @@ import {
   createPlayerCell, 
   createViruses,
   createMagnetSphere, 
-  createBots,
-  updateBots
+  createBot,
+  updateBot
 } from './objects.js';
 import { 
   updateCells,
@@ -37,18 +37,22 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 
 const { scene, camera } = createScene();
+
 createViruses(scene);
 
 const stats = new Stats();
 document.body.appendChild(stats.dom);
 
 
-const {
-  cell: playerCell,
-  playerDefaultOpacity
-} = createPlayerCell(false, scene, camera);
+const playerCell = createPlayerCell(false, scene, camera);
 
-const bots = createBots(25, scene, camera);
+const botCount = 25
+const bots = []
+
+for (let index = 0; index < botCount; index++) {
+  const cell = createBot(scene, camera)
+  bots.push(cell)
+}
 
 const magnetSphere = createMagnetSphere();
 scene.add(magnetSphere);
@@ -123,7 +127,9 @@ function animate() {
     handlePelletEatingAndGrowth(playerCell, pelletData, scene, magnetSphere);
     // Update bots: move toward and eat pellets
     if (pelletData && bots) {
-      updateBots(bots, pelletData);
+      for (const bot of bots) {
+        updateBot(bot, pelletData);
+      }
     }
     if (pelletData) {
       if (pelletData.mesh && !scene.children.includes(pelletData.mesh)) scene.add(pelletData.mesh);
