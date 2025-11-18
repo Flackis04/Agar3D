@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { smoothLerp } from './scene';
+import { mapSize } from './objects';
 
 function clampPitch(pitch) {
   return Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
@@ -79,8 +80,7 @@ export function createCameraController(camera, playerCell) {
   }
 
   function clampToBoxBounds(position, playerCell) {
-    const BOX_SIZE = 500;
-    const BOX_HALF = BOX_SIZE / 2;
+    const BOX_HALF = mapSize / 2;
 
     const playerRadius = calculateCellRadius(playerCell);
 

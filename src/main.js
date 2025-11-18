@@ -5,9 +5,11 @@ import { createCameraController } from './camera.js';
 import { 
   createMapBox, 
   createPelletsInstanced, 
-  createPlayer, 
+  createPlayerCell, 
   createViruses,
-  createMagnetSphere 
+  createMagnetSphere, 
+  createBots,
+  updateBots
 } from './objects.js';
 import { 
   updateCells,
@@ -40,25 +42,31 @@ createViruses(scene);
 const stats = new Stats();
 document.body.appendChild(stats.dom);
 
+
 const {
-  playerCell,
+  cell: playerCell,
   playerDefaultOpacity
-} = createPlayer(scene, camera);
+} = createPlayerCell(false, scene, camera);
+
+const bots = createBots(25, scene, camera);
 
 const magnetSphere = createMagnetSphere();
 scene.add(magnetSphere);
 
 // Multiplayer integration
+
 let playerName = 'Player';
 initNetworking(scene);
 emitJoin(playerName, playerCell);
+
 
 let cells = [];
 let lastSplitTime = null;
 
 const cameraController = createCameraController(camera, playerCell);
 
-const { 
+
+const {
   updateCamera, 
   getForwardButtonPressed,
   keys,
@@ -72,6 +80,7 @@ const {
   cameraController
 );
 
+
 let border = null;
 let pelletData = null;
 
@@ -80,13 +89,17 @@ createMapBox((loadedBorder) => {
   scene.add(border);
 
   const pelletColors = [
-    0xFF3333, 0x33FF33, 0x3333FF, 0xFFFF33,
-    0xFF33FF, 0x33FFFF, 0xFFA500, 0xFF66B2,
-    0x9966FF, 0x66FF66, 0x66FFFF, 0xFF9966, 
-    0xFFFFFF
+    0xff0000, // Red
+    0x0077ff, // Blue
+    0x00ff00, // Green
+    0xffff00, // Yellow
+    0x9b30ff, // Purple
+    0xff9900, // Orange
+    0x7ed6ff, // Light Blue
+    0xff69b4  // Pink
   ];
 
-  const PELLET_COUNT = 200000;
+  const PELLET_COUNT = 25000;
   pelletData = createPelletsInstanced(scene, PELLET_COUNT, pelletColors);
 
   animate();
@@ -102,12 +115,16 @@ function animate() {
 
   if (!border) return;
 
-  updateFogDensity(scene, playerCell.geometry.parameters.radius * playerCell.scale.x)
+  updateFogDensity(scene, playerCell.geometry.parameters.radius * playerCell.scale.x);
 
   removeFogIfDevMode(scene, cameraController, pelletData);
 
   if (!(cameraController.isDevMode && cameraController.isDevMode())) {
     handlePelletEatingAndGrowth(playerCell, pelletData, scene, magnetSphere);
+    // Update bots: move toward and eat pellets
+    if (pelletData && bots) {
+      updateBots(bots, pelletData);
+    }
     if (pelletData) {
       if (pelletData.mesh && !scene.children.includes(pelletData.mesh)) scene.add(pelletData.mesh);
       if (pelletData.meshPowerup && !scene.children.includes(pelletData.meshPowerup)) scene.add(pelletData.meshPowerup);

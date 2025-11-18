@@ -11,6 +11,7 @@ export function smoothLerp(startValue, endValue, t) {
 
 
 export function updateFogDensity(scene, size) {
+  if (!scene.fog) return;
   const targetDensity = 0.04 / size;
   const currentDensity = scene.fog.density;
   const lerpSpeed = 0.1;

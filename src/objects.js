@@ -1,32 +1,61 @@
+import { checkEatCondition } from './utils/playerUtils.js';
+// Update all bots: move toward closest pellet and eat
+export function updateBots(bots, pelletData) {
+  if (!bots || !pelletData || !pelletData.positions) return;
+  for (const bot of bots) {
+    const botCell = bot.cell || bot; // support both {cell} and direct mesh
+    // Find closest active pellet
+    let minDist = Infinity;
+    let closestIdx = -1;
+    for (let i = 0; i < pelletData.positions.length; i++) {
+      if (!pelletData.active[i]) continue;
+      const dist = botCell.position.distanceTo(pelletData.positions[i]);
+      if (dist < minDist) {
+        minDist = dist;
+        closestIdx = i;
+      }
+    }
+    // Move bot toward closest pellet
+    if (closestIdx !== -1) {
+      const target = pelletData.positions[closestIdx];
+      const direction = target.clone().sub(botCell.position).normalize();
+      const speed = 0.08; // bot speed
+      botCell.position.addScaledVector(direction, speed);
+    }
+    // Eat pellets if possible
+    checkEatCondition(false, botCell, pelletData);
+  }
+}
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
-export const mapSize = 500;
+export const mapSize = 250;
 
-export function createPlayer(scene, camera) {
+export function createPlayerCell(isBot, scene, camera) {
   const playerStartingMass = 1;
   const playerDefaultOpacity = 0.65;
+  const playerCellColor = isBot ? 0xFF3333 : 0x00AAFF;
 
   const geometry = new THREE.SphereGeometry(playerStartingMass, 16, 16);
   const material = new THREE.MeshStandardMaterial({ 
-    color: 0x00AAFF,
+    color: playerCellColor,
     emissive: 0x002244,
     emissiveIntensity: 0.15,
     metalness: 0.1,
     transparent: true,
     opacity: playerDefaultOpacity
   });
-  const playerCell = new THREE.Mesh(geometry, material);
 
   const [x, y, z] = Array(3)
     .fill()
     .map(() => THREE.MathUtils.randFloatSpread(mapSize));
 
-  playerCell.position.set(x, y, z);
+  const cell = new THREE.Mesh(geometry, material);
 
-  scene.add(playerCell);
+  cell.position.set(x, y, z);
+  scene.add(cell);
 
-  return { playerCell, playerDefaultOpacity };
+  return { cell, playerDefaultOpacity };
 }
 
 export function createMagnetSphere(magnetRange = 4) {
@@ -61,7 +90,8 @@ export function createMagnetSphere(magnetRange = 4) {
 export function createMapBox(onReady) {
   const PARTICLE_SIZE = 2;
 
-  let boxGeometry = new THREE.BoxGeometry(mapSize, mapSize, mapSize, 96, 96, 96);
+  const borderSegments = mapSize / 4
+  let boxGeometry = new THREE.BoxGeometry(mapSize, mapSize, mapSize, borderSegments, borderSegments, borderSegments);
   boxGeometry.deleteAttribute('normal');
   boxGeometry.deleteAttribute('uv');
   boxGeometry = BufferGeometryUtils.mergeVertices(boxGeometry);
@@ -88,14 +118,14 @@ export function createMapBox(onReady) {
       uniforms: {
         color: { value: new THREE.Color(0xffffff) },
         pointTexture: { value: texture },
-        alphaTest: { value: 0.9 },
+        alphaTest: { value: 0.9 }, // fully opaque
         fogColor: { value: new THREE.Color(0x080020) },
         fogDensity: { value: 0.025 }
       },
       vertexShader: document.getElementById('vertexshader').textContent,
       fragmentShader: document.getElementById('fragmentshader').textContent,
-      transparent: true,
-      depthWrite: false
+      transparent: false,
+      depthWrite: true
     });
 
     material.needsUpdate = true;
@@ -122,7 +152,7 @@ export function createPelletsInstanced(scene, count, colors) {
   for (let i = 0; i < count; i++) {
     const color = new THREE.Color(colors[i % colors.length]);
     const isPowerUp = (
-      color.getHex() === 0xFF3333 &&
+      color.getHex() === 0xff0000 &&
       Math.floor(Math.random() * 3) === 0
     );
     powerUps[i] = isPowerUp;
@@ -145,30 +175,23 @@ export function createPelletsInstanced(scene, count, colors) {
     const size = Math.random() * (pelletMaxSize-pelletMinSize) + pelletMinSize;
     sizes.push(size);
 
-    const pelletRadius = size;
-    const halfMapSize = mapSize / 2;
-    const maxPos = halfMapSize - pelletRadius;
-
-    const position = new THREE.Vector3(
-      (Math.random() - 0.5) * 2 * maxPos,
-      (Math.random() - 0.5) * 2 * maxPos,
-      (Math.random() - 0.5) * 2 * maxPos
-    );
-
-    dummy.position.copy(position);
-    dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-    dummy.scale.setScalar(size);
-    dummy.updateMatrix();
-
+    // Use reusable pellet respawn function
+    const position = respawnPellet({
+      dummy,
+      size,
+      mapSize,
+      color,
+      isPowerUp,
+      meshNormal,
+      meshPowerup,
+      normalIdx,
+      powerupIdx,
+      pelletToMeshIndex,
+      i
+    });
     if (isPowerUp) {
-      meshPowerup.setMatrixAt(powerupIdx, dummy.matrix);
-      meshPowerup.setColorAt(powerupIdx, color);
-      pelletToMeshIndex[i] = powerupIdx;
       powerupIdx++;
     } else {
-      meshNormal.setMatrixAt(normalIdx, dummy.matrix);
-      meshNormal.setColorAt(normalIdx, color);
-      pelletToMeshIndex[i] = normalIdx;
       normalIdx++;
     }
     positions.push(position.clone());
@@ -196,6 +219,47 @@ export function createPelletsInstanced(scene, count, colors) {
     powerUps, 
     pelletToMeshIndex
   };
+}
+
+// Reusable pellet respawn function
+export function respawnPellet({
+  dummy,
+  size,
+  mapSize,
+  color,
+  isPowerUp,
+  meshNormal,
+  meshPowerup,
+  normalIdx,
+  powerupIdx,
+  pelletToMeshIndex,
+  i
+}) {
+  const pelletRadius = size;
+  const halfMapSize = mapSize / 2;
+  const maxPos = halfMapSize - pelletRadius;
+
+  const position = new THREE.Vector3(
+    (Math.random() - 0.5) * 2 * maxPos,
+    (Math.random() - 0.5) * 2 * maxPos,
+    (Math.random() - 0.5) * 2 * maxPos
+  );
+
+  dummy.position.copy(position);
+  dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+  dummy.scale.setScalar(size);
+  dummy.updateMatrix();
+
+  if (isPowerUp) {
+    meshPowerup.setMatrixAt(powerupIdx, dummy.matrix);
+    meshPowerup.setColorAt(powerupIdx, color);
+    pelletToMeshIndex[i] = powerupIdx;
+  } else {
+    meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+    meshNormal.setColorAt(normalIdx, color);
+    pelletToMeshIndex[i] = normalIdx;
+  }
+  return position;
 }
 
 export function createViruses(scene) {
@@ -236,4 +300,13 @@ export function createViruses(scene) {
     }
   }
   scene.userData.animateViruses = animateViruses;
+}
+
+export function createBots(botCount, scene, camera){
+  const bots = [];
+  for (let index = 0; index < botCount; index++) {
+    const { cell } = createPlayerCell(true, scene, camera);
+    bots.push(cell);
+  }
+  return bots;
 }

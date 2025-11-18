@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mapSize, respawnPellet } from '../objects.js';
 import { smoothLerp } from '../scene.js';
 
 export function checkEatCondition(isMagnet, cell, pelletData) {
@@ -40,6 +41,30 @@ export function checkEatCondition(isMagnet, cell, pelletData) {
       } else {
         mesh.setMatrixAt(meshIndex, dummy.matrix);
       }
+
+      // Respawn pellet using reusable function
+      const color = new THREE.Color();
+      if (isPowerUp) {
+        meshPowerup.getColorAt(meshIndex, color);
+      } else {
+        mesh.getColorAt(meshIndex, color);
+      }
+      positions[i].copy(
+        respawnPellet({
+          dummy,
+          size: sizes[i],
+          mapSize,
+          color,
+          isPowerUp,
+          meshNormal: mesh,
+          meshPowerup,
+          normalIdx: meshIndex,
+          powerupIdx: meshIndex,
+          pelletToMeshIndex,
+          i
+        })
+      );
+      active[i] = true;
     }
   }
 
@@ -85,8 +110,7 @@ export function applyPelletMagnet(animation, playerCell, pelletData, pelletMagne
     if (magnetSphere.visible) {
       magnetSphere.position.copy(playerCell.position);
       // Add small rotation for visual effect
-      magnetSphere.rotation.y += 0.03;
-      magnetSphere.rotation.x += 0.01;
+      magnetSphere.rotation.y += 0.0025;
     }
   }
 
