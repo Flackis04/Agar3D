@@ -1,5 +1,23 @@
 import * as THREE from 'three';
 
+function lerp(startValue, endValue, t) {
+    return startValue + (endValue - startValue) * t;
+}
+
+export function smoothLerp(startValue, endValue, t) {
+    t = t * t * (3 - 2 * t);
+    return lerp(startValue, endValue, t);
+}
+
+
+export function updateFogDensity(scene, size) {
+  const targetDensity = 0.04 / size;
+  const currentDensity = scene.fog.density;
+  const lerpSpeed = 0.1;
+  scene.fog.density = smoothLerp(currentDensity, targetDensity, lerpSpeed);
+  return scene.fog.density;
+}
+
 export function createScene() {
   const scene = new THREE.Scene();
 

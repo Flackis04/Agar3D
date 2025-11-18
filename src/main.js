@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createScene } from './scene.js';
+import { createScene, updateFogDensity} from './scene.js';
 import { setupControls } from './controls.js';
 import { createCameraController } from './camera.js';
 import { 
@@ -101,6 +101,8 @@ function animate() {
   requestAnimationFrame(animate);
 
   if (!border) return;
+
+  updateFogDensity(scene, playerCell.geometry.parameters.radius * playerCell.scale.x)
 
   removeFogIfDevMode(scene, cameraController, pelletData);
 

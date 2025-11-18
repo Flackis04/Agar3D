@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { smoothLerp } from './scene';
 
 function clampPitch(pitch) {
   return Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));

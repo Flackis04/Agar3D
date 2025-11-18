@@ -140,7 +140,9 @@ export function createPelletsInstanced(scene, count, colors) {
     const color = new THREE.Color(colors[i % colors.length]);
     const isPowerUp = powerUps[i];
 
-    const size = Math.random() * 0.3 + 0.2;
+    const pelletMinSize = 0.2
+    const pelletMaxSize = 0.5
+    const size = Math.random() * (pelletMaxSize-pelletMinSize) + pelletMinSize;
     sizes.push(size);
 
     const pelletRadius = size;

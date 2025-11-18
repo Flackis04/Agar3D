@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { smoothLerp } from '../scene.js';
 
 export function checkEatCondition(isMagnet, cell, pelletData) {
   if (!cell || !pelletData) return { eatenCount: 0, eatenSizes: [] };
@@ -74,10 +75,18 @@ export function applyPelletMagnet(animation, playerCell, pelletData, pelletMagne
   const magnetSphereBaseRadius = 4;
 
   if (magnetSphere) {
-    magnetSphere.visible = pelletMagnetToggle;
-    if (pelletMagnetToggle) {
+    const targetScale = pelletMagnetToggle ? magnetSphereRadius / magnetSphereBaseRadius : 0.001;
+    const lerpSpeed = 0.1;
+    const currentScale = magnetSphere.scale.x;
+    const newScale = smoothLerp(currentScale, targetScale, lerpSpeed);
+    magnetSphere.scale.setScalar(newScale);
+    // Optionally, fade opacity if material supports it
+    magnetSphere.visible = newScale > 0.01;
+    if (magnetSphere.visible) {
       magnetSphere.position.copy(playerCell.position);
-      magnetSphere.scale.setScalar(magnetSphereRadius / magnetSphereBaseRadius);
+      // Add small rotation for visual effect
+      magnetSphere.rotation.y += 0.03;
+      magnetSphere.rotation.x += 0.01;
     }
   }
 
