@@ -1,19 +1,34 @@
 import { io } from 'socket.io-client';
 import * as THREE from 'three';
 
-export const socket = io('https://383b24bec174.ngrok-free.app');
+export const socket = io('https://dfd250d4cb49.ngrok-free.app');
 export const otherPlayers = {};
+
+socket.on('connect', () => {
+    console.log('Connected to server with ID:', socket.id);
+});
+
+socket.on('disconnect', () => {
+    console.log('Disconnected from server');
+});
 
 function createOtherPlayerSphere(player) {
     const geometry = new THREE.SphereGeometry(player.radius || 1, 32, 32);
     const material = new THREE.MeshStandardMaterial({ color: 0xff4444, opacity: 0.7, transparent: true });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(player.x, player.y, player.z);
+    console.log('Created other player sphere:', {
+        position: mesh.position,
+        radius: player.radius || 1,
+        visible: mesh.visible,
+        playerData: player
+    });
     return mesh;
 }
 
 export function initNetworking(scene) {
     socket.on('players', (players) => {
+        console.log('Received players:', players);
         for (const id in otherPlayers) {
             if (otherPlayers[id].mesh) {
                 scene.remove(otherPlayers[id].mesh);
@@ -25,6 +40,7 @@ export function initNetworking(scene) {
                 const mesh = createOtherPlayerSphere(players[id]);
                 scene.add(mesh);
                 otherPlayers[id] = { mesh, name: players[id].name };
+                console.log('Added other player mesh:', mesh);
             }
         }
     });
@@ -34,6 +50,7 @@ export function initNetworking(scene) {
             const mesh = createOtherPlayerSphere(player);
             scene.add(mesh);
             otherPlayers[player.id] = { mesh, name: player.name };
+            console.log('Player joined, mesh added:', mesh);
         }
     });
 
@@ -45,6 +62,7 @@ export function initNetworking(scene) {
                 mesh.geometry.dispose();
                 mesh.geometry = new THREE.SphereGeometry(player.radius, 32, 32);
             }
+            console.log('Player moved:', player);
         }
     });
 
@@ -54,6 +72,7 @@ export function initNetworking(scene) {
                 scene.remove(otherPlayers[id].mesh);
             }
             delete otherPlayers[id];
+            console.log('Player left:', id);
         }
     });
 }
