@@ -43,7 +43,7 @@ createViruses(scene);
 const stats = new Stats();
 document.body.appendChild(stats.dom);
 
-const { playerCell, playerDefaultOpacity } = createPlayerCell(false, scene, camera);
+const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(false, scene, camera);
 
 const botCount = 25
 const bots = []

@@ -28,7 +28,7 @@ export function createPlayerCell(isBot, scene, camera) {
   cell.position.set(x, y, z);
   scene.add(cell);
 
-  return cell, playerDefaultOpacity;
+  return { cell, playerDefaultOpacity };
 }
 
 export function createMagnetSphere(magnetRange = 4) {
@@ -276,7 +276,7 @@ export function createViruses(scene) {
 }
 
 export function createBot(scene, camera){
-  const cell = createPlayerCell(true, scene, camera);
+  const { cell } = createPlayerCell(true, scene, camera);
   return cell;
 }
 
