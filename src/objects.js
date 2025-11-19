@@ -191,9 +191,9 @@ export function createPelletsInstanced(scene, count, colors) {
   scene.add(meshPowerup);
 
   // Create spatial grid for efficient collision detection
-  // Cell size should be roughly 2x the max interaction radius
-  const cellSize = 20; // Adjust based on typical cell + magnet radius
-  const spatialGrid = new SpatialGrid(mapSize, cellSize);
+  // Voxel size should be roughly 2x the max interaction radius
+  const voxelSize = 20; // Adjust based on typical cell + magnet radius
+  const spatialGrid = new SpatialGrid(mapSize, voxelSize);
   
   // Build initial grid from pellet positions
   spatialGrid.buildFromPelletData({ positions, active });
@@ -213,8 +213,8 @@ export function createPelletsInstanced(scene, count, colors) {
 }
 
 export function createCellSpatialGrid() {
-  const cellSize = 30; // Larger cell size for player/bot interactions
-  return new SpatialGrid(mapSize, cellSize);
+  const voxelSize = 30; // Larger voxel size for player/bot interactions
+  return new SpatialGrid(mapSize, voxelSize);
 }
 
 // Reusable pellet respawn function
