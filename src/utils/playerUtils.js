@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { createSplitSphere, mapSize, respawnPellet } from '../objects.js';
 import { smoothLerp } from '../scene.js';
+import { SpatialGrid } from './spatialGrid.js';
 
 /* -----------------------
    Small math & util helpers
@@ -113,8 +114,11 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
     hideInstanceAt(mesh, meshIndex, dummy);
   }
 
+  // Store old position for grid update
+  const oldPos = positions[i].clone();
+  
   // Respawn and reactivate
-  respawnPelletAt(i, {
+  const newPos = respawnPelletAt(i, {
     dummy,
     sizes,
     mapSize,
@@ -124,6 +128,11 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
     powerUps,
     positions
   });
+
+  // Update spatial grid with new position
+  if (pelletData.spatialGrid) {
+    pelletData.spatialGrid.updateItem(i, oldPos.x, oldPos.y, oldPos.z, newPos.x, newPos.y, newPos.z);
+  }
 
   active[i] = true;
 }
@@ -137,7 +146,8 @@ export function checkEatCondition(cell, pelletData) {
     active,
     dummy,
     powerUps,
-    pelletToMeshIndex
+    pelletToMeshIndex,
+    spatialGrid
   } = pelletData;
 
   const cellRadius = computeCellRadius(cell);
@@ -147,7 +157,13 @@ export function checkEatCondition(cell, pelletData) {
   let eatenCount = 0;
   const toggleRef = { value: cell.pelletMagnetToggle || false };
 
-  for (let i = 0; i < positions.length; i++) {
+  // Use spatial grid to only check nearby pellets
+  const nearbyIndices = spatialGrid 
+    ? spatialGrid.getItemsInRadius(cellPosition.x, cellPosition.y, cellPosition.z, cellRadius + 5)
+    : Array.from({ length: positions.length }, (_, i) => i);
+
+  for (let idx = 0; idx < nearbyIndices.length; idx++) {
+    const i = nearbyIndices[idx];
     if (!active[i]) continue;
     const distance = cellPosition.distanceTo(positions[i]);
     if (distance <= cellRadius) {
@@ -189,13 +205,21 @@ function applyMagnetAttraction({
   active,
   attractionSpeed,
   affectedNormal,
-  affectedPowerup
+  affectedPowerup,
+  spatialGrid
 }) {
   const px = playerPos.x;
   const py = playerPos.y;
   const pz = playerPos.z;
+  const magnetRange = Math.sqrt(magnetRangeSq);
 
-  for (let i = 0; i < positions.length; i++) {
+  // Use spatial grid to only check pellets within magnet range
+  const nearbyIndices = spatialGrid
+    ? spatialGrid.getItemsInRadius(px, py, pz, magnetRange)
+    : Array.from({ length: positions.length }, (_, i) => i);
+
+  for (let idx = 0; idx < nearbyIndices.length; idx++) {
+    const i = nearbyIndices[idx];
     if (!active[i]) continue;
     const pelletPos = positions[i];
     const dx = px - pelletPos.x;
@@ -206,9 +230,20 @@ function applyMagnetAttraction({
     if (distanceSq <= magnetRangeSq && distanceSq > (playerCellRadius * playerCellRadius)) {
       const distance = Math.sqrt(distanceSq) || 1e-6;
       const factor = attractionSpeed / distance;
+      
+      // Store old position for grid update
+      const oldX = pelletPos.x;
+      const oldY = pelletPos.y;
+      const oldZ = pelletPos.z;
+      
       pelletPos.x += dx * factor;
       pelletPos.y += dy * factor;
       pelletPos.z += dz * factor;
+
+      // Update spatial grid if position changed cells
+      if (spatialGrid) {
+        spatialGrid.updateItem(i, oldX, oldY, oldZ, pelletPos.x, pelletPos.y, pelletPos.z);
+      }
 
       const isPowerUp = powerUps && powerUps[i];
       if (isPowerUp) {
@@ -297,7 +332,8 @@ export function updatePelletMagnet(
       active,
       attractionSpeed,
       affectedNormal,
-      affectedPowerup
+      affectedPowerup,
+      spatialGrid: pelletData.spatialGrid
     });
 
     updateInstancedMatricesForAffected(affectedNormal, mesh, dummy, positions);

@@ -1,6 +1,7 @@
 import { checkEatCondition } from './utils/playerUtils.js';
 import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+import { SpatialGrid } from './utils/spatialGrid.js';
 
 export const mapSize = 250;
 
@@ -182,6 +183,14 @@ export function createPelletsInstanced(scene, count, colors) {
   scene.add(meshNormal);
   scene.add(meshPowerup);
 
+  // Create spatial grid for efficient collision detection
+  // Cell size should be roughly 2x the max interaction radius
+  const cellSize = 20; // Adjust based on typical cell + magnet radius
+  const spatialGrid = new SpatialGrid(mapSize, cellSize);
+  
+  // Build initial grid from pellet positions
+  spatialGrid.buildFromPelletData({ positions, active });
+
   return { 
     mesh: meshNormal, 
     meshPowerup, 
@@ -191,7 +200,8 @@ export function createPelletsInstanced(scene, count, colors) {
     radius: geometry.parameters.radius, 
     dummy, 
     powerUps, 
-    pelletToMeshIndex
+    pelletToMeshIndex,
+    spatialGrid
   };
 }
 

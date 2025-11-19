@@ -28,6 +28,13 @@ export function createAnimationLoop(
   } = gameState;
 
   let lastSplitTime = gameState.lastSplitTime;
+  
+  // Cache fog density calculation
+  let cachedFogDensity = null;
+  let cachedPlayerSize = null;
+  
+  // Track mesh visibility state
+  let meshesVisible = true;
 
   const {
     updateCamera,
@@ -42,10 +49,20 @@ export function createAnimationLoop(
 
     if (!border) return;
 
-    updateFogDensity(scene, playerCell.geometry.parameters.radius * playerCell.scale.x);
+    const currentPlayerSize = playerCell.geometry.parameters.radius * playerCell.scale.x;
+    
+    // Only recalculate fog if player size changed significantly (>5%)
+    if (!cachedPlayerSize || Math.abs(currentPlayerSize - cachedPlayerSize) / cachedPlayerSize > 0.05) {
+      updateFogDensity(scene, currentPlayerSize);
+      cachedPlayerSize = currentPlayerSize;
+      cachedFogDensity = scene.fog?.density;
+    }
+    
     removeFogIfDevMode(scene, cameraController, pelletData);
 
-    if (!(cameraController.isDevMode && cameraController.isDevMode())) {
+    const isDevMode = cameraController.isDevMode && cameraController.isDevMode();
+    
+    if (!isDevMode) {
       updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position);
       // Update bots: move toward and eat pellets
       for (const bot of bots) {
@@ -53,14 +70,18 @@ export function createAnimationLoop(
         updatePlayerGrowth(true, bot, pelletData, scene, bot.magnetSphere, playerCell.position);
       }
 
-      if (pelletData) {
-        if (pelletData.mesh && !scene.children.includes(pelletData.mesh)) scene.add(pelletData.mesh);
-        if (pelletData.meshPowerup && !scene.children.includes(pelletData.meshPowerup)) scene.add(pelletData.meshPowerup);
+      // Add meshes if not visible
+      if (pelletData && !meshesVisible) {
+        if (pelletData.mesh) scene.add(pelletData.mesh);
+        if (pelletData.meshPowerup) scene.add(pelletData.meshPowerup);
+        meshesVisible = true;
       }
     } else {
-      if (pelletData) {
-        if (pelletData.mesh && scene.children.includes(pelletData.mesh)) scene.remove(pelletData.mesh);
-        if (pelletData.meshPowerup && scene.children.includes(pelletData.meshPowerup)) scene.remove(pelletData.meshPowerup);
+      // Remove meshes if visible
+      if (pelletData && meshesVisible) {
+        if (pelletData.mesh) scene.remove(pelletData.mesh);
+        if (pelletData.meshPowerup) scene.remove(pelletData.meshPowerup);
+        meshesVisible = false;
       }
     }
 
