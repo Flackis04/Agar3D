@@ -14,7 +14,7 @@ import {
 import { 
   updateCells,
   updatePlayerFade,
-  handlePelletEatingAndGrowth,
+  updatePlayerGrowth,
   executeSplit
 } from './utils/playerUtils.js';
 import Stats from 'three/addons/libs/stats.module.js';
@@ -43,8 +43,7 @@ createViruses(scene);
 const stats = new Stats();
 document.body.appendChild(stats.dom);
 
-
-const playerCell = createPlayerCell(false, scene, camera);
+const { playerCell, playerDefaultOpacity } = createPlayerCell(false, scene, camera);
 
 const botCount = 25
 const bots = []
@@ -124,7 +123,7 @@ function animate() {
   removeFogIfDevMode(scene, cameraController, pelletData);
 
   if (!(cameraController.isDevMode && cameraController.isDevMode())) {
-    handlePelletEatingAndGrowth(playerCell, pelletData, scene, magnetSphere);
+    updatePlayerGrowth(playerCell, pelletData, scene, magnetSphere);
     // Update bots: move toward and eat pellets
     if (pelletData && bots) {
       for (const bot of bots) {

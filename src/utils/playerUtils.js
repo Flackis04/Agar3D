@@ -78,16 +78,13 @@ export function checkEatCondition(isMagnet, cell, pelletData) {
 
 // Pellet Magnet
 function togglePelletMagnet(playerCell, pelletData, currentToggle) {
-  if (!currentToggle) {
-    console.log('Pellet magnet activated for 8 seconds!');
+  if (currentToggle) return;
     
-    setTimeout(() => {
-      pelletData.pelletMagnetToggle = false;
-      console.log('Pellet magnet deactivated!');
-    }, 8000);
+  setTimeout(() => {
+    pelletData.pelletMagnetToggle = false;
+  }, 8000);
     
-    return true;
-  }
+  return true;
   
   return currentToggle;
 }
@@ -206,7 +203,7 @@ export function updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity
   }
 }
 
-export function handlePelletEatingAndGrowth(playerCell, pelletData, scene, magnetSphere) {
+export function updatePlayerGrowth(playerCell, pelletData, scene, magnetSphere) {
   if (!pelletData) return;
 
   const magnetResult = applyPelletMagnet(true, playerCell, pelletData, pelletData.pelletMagnetToggle, scene, magnetSphere, );

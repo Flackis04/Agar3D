@@ -28,7 +28,7 @@ export function createPlayerCell(isBot, scene, camera) {
   cell.position.set(x, y, z);
   scene.add(cell);
 
-  return cell;
+  return cell, playerDefaultOpacity;
 }
 
 export function createMagnetSphere(magnetRange = 4) {
