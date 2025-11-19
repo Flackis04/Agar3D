@@ -30,6 +30,9 @@ export function createPlayerCell(isBot, scene, camera) {
   const cell = new THREE.Mesh(geometry, material);
 
   cell.position.set(x, y, z);
+  cell.userData.isBot = isBot;
+  cell.userData.defaultOpacity = playerDefaultOpacity;
+  cell.userData.isEaten = false;
   scene.add(cell);
 
   return { cell, playerDefaultOpacity };
@@ -209,6 +212,11 @@ export function createPelletsInstanced(scene, count, colors) {
   };
 }
 
+export function createCellSpatialGrid() {
+  const cellSize = 30; // Larger cell size for player/bot interactions
+  return new SpatialGrid(mapSize, cellSize);
+}
+
 // Reusable pellet respawn function
 export function respawnPellet({
   dummy,
@@ -346,6 +354,27 @@ export function createSplitSphere(playerCell){
 export function createBot(scene, camera){
   const { cell } = createPlayerCell(true, scene, camera);
   return cell;
+}
+
+export function respawnCell(cell, scene) {
+  const playerStartingMass = 1;
+  const halfMapSize = mapSize / 2;
+  const maxSpawnRange = halfMapSize - playerStartingMass;
+  
+  const [x, y, z] = Array(3)
+    .fill()
+    .map(() => (Math.random() - 0.5) * 2 * maxSpawnRange);
+  
+  cell.position.set(x, y, z);
+  cell.scale.setScalar(1);
+  cell.userData.isEaten = false;
+  cell.material.opacity = cell.userData.isBot ? 0.65 : (cell.userData.defaultOpacity || 0.65);
+  
+  // Re-add to scene
+  scene.add(cell);
+  if (cell.magnetSphere) {
+    scene.add(cell.magnetSphere);
+  }
 }
 
 export function updateBot(bot, pelletData) {

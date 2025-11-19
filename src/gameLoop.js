@@ -1,6 +1,6 @@
 import { updateFogDensity } from './scene.js';
 import { removeFogIfDevMode } from './camera.js';
-import { updateBot } from './objects.js';
+import { updateBot, respawnCell } from './objects.js';
 import { 
   updateCells,
   updatePlayerFade,
@@ -24,7 +24,8 @@ export function createAnimationLoop(
     bots,
     cells,
     border,
-    pelletData
+    pelletData,
+    cellSpatialGrid
   } = gameState;
 
   let lastSplitTime = gameState.lastSplitTime;
@@ -47,6 +48,12 @@ export function createAnimationLoop(
   function animate() {
     requestAnimationFrame(animate);
     if (!border) return;
+    
+    // Check if game is paused
+    if (window.isPaused) {
+      renderer.render(scene, camera);
+      return;
+    }
 
     const currentPlayerSize = playerCell.geometry.parameters.radius * playerCell.scale.x;
     
@@ -61,12 +68,33 @@ export function createAnimationLoop(
 
     const isDevMode = cameraController.isDevMode && cameraController.isDevMode();
     
+    // Handler for when a cell gets eaten
+    const handleCellEaten = (eatenCell) => {
+      // Respawn after 2 seconds
+      setTimeout(() => {
+        respawnCell(eatenCell, scene);
+      }, 2000);
+    };
+    
     if (!isDevMode) {
-      updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position);
+      // Create combined array of all cells (player + bots + split cells)
+      const allCells = [playerCell, ...bots, ...cells].filter(c => !c.userData.isEaten);
+      
+      // Update spatial grid with current cell positions
+      if (cellSpatialGrid) {
+        cellSpatialGrid.clear();
+        allCells.forEach((cell, idx) => {
+          const pos = cell.position;
+          cellSpatialGrid.addItem(idx, pos.x, pos.y, pos.z);
+        });
+      }
+      
+      updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position, allCells, handleCellEaten);
       // Update bots: move toward and eat pellets
       for (const bot of bots) {
+        if (bot.userData.isEaten) continue;
         updateBot(bot, pelletData);
-        updatePlayerGrowth(true, bot, pelletData, scene, bot.magnetSphere, playerCell.position);
+        updatePlayerGrowth(true, bot, pelletData, scene, bot.magnetSphere, playerCell.position, allCells, handleCellEaten);
       }
 
       // Add meshes if not visible

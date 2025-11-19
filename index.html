@@ -21,7 +21,25 @@
   </style>
 </head>
 <body>
-  <canvas id="c"></canvas>
+  <!-- Home Screen -->
+  <div id="homeScreen">
+    <div id="menuContainer">
+      <h1>Agar3D</h1>
+      <input type="text" id="playerName" placeholder="Enter your name" maxlength="20" />
+      <button id="playButton">Play</button>
+    </div>
+  </div>
+
+  <!-- ESC Menu -->
+  <div id="escMenu" style="display: none;">
+    <div id="escMenuContainer">
+      <h2>Paused</h2>
+      <button id="saveProgressButton">Save Progress</button>
+      <button id="resumeButton">Resume</button>
+    </div>
+  </div>
+
+  <canvas id="c" style="display: none;"></canvas>
 
   <!-- Vertex Shader -->
   <script type="x-shader/x-vertex" id="vertexshader">

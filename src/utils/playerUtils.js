@@ -20,6 +20,11 @@ function volumeFromRadius(r) {
   return (4 / 3) * Math.PI * Math.pow(r, 3);
 }
 
+function canEatCell(predatorRadius, preyRadius) {
+  // Predator must be at least 15% larger to eat prey
+  return predatorRadius > preyRadius * 1.15;
+}
+
 /* --------------------------
    InstancedMesh matrix helpers
    -------------------------- */
@@ -397,7 +402,49 @@ function applyGrowthFromPellets(playerCell, totalEatenSizes, pelletBaseRadius) {
   playerCell.scale.setScalar(scale);
 }
 
-export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetSphere, playerPosition) {
+export function checkCellEatCondition(predatorCell, allCells, scene, onEaten) {
+  const predatorRadius = computeCellRadius(predatorCell);
+  const predatorPos = predatorCell.position;
+  
+  for (let i = 0; i < allCells.length; i++) {
+    const preyCell = allCells[i];
+    if (preyCell === predatorCell || preyCell.userData.isEaten) continue;
+    
+    const preyRadius = computeCellRadius(preyCell);
+    
+    // Check if predator can eat prey
+    if (!canEatCell(predatorRadius, preyRadius)) continue;
+    
+    const distance = predatorPos.distanceTo(preyCell.position);
+    
+    // If prey is within eating distance
+    if (distance <= predatorRadius) {
+      // Mark as eaten and remove from scene immediately
+      preyCell.userData.isEaten = true;
+      scene.remove(preyCell);
+      if (preyCell.magnetSphere) {
+        scene.remove(preyCell.magnetSphere);
+      }
+      
+      // Calculate volume transfer
+      const preyVolume = volumeFromRadius(preyRadius);
+      const predatorVolume = volumeFromRadius(predatorRadius);
+      const newVolume = predatorVolume + preyVolume;
+      const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
+      const scale = newRadius / predatorCell.geometry.parameters.radius;
+      predatorCell.scale.setScalar(scale);
+      
+      // Notify callback for respawn
+      if (onEaten) onEaten(preyCell);
+      
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetSphere, playerPosition, allCells, onCellEaten) {
   if (!pelletData) return;
 
   // Determine if bot is within view distance of player (if bot)
@@ -434,6 +481,11 @@ export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetS
   }
 
   applyGrowthFromPellets(playerCell, totalEatenSizes, pelletData.radius);
+  
+  // Check if this cell can eat other cells
+  if (allCells && allCells.length > 0) {
+    checkCellEatCondition(playerCell, allCells, scene, onCellEaten);
+  }
 }
 
 /* --------------------------

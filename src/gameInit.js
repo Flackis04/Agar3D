@@ -4,11 +4,12 @@ import {
   createPlayerCell, 
   createViruses,
   createMagnetSphere, 
-  createBot
+  createBot,
+  createCellSpatialGrid
 } from './objects.js';
 import { initNetworking, emitJoin } from './multiplayer.js';
 
-export function initializeGame(scene, camera, onReady) {
+export function initializeGame(scene, camera, onReady, playerName = 'Player') {
   createViruses(scene);
 
   const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(false, scene, camera);
@@ -28,7 +29,6 @@ export function initializeGame(scene, camera, onReady) {
   scene.add(magnetSphere);
 
   // Multiplayer integration
-  const playerName = 'Player';
   initNetworking(scene);
   emitJoin(playerName, playerCell);
 
@@ -51,6 +51,7 @@ export function initializeGame(scene, camera, onReady) {
 
     const PELLET_COUNT = 25000;
     const pelletData = createPelletsInstanced(scene, PELLET_COUNT, pelletColors);
+    const cellSpatialGrid = createCellSpatialGrid();
 
     onReady({
       playerCell,
@@ -59,7 +60,8 @@ export function initializeGame(scene, camera, onReady) {
       cells,
       lastSplitTime,
       border: loadedBorder,
-      pelletData
+      pelletData,
+      cellSpatialGrid
     });
   });
 }
