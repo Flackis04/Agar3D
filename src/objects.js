@@ -275,6 +275,18 @@ export function createViruses(scene) {
   scene.userData.animateViruses = animateViruses;
 }
 
+export function createSplitSphere(playerCell){
+  const playerCellRadius = playerCell.geometry.parameters.radius * playerCell.scale.x;
+  const geometry = new THREE.SphereGeometry(playerCellRadius, 16, 16);
+  const material = new THREE.MeshStandardMaterial({ 
+    color: playerCell.material.color.clone(),
+    transparent: true,
+    opacity: playerCell.material.opacity
+  });
+  const cell = new THREE.Mesh(geometry, material);
+  return cell;
+}
+
 export function createBot(scene, camera){
   const { cell } = createPlayerCell(true, scene, camera);
   return cell;
@@ -297,5 +309,5 @@ export function updateBot(bot, pelletData) {
     const speed = 0.08;
     bot.position.addScaledVector(direction, speed);
   }
-  checkEatCondition(false, bot, pelletData);
+  checkEatCondition(bot, pelletData);
 }
