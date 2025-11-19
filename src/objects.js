@@ -31,7 +31,7 @@ export function createPlayerCell(isBot, scene, camera) {
   return { cell, playerDefaultOpacity };
 }
 
-export function createMagnetSphere(magnetRange = 4) {
+export function createMagnetSphere(playerCell, magnetRange) {
   const geometry = new THREE.SphereGeometry(magnetRange, 32, 32);
   
   const solidMaterial = new THREE.MeshBasicMaterial({
@@ -57,7 +57,7 @@ export function createMagnetSphere(magnetRange = 4) {
   magnetSphere.add(wireframeMesh);
   magnetSphere.visible = false;
   
-  return magnetSphere;
+  return playerCell.magnetSphere;
 }
 
 export function createMapBox(onReady) {

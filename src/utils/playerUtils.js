@@ -103,7 +103,7 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
   // Possibly toggle pellet magnet
   if (isPowerUp && !toggleRef.value) {
     toggleRef.value = togglePelletMagnet(cell, pelletData, toggleRef.value);
-    pelletData.pelletMagnetToggle = toggleRef.value;
+    cell.pelletMagnetToggle = toggleRef.value;
   }
 
   // hide instance (tiny scale)
@@ -145,7 +145,7 @@ export function checkEatCondition(cell, pelletData) {
 
   const eatenSizes = [];
   let eatenCount = 0;
-  const toggleRef = { value: pelletData.pelletMagnetToggle || false };
+  const toggleRef = { value: cell.pelletMagnetToggle || false };
 
   for (let i = 0; i < positions.length; i++) {
     if (!active[i]) continue;
@@ -172,7 +172,7 @@ export function togglePelletMagnet(playerCell, pelletData, currentToggle) {
 
   // revert the toggle after 8 seconds (behavior preserved)
   setTimeout(() => {
-    pelletData.pelletMagnetToggle = false;
+    playerCell.pelletMagnetToggle = false;
   }, 8000);
 
   return true;
@@ -255,6 +255,7 @@ export function updatePelletMagnet(
     magnetSphere.scale.setScalar(newScale);
     magnetSphere.visible = newScale > 0.01;
     if (magnetSphere.visible) {
+      //HERE
       magnetSphere.position.copy(playerCell.position);
       magnetSphere.rotation.y += 0.0025;
     }
@@ -352,15 +353,17 @@ export function updatePlayerGrowth(playerCell, pelletData, scene, magnetSphere) 
     true,
     playerCell,
     pelletData,
-    pelletData.pelletMagnetToggle,
+    playerCell.pelletMagnetToggle,
     scene,
     magnetSphere
   );
 
-  // check eat by player cell
+  // Check for eaten pellets by this cell
   const { eatenCount, eatenSizes } = checkEatCondition(playerCell, pelletData);
 
   let totalEatenSizes = [...eatenSizes];
+
+  // Add magnet-eaten pellets if magnet is active for this cell
   if (magnetResult && magnetResult.eatenCount > 0) {
     totalEatenSizes = totalEatenSizes.concat(magnetResult.eatenSizes);
   }

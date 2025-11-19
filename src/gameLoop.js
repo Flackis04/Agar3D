@@ -48,12 +48,10 @@ export function createAnimationLoop(
 
     if (!(cameraController.isDevMode && cameraController.isDevMode())) {
       updatePlayerGrowth(playerCell, pelletData, scene, magnetSphere);
-
       // Update bots: move toward and eat pellets
-      if (pelletData && bots) {
-        for (const bot of bots) {
-          updateBot(bot, pelletData);
-        }
+      for (const bot of bots) {
+        updateBot(bot, pelletData);
+        updatePlayerGrowth(bot, pelletData, scene, magnetSphere);
       }
 
       if (pelletData) {
@@ -71,7 +69,7 @@ export function createAnimationLoop(
     setViewingCell(cellResult.viewingCell);
 
     if (!cellResult.viewingCell) {
-      const magnetActive = pelletData && pelletData.pelletMagnetToggle;
+      const magnetActive = pelletData && playerCell.pelletMagnetToggle;
       updateCamera(magnetActive);
     }
 

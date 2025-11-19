@@ -13,15 +13,15 @@ export function initializeGame(scene, camera, onReady) {
 
   const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(false, scene, camera);
 
-  const botCount = 25;
+  const botCount = 1;
   const bots = [];
 
   for (let index = 0; index < botCount; index++) {
     const cell = createBot(scene, camera);
     bots.push(cell);
   }
-
-  const magnetSphere = createMagnetSphere();
+  const magnetRange = 4
+  const magnetSphere = createMagnetSphere(playerCell, magnetRange);
   scene.add(magnetSphere);
 
   // Multiplayer integration
