@@ -247,8 +247,8 @@ export function respawnPellet({
 }
 
 export function createViruses(scene) {
-  const VIRUS_COUNT = 250;
-  const VIRUS_SIZE = 2.25;
+  const VIRUS_COUNT = 125;
+  const VIRUS_SIZE = 1.75;
   const virusColor = 0x32CD32;
   const geometry = new THREE.DodecahedronGeometry(VIRUS_SIZE);
   const material = new THREE.MeshStandardMaterial({ color: virusColor, opacity: 0.8, transparent: true });

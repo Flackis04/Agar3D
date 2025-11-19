@@ -1,7 +1,7 @@
 import { io } from 'socket.io-client';
 import * as THREE from 'three';
 
-export const socket = io('https://dfd250d4cb49.ngrok-free.app');
+export const socket = io('https://1b0ff8538306.ngrok-free.app');
 export const otherPlayers = {};
 
 socket.on('connect', () => {
@@ -14,7 +14,14 @@ socket.on('disconnect', () => {
 
 function createOtherPlayerSphere(player) {
     const geometry = new THREE.SphereGeometry(player.radius || 1, 32, 32);
-    const material = new THREE.MeshStandardMaterial({ color: 0xff4444, opacity: 0.7, transparent: true });
+    const material = new THREE.MeshStandardMaterial({ 
+        color: 0x00AAFF,
+        emissive: 0x002244,
+        emissiveIntensity: 0.15,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.65
+    });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(player.x, player.y, player.z);
     console.log('Created other player sphere:', {
@@ -84,6 +91,14 @@ export function emitPlayerMove(mainSphere) {
         z: mainSphere.position.z,
         radius: mainSphere.geometry.parameters.radius
     });
+    updatePositionDisplay(mainSphere);
+}
+
+function updatePositionDisplay(mainSphere) {
+    const positionElement = document.getElementById('position');
+    if (positionElement) {
+        positionElement.textContent = `Position: (${mainSphere.position.x.toFixed(2)}, ${mainSphere.position.y.toFixed(2)}, ${mainSphere.position.z.toFixed(2)})`;
+    }
 }
 
 export function emitJoin(playerName, mainSphere) {

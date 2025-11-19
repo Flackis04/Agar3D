@@ -17,6 +17,12 @@ io.on('connection', (socket) => {
     if (players[socket.id]) {
       players[socket.id] = { ...players[socket.id], ...player };
       socket.broadcast.emit('player-moved', { ...players[socket.id], id: socket.id });
+      
+      console.log('All player positions:');
+      for (const id in players) {
+        const p = players[id];
+        console.log(`  ${p.name} (${id}): (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)})`);
+      }
     }
   });
 
@@ -26,6 +32,6 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(3000, () => {
-  console.log('Multiplayer server running on port 3000');
+server.listen(3001, () => {
+  console.log('Multiplayer server running on port 3001');
 });
