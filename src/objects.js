@@ -20,9 +20,12 @@ export function createPlayerCell(isBot, scene, camera) {
     opacity: playerDefaultOpacity
   });
 
+  const halfMapSize = mapSize / 2;
+  const maxSpawnRange = halfMapSize - playerStartingMass;
+  
   const [x, y, z] = Array(3)
     .fill()
-    .map(() => THREE.MathUtils.randFloatSpread(mapSize));
+    .map(() => (Math.random() - 0.5) * 2 * maxSpawnRange);
 
   const cell = new THREE.Mesh(geometry, material);
 
