@@ -233,13 +233,13 @@ function updateInstancedMatricesForAffected(affected, mesh, dummy, positions) {
 }
 
 export function updatePelletMagnet(
-  animation,
+  isBot,
   playerCell,
   pelletData,
   pelletMagnetToggle,
   scene,
   magnetSphere,
-  magnetRange, // kept for signature parity (unused originally)
+  isWithinViewDistance = true,
   attractionSpeed = 0.3
 ) {
   const playerCellRadius = computeCellRadius(playerCell);
@@ -255,7 +255,6 @@ export function updatePelletMagnet(
     magnetSphere.scale.setScalar(newScale);
     magnetSphere.visible = newScale > 0.01;
     if (magnetSphere.visible) {
-      //HERE
       magnetSphere.position.copy(playerCell.position);
       magnetSphere.rotation.y += 0.0025;
     }
@@ -276,8 +275,11 @@ export function updatePelletMagnet(
 
   if (!mesh || !positions || !active) return;
 
+  // For bots not in view distance, skip animation and eat with magnetSphere
+  const shouldAnimate = !isBot || isWithinViewDistance;
+
   // If animation true, pull pellets; otherwise use magnet sphere to eat nearby pellets
-  if (animation) {
+  if (shouldAnimate) {
     const playerCellPosition = playerCell.position;
     const magnetRangeSq = magnetSphereRadius * magnetSphereRadius;
 
@@ -304,8 +306,22 @@ export function updatePelletMagnet(
     }
     return;
   } else {
-    // non-animation: magnet sphere eats pellets (preserve original behavior)
-    return checkEatCondition(magnetSphere, pelletData);
+    // non-animation: magnet sphere eats pellets based on magnetSphere radius
+    // Create a temporary cell-like object with magnetSphere's properties
+    if (!magnetSphere) return;
+    
+    const magnetCellProxy = {
+      position: playerCell.position,
+      geometry: {
+        parameters: {
+          radius: magnetSphereBaseRadius
+        }
+      },
+      scale: magnetSphere.scale,
+      pelletMagnetToggle: playerCell.pelletMagnetToggle
+    };
+    
+    return checkEatCondition(magnetCellProxy, pelletData);
   }
 }
 
@@ -345,17 +361,30 @@ function applyGrowthFromPellets(playerCell, totalEatenSizes, pelletBaseRadius) {
   playerCell.scale.setScalar(scale);
 }
 
-export function updatePlayerGrowth(playerCell, pelletData, scene, magnetSphere) {
+export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetSphere, playerPosition) {
   if (!pelletData) return;
+
+  // Determine if bot is within view distance of player (if bot)
+  // Calculate view distance based on fog density (matches fog visibility)
+  const playerSize = playerCell.geometry?.parameters?.radius * (playerCell.scale?.x || 1) || 1;
+  const fogDensity = scene.fog?.density || 0.04 / playerSize;
+  const viewDistance = 3 / fogDensity; // ~75% opacity in exponential fog
+  
+  let isWithinViewDistance = true;
+  if (isBot && playerPosition) {
+    const distanceToPlayer = playerCell.position.distanceTo(playerPosition);
+    isWithinViewDistance = distanceToPlayer <= viewDistance;
+  }
 
   // run magnet attraction animation pass first (original did this)
   const magnetResult = updatePelletMagnet(
-    true,
+    isBot,
     playerCell,
     pelletData,
     playerCell.pelletMagnetToggle,
     scene,
-    magnetSphere
+    magnetSphere,
+    isWithinViewDistance
   );
 
   // Check for eaten pellets by this cell

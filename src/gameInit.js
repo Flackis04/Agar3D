@@ -13,7 +13,7 @@ export function initializeGame(scene, camera, onReady) {
 
   const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(false, scene, camera);
 
-  const botCount = 1;
+  const botCount = 25;
   const bots = [];
   const magnetRange = 4;
 

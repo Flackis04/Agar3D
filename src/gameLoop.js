@@ -46,11 +46,11 @@ export function createAnimationLoop(
     removeFogIfDevMode(scene, cameraController, pelletData);
 
     if (!(cameraController.isDevMode && cameraController.isDevMode())) {
-      updatePlayerGrowth(playerCell, pelletData, scene, playerCell.magnetSphere);
+      updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position);
       // Update bots: move toward and eat pellets
       for (const bot of bots) {
         updateBot(bot, pelletData);
-        updatePlayerGrowth(bot, pelletData, scene, bot.magnetSphere);
+        updatePlayerGrowth(true, bot, pelletData, scene, bot.magnetSphere, playerCell.position);
       }
 
       if (pelletData) {
