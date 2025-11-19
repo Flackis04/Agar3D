@@ -46,7 +46,6 @@ export function createAnimationLoop(
 
   function animate() {
     requestAnimationFrame(animate);
-
     if (!border) return;
 
     const currentPlayerSize = playerCell.geometry.parameters.radius * playerCell.scale.x;

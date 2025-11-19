@@ -145,8 +145,8 @@ export function createPelletsInstanced(scene, count, colors) {
     const color = new THREE.Color(colors[i % colors.length]);
     const isPowerUp = powerUps[i];
 
-    const pelletMinSize = 0.2
-    const pelletMaxSize = 0.5
+    const pelletMinSize = 0.3
+    const pelletMaxSize = 0.55
     const size = Math.random() * (pelletMaxSize-pelletMinSize) + pelletMinSize;
     sizes.push(size);
 
@@ -162,7 +162,8 @@ export function createPelletsInstanced(scene, count, colors) {
       normalIdx,
       powerupIdx,
       pelletToMeshIndex,
-      i
+      i,
+      isInitialSpawn: true
     });
     if (isPowerUp) {
       powerupIdx++;
@@ -217,7 +218,8 @@ export function respawnPellet({
   normalIdx,
   powerupIdx,
   pelletToMeshIndex,
-  i
+  i,
+  isInitialSpawn = false
 }) {
   const pelletRadius = size;
   const halfMapSize = mapSize / 2;
@@ -229,20 +231,60 @@ export function respawnPellet({
     (Math.random() - 0.5) * 2 * maxPos
   );
 
+  const initialScale = isInitialSpawn ? size : 0;
+
   dummy.position.copy(position);
   dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-  dummy.scale.setScalar(size);
+  dummy.scale.setScalar(initialScale);
   dummy.updateMatrix();
 
   if (isPowerUp) {
     meshPowerup.setMatrixAt(powerupIdx, dummy.matrix);
     meshPowerup.setColorAt(powerupIdx, color);
+    meshPowerup.instanceMatrix.needsUpdate = true;
+    if (meshPowerup.instanceColor) meshPowerup.instanceColor.needsUpdate = true;
     pelletToMeshIndex[i] = powerupIdx;
   } else {
     meshNormal.setMatrixAt(normalIdx, dummy.matrix);
     meshNormal.setColorAt(normalIdx, color);
+    meshNormal.instanceMatrix.needsUpdate = true;
+    if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
     pelletToMeshIndex[i] = normalIdx;
   }
+  
+  if (!isInitialSpawn) {
+    const spawnTime = performance.now();
+    const growDuration = 500;
+    const rotationX = Math.random() * Math.PI;
+    const rotationY = Math.random() * Math.PI;
+    const rotationZ = Math.random() * Math.PI;
+    
+    function animateGrowth() {
+      const elapsed = performance.now() - spawnTime;
+      const progress = Math.min(elapsed / growDuration, 1);
+      const currentScale = progress * size;
+      
+      dummy.position.copy(position);
+      dummy.rotation.set(rotationX, rotationY, rotationZ);
+      dummy.scale.setScalar(currentScale);
+      dummy.updateMatrix();
+      
+      if (isPowerUp) {
+        meshPowerup.setMatrixAt(powerupIdx, dummy.matrix);
+        meshPowerup.instanceMatrix.needsUpdate = true;
+      } else {
+        meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+        meshNormal.instanceMatrix.needsUpdate = true;
+      }
+      
+      if (progress < 1) {
+        requestAnimationFrame(animateGrowth);
+      }
+    }
+    
+    requestAnimationFrame(animateGrowth);
+  }
+  
   return position;
 }
 
