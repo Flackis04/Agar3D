@@ -15,12 +15,15 @@ export function initializeGame(scene, camera, onReady) {
 
   const botCount = 1;
   const bots = [];
+  const magnetRange = 4;
 
   for (let index = 0; index < botCount; index++) {
     const cell = createBot(scene, camera);
+    const botMagnetSphere = createMagnetSphere(cell, magnetRange);
+    scene.add(botMagnetSphere);
     bots.push(cell);
   }
-  const magnetRange = 4
+  
   const magnetSphere = createMagnetSphere(playerCell, magnetRange);
   scene.add(magnetSphere);
 
@@ -53,7 +56,6 @@ export function initializeGame(scene, camera, onReady) {
       playerCell,
       playerDefaultOpacity,
       bots,
-      magnetSphere,
       cells,
       lastSplitTime,
       border: loadedBorder,

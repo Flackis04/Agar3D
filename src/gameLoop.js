@@ -22,7 +22,6 @@ export function createAnimationLoop(
     playerCell,
     playerDefaultOpacity,
     bots,
-    magnetSphere,
     cells,
     border,
     pelletData
@@ -47,11 +46,11 @@ export function createAnimationLoop(
     removeFogIfDevMode(scene, cameraController, pelletData);
 
     if (!(cameraController.isDevMode && cameraController.isDevMode())) {
-      updatePlayerGrowth(playerCell, pelletData, scene, magnetSphere);
+      updatePlayerGrowth(playerCell, pelletData, scene, playerCell.magnetSphere);
       // Update bots: move toward and eat pellets
       for (const bot of bots) {
         updateBot(bot, pelletData);
-        updatePlayerGrowth(bot, pelletData, scene, magnetSphere);
+        updatePlayerGrowth(bot, pelletData, scene, bot.magnetSphere);
       }
 
       if (pelletData) {

@@ -57,7 +57,8 @@ export function createMagnetSphere(playerCell, magnetRange) {
   magnetSphere.add(wireframeMesh);
   magnetSphere.visible = false;
   
-  return playerCell.magnetSphere;
+  playerCell.magnetSphere = magnetSphere;
+  return magnetSphere;
 }
 
 export function createMapBox(onReady) {
