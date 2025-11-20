@@ -7,6 +7,12 @@ import { SpatialGrid } from './spatialGrid.js';
 /* -----------------------
    Small math & util helpers
    ----------------------- */
+
+export function checkDistanceToCell(playerCell, cell){
+  const distance = playerCell.position.distanceTo(cell.position)
+  return distance
+}
+
 function computeCellRadius(cell) {
   const scale = Math.max(cell.scale.x, cell.scale.y, cell.scale.z);
   return cell.geometry.parameters.radius * scale;
@@ -607,3 +613,4 @@ export function executeSplit(playerCell, camera, scene, cells, playerCellSpeed, 
   if (typeof onSplit === 'function') onSplit(cell);
   return now;
 }
+

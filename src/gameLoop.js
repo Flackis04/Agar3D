@@ -5,7 +5,8 @@ import {
   updateCells,
   updatePlayerFade,
   updatePlayerGrowth,
-  executeSplit
+  executeSplit,
+  checkDistanceToCell
 } from './utils/playerUtils.js';
 import { emitPlayerMove } from './multiplayer.js';
 
@@ -88,6 +89,28 @@ export function createAnimationLoop(
           cellSpatialGrid.addItem(idx, pos.x, pos.y, pos.z);
         });
       }
+      
+      // Find closest enemy (bot or other player, excluding own player)
+      let closestEnemyDistance = Infinity;
+      let closestEnemyPosition = null;
+      
+      for (let i = 0; i < allCells.length; i++) {
+        const enemy = allCells[i];
+        if (enemy === playerCell) continue; // Skip player's own cell
+        
+        const distance = playerCell.position.distanceTo(enemy.position);
+        if (distance < closestEnemyDistance) {
+          closestEnemyDistance = distance;
+          closestEnemyPosition = enemy.position;
+        }
+      }
+      
+      if (closestEnemyPosition) {
+        console.log('Closest enemy distance:', closestEnemyDistance.toFixed(2), 
+                    'Position:', `(${closestEnemyPosition.x.toFixed(1)}, ${closestEnemyPosition.y.toFixed(1)}, ${closestEnemyPosition.z.toFixed(1)})`);
+      }
+      
+
       
       updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position, allCells, handleCellEaten);
       // Update bots: move toward and eat pellets
