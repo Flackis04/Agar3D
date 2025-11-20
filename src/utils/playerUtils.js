@@ -592,26 +592,17 @@ function canSplit(now, lastSplit, cooldown) {
   return null;
 }
 
-export function executeSplit(playerCell, camera, scene, cells, playerCellSpeed, lastSplit, onSplit) {
-  const now = performance.now();
-  const cooldown = 200;
-
-  // preserve original semantics (but if on cooldown, return lastSplit)
-  const blocked = canSplit(now, lastSplit, cooldown);
-  if (blocked) return blocked;
-
-  const cell = createSplitSphere(playerCell);
-  cell.position.copy(playerCell.position);
-
-  const forward = new THREE.Vector3();
-  camera.getWorldDirection(forward);
-  cell.userData.velocity = forward.clone().multiplyScalar(playerCellSpeed * 5.5);
-  cell.userData.startTime = now;
-
-  scene.add(cell);
-  cells.push(cell);
-
-  if (typeof onSplit === 'function') onSplit(cell);
-  return now;
+export function executeSplit(playerCell, cells, camera, scene, playerCellSpeed) {
+  if (cells.length == 0){
+    cells.push(playerCell)
+  }
+  const cellCap = 16
+  const affectedCells = cells.length > cellCap / 2 ? cellCap - cells.length : cells.length
+  for (let i = 0; i < affectedCells; i++) {
+    const scale = computeCellRadius(cells[i]) / 2 / cells[i].geometry.parameters.radius ;
+    cells[i].scale.setScalar(scale);
+    cells.push(cells[i])
+  }
+  console.log(cells)
 }
 

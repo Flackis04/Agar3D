@@ -36,12 +36,7 @@ function startGame() {
     const controls = setupControls(canvas, cameraController);
     const { playerSpeed, lastSplit } = controls;
 
-    const onSplit = () => {
-      gameState.lastSplitTime = performance.now();
-      playerCell.material.opacity = 0.2;
-    };
-
-    setupSplitHandler(playerCell, camera, scene, cells, playerSpeed, lastSplit, onSplit);
+    setupSplitHandler(playerCell, camera, scene, cells, playerSpeed);
 
     const { animate } = createAnimationLoop(
       renderer,

@@ -113,8 +113,8 @@ export function createAnimationLoop(
       }
       
       if (closestEnemyPosition) {
-        console.log('Closest enemy distance:', closestEnemyDistance.toFixed(2), 
-                    'Position:', `(${closestEnemyPosition.x.toFixed(1)}, ${closestEnemyPosition.y.toFixed(1)}, ${closestEnemyPosition.z.toFixed(1)})`);
+        //console.log('Closest enemy distance:', closestEnemyDistance.toFixed(2), 
+        //            'Position:', `(${closestEnemyPosition.x.toFixed(1)}, ${closestEnemyPosition.y.toFixed(1)}, ${closestEnemyPosition.z.toFixed(1)})`);
       }
       
 
@@ -165,16 +165,13 @@ export function createAnimationLoop(
   return { animate, getLastSplitTime: () => lastSplitTime };
 }
 
-export function setupSplitHandler(playerCell, camera, scene, cells, playerSpeed, lastSplit, onSplit) {
+export function setupSplitHandler(playerCell, camera, scene, cells, playerSpeed) {
   window.addEventListener(
     'keydown',
     e => {
       if (e.code === 'Space') {
         e.preventDefault();
-        const newLastSplit = executeSplit(playerCell, camera, scene, cells, playerSpeed, lastSplit, onSplit);
-        if (newLastSplit !== lastSplit) {
-          Object.assign(lastSplit, { value: newLastSplit });
-        }
+        executeSplit(playerCell, cells, camera, scene, playerSpeed);
       }
     },
     true
