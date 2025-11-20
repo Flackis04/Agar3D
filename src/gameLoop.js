@@ -46,6 +46,8 @@ export function createAnimationLoop(
     setViewingCell
   } = controls;
 
+  let lastFrameTime = performance.now();
+
   function animate() {
     requestAnimationFrame(animate);
     if (!border) return;
@@ -55,6 +57,11 @@ export function createAnimationLoop(
       renderer.render(scene, camera);
       return;
     }
+
+    // Calculate deltaTime for FPS independence
+    const now = performance.now();
+    const deltaTime = (now - lastFrameTime) / 1000; // Convert to seconds
+    lastFrameTime = now;
 
     const currentPlayerSize = playerCell.geometry.parameters.radius * playerCell.scale.x;
     
@@ -112,12 +119,12 @@ export function createAnimationLoop(
       
 
       
-      updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position, allCells, handleCellEaten);
+      updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position, allCells, handleCellEaten, deltaTime);
       // Update bots: move toward and eat pellets
       for (const bot of bots) {
         if (bot.userData.isEaten) continue;
-        updateBot(bot, pelletData);
-        updatePlayerGrowth(true, bot, pelletData, scene, bot.magnetSphere, playerCell.position, allCells, handleCellEaten);
+        updateBot(bot, pelletData, deltaTime);
+        updatePlayerGrowth(true, bot, pelletData, scene, bot.magnetSphere, playerCell.position, allCells, handleCellEaten, deltaTime);
       }
 
       // Add meshes if not visible
@@ -135,7 +142,7 @@ export function createAnimationLoop(
       }
     }
 
-    const cellResult = updateCells(cells, scene, playerCell, camera, getForwardButtonPressed, playerRotation, cellRotation);
+    const cellResult = updateCells(cells, scene, playerCell, camera, getForwardButtonPressed, playerRotation, cellRotation, deltaTime);
     setViewingCell(cellResult.viewingCell);
 
     if (!cellResult.viewingCell) {
@@ -147,7 +154,7 @@ export function createAnimationLoop(
       scene.userData.animateViruses(performance.now());
     }
 
-    lastSplitTime = updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity);
+    lastSplitTime = updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity, deltaTime);
     emitPlayerMove(playerCell);
 
     stats.begin();

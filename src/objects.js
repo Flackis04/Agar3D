@@ -377,7 +377,7 @@ export function respawnCell(cell, scene) {
   }
 }
 
-export function updateBot(bot, pelletData) {
+export function updateBot(bot, pelletData, deltaTime = 1/60) {
   let minDist = Infinity;
   let closestIdx = -1;
   for (let i = 0; i < pelletData.positions.length; i++) {
@@ -391,7 +391,7 @@ export function updateBot(bot, pelletData) {
   if (closestIdx !== -1) {
     const target = pelletData.positions[closestIdx];
     const direction = target.clone().sub(bot.position).normalize();
-    const speed = 0.08;
+    const speed = 0.08 * (deltaTime * 60);
     bot.position.addScaledVector(direction, speed);
   }
   checkEatCondition(bot, pelletData);

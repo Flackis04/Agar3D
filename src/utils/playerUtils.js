@@ -375,7 +375,7 @@ export function updatePelletMagnet(
 /* --------------------------
    Player fade & growth helpers
    -------------------------- */
-export function updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity) {
+export function updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity, deltaTime = 1/60) {
   if (!lastSplitTime) return null;
   const now = performance.now();
   const t = (now - lastSplitTime) / 1000;
@@ -390,7 +390,7 @@ export function updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity
   }
 }
 
-function applyGrowthFromPellets(playerCell, totalEatenSizes, pelletBaseRadius) {
+function applyGrowthFromPellets(playerCell, totalEatenSizes, pelletBaseRadius, deltaTime = 1/60) {
   if (!totalEatenSizes || totalEatenSizes.length === 0) return;
 
   const playerCellRadius = playerCell.geometry.parameters.radius * playerCell.scale.x;
@@ -402,7 +402,8 @@ function applyGrowthFromPellets(playerCell, totalEatenSizes, pelletBaseRadius) {
     pelletsVolume += volumeFromRadius(pelletRadius);
   }
 
-  const newVolume = playerCellVolume + pelletsVolume;
+  // Scale growth by deltaTime normalized to 60 FPS for consistency
+  const newVolume = playerCellVolume + pelletsVolume * (deltaTime * 60);
   const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
   const scale = newRadius / playerCell.geometry.parameters.radius;
   playerCell.scale.setScalar(scale);
@@ -450,7 +451,7 @@ export function checkCellEatCondition(predatorCell, allCells, scene, onEaten) {
   return false;
 }
 
-export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetSphere, playerPosition, allCells, onCellEaten) {
+export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetSphere, playerPosition, allCells, onCellEaten, deltaTime = 1/60) {
   if (!pelletData) return;
 
   // Determine if bot is within view distance of player (if bot)
@@ -486,7 +487,7 @@ export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetS
     totalEatenSizes = totalEatenSizes.concat(magnetResult.eatenSizes);
   }
 
-  applyGrowthFromPellets(playerCell, totalEatenSizes, pelletData.radius);
+  applyGrowthFromPellets(playerCell, totalEatenSizes, pelletData.radius, deltaTime);
   
   // Check if this cell can eat other cells
   if (allCells && allCells.length > 0) {
@@ -509,13 +510,13 @@ function cameraFollowOtherCell(camera, otherCell, cellRotation) {
   camera.lookAt(cellPos);
 }
 
-function tryMoveOtherCellTowardsPlayer(otherCell, playerCell, playerCellRadius, getForwardButtonPressed, epsilon = 0.001) {
+function tryMoveOtherCellTowardsPlayer(otherCell, playerCell, playerCellRadius, getForwardButtonPressed, deltaTime = 1/60, epsilon = 0.001) {
   const toPlayerCell = playerCell.position.clone().sub(otherCell.position);
   const dist = toPlayerCell.length();
   const forwardPressed = getForwardButtonPressed();
 
   if (dist > playerCellRadius + epsilon && !forwardPressed) {
-    const step = toPlayerCell.normalize().multiplyScalar(Math.min(dist - playerCellRadius, 0.2));
+    const step = toPlayerCell.normalize().multiplyScalar(Math.min(dist - playerCellRadius, 0.2 * (deltaTime * 60)));
     otherCell.position.add(step);
     return { removed: false };
   } else if (dist > playerCellRadius + epsilon && forwardPressed) {
@@ -528,7 +529,7 @@ function tryMoveOtherCellTowardsPlayer(otherCell, playerCell, playerCellRadius, 
   return { removed: true, dist, toPlayerCell };
 }
 
-export function updateCells(cells, scene, playerCell, camera, getForwardButtonPressed, playerRotation, cellRotation) {
+export function updateCells(cells, scene, playerCell, camera, getForwardButtonPressed, playerRotation, cellRotation, deltaTime = 1/60) {
   const now = performance.now();
   let isSplit = false;
   let splitCell = null;
@@ -561,7 +562,7 @@ export function updateCells(cells, scene, playerCell, camera, getForwardButtonPr
     }
 
     const moveResult = tryMoveOtherCellTowardsPlayer(
-      otherPlayerCell, playerCell, playerCellRadius, getForwardButtonPressed
+      otherPlayerCell, playerCell, playerCellRadius, getForwardButtonPressed, deltaTime
     );
 
     if (!moveResult.removed) {
