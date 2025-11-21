@@ -17,6 +17,7 @@ export function calculateCellMass(playerCell, pelletMinSizeValue){
   return mass;
 }
 
+
 function computeCellRadius(cell) {
   const scale = Math.max(cell.scale.x, cell.scale.y, cell.scale.z);
   return cell.geometry.parameters.radius * scale;
@@ -28,6 +29,14 @@ function vecLengthSq(dx, dy, dz) {
 
 function volumeFromRadius(r) {
   return (4 / 3) * Math.PI * Math.pow(r, 3);
+}
+
+// Converts mass (in pellet units) to radius using sphere volume formula
+export function convertMassToRadius(mass, pelletMinSizeValue = 1) {
+  const pelletVolume = volumeFromRadius(pelletMinSizeValue);
+  const cellVolume = mass * pelletVolume;
+  const radius = Math.cbrt((3 * cellVolume) / (4 * Math.PI));
+  return radius;
 }
 
 function canEatCell(predatorRadius, preyRadius) {
@@ -478,7 +487,7 @@ export function checkCellEatCondition(predatorCell, allCells, scene, onEaten, on
   return false;
 }
 
-export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetSphere, playerPosition, allCells, onCellEaten, onEatSound, deltaTime = 1/60) {
+export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetSphere, playerPosition, allCells, onCellEaten, onEatSound, deltaTime = 1/60, onPelletEaten = null) {
   if (!pelletData) return;
 
   
@@ -531,6 +540,11 @@ export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetS
   }
 
   applyGrowthFromPellets(playerCell, totalEatenSizes, pelletData.radius, deltaTime);
+  
+  
+  if (!isBot && onPelletEaten && (eatenCount > 0 || (magnetResult && magnetResult.eatenCount > 0))) {
+    onPelletEaten();
+  }
   
   
   if (allCells && allCells.length > 0) {

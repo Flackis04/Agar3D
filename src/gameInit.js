@@ -5,14 +5,20 @@ import {
   createViruses,
   createMagnetSphere, 
   createBot,
-  createCellSpatialGrid
+  createCellSpatialGrid,
+  pelletMinSize
 } from './objects.js';
 import { initNetworking, emitJoin, emitInitPellets, setupPelletSync, emitPelletEaten, emitPelletRespawn } from './multiplayer.js';
+import { updateFogDensity } from './scene.js';
+import { calculateCellMass } from './utils/playerUtils.js';
 
 export function initializeGame(scene, camera, onReady, playerName = 'Player') {
   createViruses(scene);
 
   const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(false, scene, camera);
+  
+  const initialMass = calculateCellMass(playerCell, pelletMinSize);
+  updateFogDensity(scene, initialMass);
 
   const botCount = 25;
   const botCells = [];

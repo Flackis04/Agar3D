@@ -8,11 +8,11 @@ export const pelletMinSize = 0.3;
 export const pelletMaxSize = 0.55
 
 export function createPlayerCell(isBot, scene, camera) {
-  const playerStartingMass = 1;
+  const playerStartingRadius = isBot ? Math.random()*5 : 1;
   const playerDefaultOpacity = 0.65;
   const playerCellColor = isBot ? 0xFF3333 : 0x00AAFF;
 
-  const geometry = new THREE.SphereGeometry(playerStartingMass, 16, 16);
+  const geometry = new THREE.SphereGeometry(playerStartingRadius, 16, 16);
   const material = new THREE.MeshStandardMaterial({ 
     color: playerCellColor,
     emissive: 0x002244,
@@ -23,7 +23,7 @@ export function createPlayerCell(isBot, scene, camera) {
   });
 
   const halfMapSize = mapSize / 2;
-  const maxSpawnRange = halfMapSize - playerStartingMass;
+  const maxSpawnRange = halfMapSize - playerStartingRadius;
   
   const [x, y, z] = Array(3)
     .fill()

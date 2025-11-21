@@ -7,7 +7,7 @@ import { createAnimationLoop, setupSplitHandler } from './gameLoop.js';
 import { createPelletsInstanced, pelletMinSize } from './objects.js';
 import Stats from 'three/addons/libs/stats.module.js';
 import * as THREE from 'three';
-import { calculateCellMass } from './utils/playerUtils.js';
+import { calculateCellMass, convertMassToRadius } from './utils/playerUtils.js';
 
 const canvas = document.querySelector('#c');
 const renderer = createRenderer(canvas);
@@ -21,6 +21,7 @@ const homeScreen = document.getElementById('homeScreen');
 const playerNameInput = document.getElementById('playerName');
 const playButton = document.getElementById('playButton');
 
+let savedMass = null;
 
 const massCounter = document.createElement('div');
 massCounter.id = 'mass-counter';
@@ -51,6 +52,12 @@ function startGame() {
   initializeGame(scene, camera, (gameState) => {
     gameStateRef = gameState; 
     const { playerCell, playerDefaultOpacity, cells } = gameState;
+    // If resuming, set player mass
+    if (savedMass && playerCell && playerCell.geometry) {
+      const newRadius = convertMassToRadius(savedMass, pelletMinSize);
+      const scale = newRadius / playerCell.geometry.parameters.radius;
+      playerCell.scale.setScalar(scale);
+    }
     const cameraController = createCameraController(camera, playerCell);
     const controls = setupControls(canvas, cameraController);
     const { playerSpeed, lastSplit } = controls;
@@ -82,8 +89,23 @@ function startGame() {
       updateMassCounter();
 
     animate();
+    // Clear savedMass after resuming
+    if (savedMass) {
+      savedMass = null;
+      updatePlayButtonText();
+    }
   }, playerName);
 }
+
+function updatePlayButtonText() {
+  if (savedMass) {
+    playButton.textContent = 'Resume';
+  } else {
+    playButton.textContent = 'Play';
+  }
+}
+
+updatePlayButtonText();
 
 playButton.addEventListener('click', startGame);
 playerNameInput.addEventListener('keypress', (e) => {
@@ -99,7 +121,7 @@ playerNameInput.focus();
 const escMenu = document.getElementById('escMenu');
 const saveProgressButton = document.getElementById('saveProgressButton');
 const resumeButton = document.getElementById('resumeButton');
-let isPaused = false;
+let isInEscMenu = false;
 let gameStateRef = null;
 
 function checkEnemyProximity() {
@@ -123,27 +145,39 @@ function checkEnemyProximity() {
 
 function updateSaveButtonState() {
   const isSafe = checkEnemyProximity();
+  console.log(isSafe)
   if (isSafe) {
     saveProgressButton.classList.add('safe');
+    saveProgressButton.style.color = '#00ff00'
+    
   } else {
     saveProgressButton.classList.remove('safe');
+    saveProgressButton.style.color = '#ff0000'
   }
 }
 
 function toggleEscMenu() {
-  isPaused = !isPaused;
-  window.isPaused = isPaused; 
-  if (isPaused) {
+  isInEscMenu = !isInEscMenu;
+  if (isInEscMenu) {
     escMenu.style.display = 'flex';
     updateSaveButtonState();
+    escMenuUpdateLoop();
   } else {
     escMenu.style.display = 'none';
   }
 }
 
+let escMenuUpdateFrame = null;
+function escMenuUpdateLoop() {
+  if (escMenu.style.display === 'flex') {
+    updateSaveButtonState();
+    escMenuUpdateFrame = requestAnimationFrame(escMenuUpdateLoop);
+  }
+}
+
 
 document.addEventListener('pointerlockchange', () => {
-  if (!document.pointerLockElement && gameStateRef && !isPaused) {
+  if (!document.pointerLockElement && gameStateRef && !isInEscMenu) {
     
     toggleEscMenu();
   }
@@ -151,7 +185,7 @@ document.addEventListener('pointerlockchange', () => {
 
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && gameStateRef && isPaused) {
+  if (e.key === 'Escape' && gameStateRef && isInEscMenu) {
     e.preventDefault();
     toggleEscMenu();
   }
@@ -159,13 +193,24 @@ window.addEventListener('keydown', (e) => {
 
 resumeButton.addEventListener('click', () => {
   toggleEscMenu();
+  // If there's saved progress, resume the game immediately
+  if (savedMass) {
+    startGame();
+  }
 });
 
 saveProgressButton.addEventListener('click', () => {
   if (saveProgressButton.classList.contains('safe')) {
-    console.log('Progress saved!');
-    
+    if (gameStateRef && gameStateRef.playerCell && gameStateRef.playerCell.geometry) {
+      savedMass = calculateCellMass(gameStateRef.playerCell, pelletMinSize);
+    }
+    // Return to home screen
+    escMenu.style.display = 'none';
+    canvas.style.display = 'none';
+    stats.dom.style.display = 'none';
+    homeScreen.style.display = 'block';
     alert('Progress saved successfully!');
+    updatePlayButtonText();
   } else {
     alert('Cannot save! Enemies are too close. Get at least 50 units away.');
   }

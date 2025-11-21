@@ -12,20 +12,21 @@ export function smoothLerp(startValue, endValue, t) {
 export function updateFogDensity(scene, mass) {
     if (!scene.fog) return;
 
-    const minMass = 0;
-    const maxMass = 37000;
-    const minDensity = 0;
-    const maxDensity = 0.04;
+    const baseDensity = 0.02;
+    const massFactor = 5; // higher = fog decreases faster
 
-    const t = (mass - minMass) / (maxMass - minMass);
-    const targetDensity = lerp(maxDensity, minDensity, t);
+    let targetDensity = baseDensity * (1 - mass / massFactor);
+    targetDensity = Math.max(targetDensity, 0);
 
     const currentDensity = scene.fog.density;
-    const lerpSpeed = 1;
+    const lerpSpeed = 0.02;
     scene.fog.density = smoothLerp(currentDensity, targetDensity, lerpSpeed);
+    console.log(scene.fog.density)
 
     return scene.fog.density;
 }
+
+
 
 
 export function createScene() {

@@ -58,13 +58,10 @@ export function createAnimationLoop(
   function initAudioContext() {
     if (!audioContext) {
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      console.log('DEBUG: Audio context created');
     }
     
     if (audioContext.state === 'suspended') {
-      console.log('DEBUG: Audio context was suspended, attempting to resume');
       audioContext.resume().then(() => {
-        console.log('DEBUG: Audio context resumed successfully');
       }).catch(err => console.error('Failed to resume audio context:', err));
     }
     return audioContext;
@@ -76,19 +73,15 @@ export function createAnimationLoop(
       return audioBufferLoading;
     }
     
-    console.log('DEBUG: Starting to load audio buffer');
     audioBufferLoading = fetch('assets/blob.wav')
       .then(response => {
-        console.log('DEBUG: Audio file fetch response:', response.status);
         return response.arrayBuffer();
       })
       .then(arrayBuffer => {
-        console.log('DEBUG: Audio file loaded, decoding...');
         const ctx = initAudioContext();
         return ctx.decodeAudioData(arrayBuffer);
       })
       .then(buffer => {
-        console.log('DEBUG: Audio buffer decoded successfully, duration:', buffer.duration);
         audioBuffer = buffer;
         return buffer;
       })
@@ -111,7 +104,6 @@ export function createAnimationLoop(
     }
     
     const ctx = initAudioContext();
-    console.log(`DEBUG: Playing sound - volume: ${volume.toFixed(2)}, pitch: ${pitch.toFixed(2)}, context state: ${ctx.state}`);
     
     try {
       const source = ctx.createBufferSource();
@@ -126,13 +118,11 @@ export function createAnimationLoop(
       
       
       source.start(ctx.currentTime, 2.1, 0.3);
-      console.log(`DEBUG: Sound started - pool size: ${soundSourcePool.length + 1}/${MAX_CONCURRENT_SOUNDS}`);
       
       
       soundSourcePool.push(source);
       if (soundSourcePool.length > MAX_CONCURRENT_SOUNDS) {
         soundSourcePool.shift();
-        console.log('DEBUG: Removed oldest sound from pool (max reached)');
       }
       
     } catch (err) {
@@ -154,20 +144,11 @@ export function createAnimationLoop(
     const deltaTime = (now - lastFrameTime) / 1000; 
     lastFrameTime = now;
 
-    const currentPlayerSize = playerCell.geometry.parameters.radius * playerCell.scale.x;
     const currentPlayerMass = calculateCellMass(playerCell, pelletMinSize);
-    
-    
-    if (!cachedPlayerSize || Math.abs(currentPlayerSize - cachedPlayerSize) / cachedPlayerSize > 0.05) {
-      updateFogDensity(scene, currentPlayerMass);
-      cachedPlayerSize = currentPlayerSize;
-      cachedFogDensity = scene.fog?.density;
-    }
     
     handleDevModeObjectVisibility(scene, cameraController, pelletData, border);    
     
     const handleCellEaten = (eatenCell) => {
-      console.log("HI")
       playEatSoundSegment();
       
       setTimeout(() => {
@@ -175,11 +156,16 @@ export function createAnimationLoop(
       }, 2000);
     };
     
+    const onPelletEaten = () => {
+      const mass = calculateCellMass(playerCell, pelletMinSize);
+      updateFogDensity(scene, mass);
+    };
+    
     
     const allCells = [playerCell, ...botCells, ...cells].filter(c => !c.userData.isEaten);
     
     // Update player growth (eating pellets)
-    updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position, allCells, handleCellEaten, playEatSoundSegment, deltaTime);
+    updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position, allCells, handleCellEaten, playEatSoundSegment, deltaTime, onPelletEaten);
         
     for (const botCell of botCells) {
       if (botCell.userData.isEaten) continue;
