@@ -113,7 +113,6 @@ export function createMapBox(onReady) {
 
     material.needsUpdate = true;
     const particles = new THREE.Points(geometry, material);
-
     onReady(particles, PARTICLE_SIZE);
   });
 }
@@ -326,7 +325,9 @@ export function createViruses(scene) {
     virusCells.push(mesh);
     scene.add(mesh);
   }
+
   scene.userData.virusCells = virusCells;
+
   function animateViruses(time) {
     for (let i = 0; i < virusCells.length; i++) {
       const mesh = virusCells[i];

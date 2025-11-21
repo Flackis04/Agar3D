@@ -9,8 +9,8 @@ export function calculateDistanceBetweenCells(sourceCell, targetCell){
   return distance
 }
 
-export function calculateCellMass(cell, pelletMinSizeValue){
-  const playerRadius = computeCellRadius(cell);
+export function calculateCellMass(playerCell, pelletMinSizeValue){
+  const playerRadius = computeCellRadius(playerCell);
   const pelletRadius = pelletMinSizeValue; 
   const mass = volumeFromRadius(playerRadius) / volumeFromRadius(pelletRadius);
   return mass;
@@ -675,12 +675,16 @@ export function executeSplit(playerCell, cells, camera, scene, playerCellSpeed) 
     
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
-    splitCell.userData.velocity = forward.clone().multiplyScalar(playerCellSpeed * 5.5);
-    splitCell.userData.startTime = now;
+    if (splitCell) {
+      splitCell.userData.velocity = forward.clone().multiplyScalar(playerCellSpeed * 5.5);
+      splitCell.userData.startTime = now;
+      scene.add(splitCell);
+      newCells.push(splitCell);
+    }
+
     
     
-    scene.add(splitCell);
-    newCells.push(splitCell);
+
   }
   
   return newCells;

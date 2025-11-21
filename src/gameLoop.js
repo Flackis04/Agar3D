@@ -1,5 +1,5 @@
 import { updateFogDensity } from './scene.js';
-import { removeFogIfDevMode } from './camera.js';
+import { handleDevModeObjectVisibility } from './camera.js';
 import { updateBot, respawnCell, pelletMinSize } from './objects.js';
 import { 
   updateCells,
@@ -149,7 +149,6 @@ export function createAnimationLoop(
       renderer.render(scene, camera);
       return;
     }
-
     
     const now = performance.now();
     const deltaTime = (now - lastFrameTime) / 1000; 
@@ -165,10 +164,7 @@ export function createAnimationLoop(
       cachedFogDensity = scene.fog?.density;
     }
     
-    removeFogIfDevMode(scene, cameraController, pelletData);
-
-    const isDevMode = cameraController.isDevMode && cameraController.isDevMode();
-    
+    handleDevModeObjectVisibility(scene, cameraController, pelletData, border);    
     
     const handleCellEaten = (eatenCell) => {
       console.log("HI")
@@ -182,62 +178,9 @@ export function createAnimationLoop(
     
     const allCells = [playerCell, ...botCells, ...cells].filter(c => !c.userData.isEaten);
     
-    if (!isDevMode) {
-      
-      if (cellSpatialGrid) {
-        cellSpatialGrid.clear();
-        allCells.forEach((cell, idx) => {
-          const pos = cell.position;
-          cellSpatialGrid.addItem(idx, pos.x, pos.y, pos.z);
-        });
-      }
-      
-      
-      let closestEnemyDistance = Infinity;
-      let closestEnemyPosition = null;
-      
-      for (let i = 0; i < allCells.length; i++) {
-        const enemy = allCells[i];
-        if (enemy === playerCell) continue; 
+    // Update player growth (eating pellets)
+    updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position, allCells, handleCellEaten, playEatSoundSegment, deltaTime);
         
-        const distance = playerCell.position.distanceTo(enemy.position);
-        if (distance < closestEnemyDistance) {
-          closestEnemyDistance = distance;
-          closestEnemyPosition = enemy.position;
-        }
-      }
-      
-      if (closestEnemyPosition) {
-        
-        
-      }
-      
-
-      
-      updatePlayerGrowth(false, playerCell, pelletData, scene, playerCell.magnetSphere, playerCell.position, allCells, handleCellEaten, playEatSoundSegment, deltaTime);
-      
-      
-      for (const splitCell of cells) {
-        if (splitCell.userData.isEaten) continue;
-        updatePlayerGrowth(false, splitCell, pelletData, scene, splitCell.magnetSphere, playerCell.position, allCells, handleCellEaten, playEatSoundSegment, deltaTime);
-      }
-
-      
-      if (pelletData && !meshesVisible) {
-        if (pelletData.mesh) scene.add(pelletData.mesh);
-        if (pelletData.meshPowerup) scene.add(pelletData.meshPowerup);
-        meshesVisible = true;
-      }
-    } else {
-      
-      if (pelletData && meshesVisible) {
-        if (pelletData.mesh) scene.remove(pelletData.mesh);
-        if (pelletData.meshPowerup) scene.remove(pelletData.meshPowerup);
-        meshesVisible = false;
-      }
-    }
-    
-    
     for (const botCell of botCells) {
       if (botCell.userData.isEaten) continue;
       updateBot(botCell, pelletData, deltaTime);

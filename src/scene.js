@@ -9,19 +9,24 @@ export function smoothLerp(startValue, endValue, t) {
     return lerp(startValue, endValue, t);
 }
 
-
 export function updateFogDensity(scene, mass) {
-  if (!scene.fog) return;
-  
-  
-  
-  const baseDensity = 0.02;
-  const targetDensity = baseDensity / (mass * mass);
-  const currentDensity = scene.fog.density;
-  const lerpSpeed = 0.1;
-  scene.fog.density = smoothLerp(currentDensity, targetDensity, lerpSpeed);
-  return scene.fog.density;
+    if (!scene.fog) return;
+
+    const minMass = 0;
+    const maxMass = 37000;
+    const minDensity = 0;
+    const maxDensity = 0.04;
+
+    const t = (mass - minMass) / (maxMass - minMass);
+    const targetDensity = lerp(maxDensity, minDensity, t);
+
+    const currentDensity = scene.fog.density;
+    const lerpSpeed = 1;
+    scene.fog.density = smoothLerp(currentDensity, targetDensity, lerpSpeed);
+
+    return scene.fog.density;
 }
+
 
 export function createScene() {
   const scene = new THREE.Scene();

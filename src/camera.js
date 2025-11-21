@@ -62,7 +62,11 @@ export function createCameraController(camera, playerCell) {
     const playerRadius = calculateCellRadius(playerCell);
     const baseMultiplier = magnetActive ? 12 : 8;
     
-    const targetFollowDistance = playerRadius * baseMultiplier;
+    // Add offset that brings camera closer as player gets bigger
+    const sizeOffset = Math.sqrt(playerRadius) * 0.5; // Adjust multiplier to control how much closer
+    const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, 3); // Min distance of 3
+    
+    const targetFollowDistance = playerRadius * adjustedMultiplier;
     
     smoothFollowDistance += (targetFollowDistance - smoothFollowDistance) * cameraLerpSpeed;
     
@@ -116,7 +120,7 @@ export function createCameraController(camera, playerCell) {
   return { updateCamera, toggleDeveloperMode, updateDevRotation, isDevMode };
 }
 
-export function removeFogIfDevMode(scene, cameraController, pelletData) {
+export function handleDevModeObjectVisibility(scene, cameraController, pelletData) {
   
   if (!scene._originalFog) scene._originalFog = scene.fog;
   if (!scene._originalBackground) scene._originalBackground = scene.background;
@@ -133,6 +137,13 @@ export function removeFogIfDevMode(scene, cameraController, pelletData) {
       if (pelletData.meshPowerup) scene.remove(pelletData.meshPowerup);
       pelletData._devModeRemoved = true;
     }
+
+      if (scene.userData.virusCells) {
+        for (const mesh of scene.userData.virusCells) {
+          if (scene.children.includes(mesh)) scene.remove(mesh);
+        }
+      }
+
   } else {
     
     if (typeof scene._originalFog !== 'undefined') scene.fog = scene._originalFog;
@@ -141,6 +152,11 @@ export function removeFogIfDevMode(scene, cameraController, pelletData) {
       if (pelletData.mesh && !scene.children.includes(pelletData.mesh)) scene.add(pelletData.mesh);
       if (pelletData.meshPowerup && !scene.children.includes(pelletData.meshPowerup)) scene.add(pelletData.meshPowerup);
       pelletData._devModeRemoved = false;
+    }
+    if (scene.userData.virusCells) {
+      for (const mesh of scene.userData.virusCells) {
+        if (!scene.children.includes(mesh)) scene.add(mesh);
+      }
     }
   }
 }
