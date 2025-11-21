@@ -156,7 +156,7 @@ export function createPelletsInstanced(scene, count, colors) {
     const size = Math.random() * (pelletMaxSize-pelletMinSize) + pelletMinSize;
     sizes.push(size);
 
-    // Use reusable pellet respawn function
+    // Use reusable pelletCell respawn function
     const position = respawnPellet({
       dummy,
       size,
@@ -195,7 +195,7 @@ export function createPelletsInstanced(scene, count, colors) {
   const voxelSize = 20; // Adjust based on typical cell + magnet radius
   const spatialGrid = new SpatialGrid(mapSize, voxelSize);
   
-  // Build initial grid from pellet positions
+  // Build initial grid from pelletCell positions
   spatialGrid.buildFromPelletData({ positions, active });
 
   return { 
@@ -213,11 +213,11 @@ export function createPelletsInstanced(scene, count, colors) {
 }
 
 export function createCellSpatialGrid() {
-  const voxelSize = 30; // Larger voxel size for player/bot interactions
+  const voxelSize = 30; // Larger voxel size for player/botCell interactions
   return new SpatialGrid(mapSize, voxelSize);
 }
 
-// Reusable pellet respawn function
+// Reusable pelletCell respawn function
 export function respawnPellet({
   dummy,
   size,
@@ -307,7 +307,7 @@ export function createViruses(scene) {
   const material = new THREE.MeshStandardMaterial({ color: virusColor, opacity: 0.8, transparent: true });
   const border = mapSize / 2 - VIRUS_SIZE;
   const positions = [];
-  const viruses = [];
+  const virusCells = [];
   for (let i = 0; i < VIRUS_COUNT; i++) {
     let pos;
     let tries = 0;
@@ -323,13 +323,13 @@ export function createViruses(scene) {
     const mesh = new THREE.Mesh(geometry, material.clone());
     mesh.position.copy(pos);
     mesh.userData.baseScale = 1;
-    viruses.push(mesh);
+    virusCells.push(mesh);
     scene.add(mesh);
   }
-  scene.userData.viruses = viruses;
+  scene.userData.virusCells = virusCells;
   function animateViruses(time) {
-    for (let i = 0; i < viruses.length; i++) {
-      const mesh = viruses[i];
+    for (let i = 0; i < virusCells.length; i++) {
+      const mesh = virusCells[i];
       mesh.rotation.y += 0.005;
       mesh.rotation.x += 0.002;
       const scale = mesh.userData.baseScale + 0.08 * Math.sin(time * 0.001 + i);
@@ -377,12 +377,12 @@ export function respawnCell(cell, scene) {
   }
 }
 
-export function updateBot(bot, pelletData, deltaTime = 1/60) {
+export function updateBot(botCell, pelletData, deltaTime = 1/60) {
   let minDist = Infinity;
   let closestIdx = -1;
   for (let i = 0; i < pelletData.positions.length; i++) {
     if (!pelletData.active[i]) continue;
-    const dist = bot.position.distanceTo(pelletData.positions[i]);
+    const dist = botCell.position.distanceTo(pelletData.positions[i]);
     if (dist < minDist) {
       minDist = dist;
       closestIdx = i;
@@ -390,9 +390,9 @@ export function updateBot(bot, pelletData, deltaTime = 1/60) {
   }
   if (closestIdx !== -1) {
     const target = pelletData.positions[closestIdx];
-    const direction = target.clone().sub(bot.position).normalize();
+    const direction = target.clone().sub(botCell.position).normalize();
     const speed = 0.08 * (deltaTime * 60);
-    bot.position.addScaledVector(direction, speed);
+    botCell.position.addScaledVector(direction, speed);
   }
-  checkEatCondition(bot, pelletData);
+  checkEatCondition(botCell, pelletData);
 }

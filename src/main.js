@@ -105,14 +105,14 @@ let gameStateRef = null;
 function checkEnemyProximity() {
   if (!gameStateRef) return false;
   
-  const { playerCell, bots } = gameStateRef;
+  const { playerCell, botCells } = gameStateRef;
   const playerPos = playerCell.position;
   const safeDistance = 50;
   
   
-  for (const bot of bots) {
-    if (bot.userData.isEaten) continue;
-    const distance = playerPos.distanceTo(bot.position);
+  for (const botCell of botCells) {
+    if (botCell.userData.isEaten) continue;
+    const distance = playerPos.distanceTo(botCell.position);
     if (distance < safeDistance) {
       return false; 
     }

@@ -15,14 +15,14 @@ export function initializeGame(scene, camera, onReady, playerName = 'Player') {
   const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(false, scene, camera);
 
   const botCount = 25;
-  const bots = [];
+  const botCells = [];
   const magnetRange = 4;
 
   for (let index = 0; index < botCount; index++) {
     const cell = createBot(scene, camera);
     const botMagnetSphere = createMagnetSphere(cell, magnetRange);
     scene.add(botMagnetSphere);
-    bots.push(cell);
+    botCells.push(cell);
   }
   
   const magnetSphere = createMagnetSphere(playerCell, magnetRange);
@@ -56,7 +56,7 @@ export function initializeGame(scene, camera, onReady, playerName = 'Player') {
     onReady({
       playerCell,
       playerDefaultOpacity,
-      bots,
+      botCells,
       cells,
       lastSplitTime,
       border: loadedBorder,

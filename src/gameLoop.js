@@ -22,7 +22,7 @@ export function createAnimationLoop(
   const {
     playerCell,
     playerDefaultOpacity,
-    bots,
+    botCells,
     cells,
     border,
     pelletData,
@@ -180,7 +180,7 @@ export function createAnimationLoop(
     };
     
     
-    const allCells = [playerCell, ...bots, ...cells].filter(c => !c.userData.isEaten);
+    const allCells = [playerCell, ...botCells, ...cells].filter(c => !c.userData.isEaten);
     
     if (!isDevMode) {
       
@@ -238,10 +238,10 @@ export function createAnimationLoop(
     }
     
     
-    for (const bot of bots) {
-      if (bot.userData.isEaten) continue;
-      updateBot(bot, pelletData, deltaTime);
-      updatePlayerGrowth(true, bot, pelletData, scene, bot.magnetSphere, playerCell.position, allCells, handleCellEaten, playEatSoundSegment, deltaTime);
+    for (const botCell of botCells) {
+      if (botCell.userData.isEaten) continue;
+      updateBot(botCell, pelletData, deltaTime);
+      updatePlayerGrowth(true, botCell, pelletData, scene, botCell.magnetSphere, playerCell.position, allCells, handleCellEaten, playEatSoundSegment, deltaTime);
     }
 
     const cellResult = updateCells(cells, scene, playerCell, camera, getForwardButtonPressed, playerRotation, cellRotation, deltaTime);

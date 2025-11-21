@@ -9,8 +9,8 @@ export function calculateDistanceBetweenCells(sourceCell, targetCell){
   return distance
 }
 
-export function calculateCellMass(playerCell, pelletMinSizeValue){
-  const playerRadius = computeCellRadius(playerCell);
+export function calculateCellMass(cell, pelletMinSizeValue){
+  const playerRadius = computeCellRadius(cell);
   const pelletRadius = pelletMinSizeValue; 
   const mass = volumeFromRadius(playerRadius) / volumeFromRadius(pelletRadius);
   return mass;
