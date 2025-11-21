@@ -7,7 +7,7 @@ import {
   createBot,
   createCellSpatialGrid
 } from './objects.js';
-import { initNetworking, emitJoin } from './multiplayer.js';
+import { initNetworking, emitJoin, emitInitPellets, setupPelletSync, emitPelletEaten, emitPelletRespawn } from './multiplayer.js';
 
 export function initializeGame(scene, camera, onReady, playerName = 'Player') {
   createViruses(scene);
@@ -52,6 +52,21 @@ export function initializeGame(scene, camera, onReady, playerName = 'Player') {
     const PELLET_COUNT = 25000;
     const pelletData = createPelletsInstanced(scene, PELLET_COUNT, pelletColors);
     const cellSpatialGrid = createCellSpatialGrid();
+    
+    // Initialize multiplayer pellet sync
+    emitInitPellets(pelletData);
+    setupPelletSync(pelletData, 
+      (index) => {
+        // When another player eats a pellet
+        pelletData.active[index] = false;
+      },
+      (index, position, isPowerUp) => {
+        // When a pellet respawns
+        pelletData.positions[index].set(position.x, position.y, position.z);
+        pelletData.active[index] = true;
+        pelletData.powerUps[index] = isPowerUp;
+      }
+    );
 
     onReady({
       playerCell,

@@ -114,3 +114,43 @@ export function emitJoin(playerName, mainSphere) {
 export function emitEat(data) {
     socket.emit('eat', data);
 }
+
+export function emitInitPellets(pelletData) {
+    socket.emit('init-pellets', {
+        positions: pelletData.positions.map(p => ({ x: p.x, y: p.y, z: p.z })),
+        active: pelletData.active,
+        powerUps: pelletData.powerUps
+    });
+}
+
+export function emitPelletEaten(index) {
+    socket.emit('pellet-eaten', { index });
+}
+
+export function emitPelletRespawn(index, position, isPowerUp) {
+    socket.emit('pellet-respawn', {
+        index,
+        position: { x: position.x, y: position.y, z: position.z },
+        isPowerUp
+    });
+}
+
+export function setupPelletSync(pelletData, onPelletEaten, onPelletRespawn) {
+    socket.on('pellet-state', (state) => {
+        console.log('Received pellet state from server');
+        // Update local pellet state to match server
+        for (let i = 0; i < state.active.length; i++) {
+            pelletData.active[i] = state.active[i];
+            pelletData.positions[i].set(state.positions[i].x, state.positions[i].y, state.positions[i].z);
+            pelletData.powerUps[i] = state.powerUps[i];
+        }
+    });
+    
+    socket.on('pellet-eaten', (data) => {
+        if (onPelletEaten) onPelletEaten(data.index);
+    });
+    
+    socket.on('pellet-respawn', (data) => {
+        if (onPelletRespawn) onPelletRespawn(data.index, data.position, data.isPowerUp);
+    });
+}
