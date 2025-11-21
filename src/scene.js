@@ -10,9 +10,13 @@ export function smoothLerp(startValue, endValue, t) {
 }
 
 
-export function updateFogDensity(scene, size) {
+export function updateFogDensity(scene, mass) {
   if (!scene.fog) return;
-  const targetDensity = 0.04 / size;
+  
+  
+  
+  const baseDensity = 0.02;
+  const targetDensity = baseDensity / (mass * mass);
   const currentDensity = scene.fog.density;
   const lerpSpeed = 0.1;
   scene.fog.density = smoothLerp(currentDensity, targetDensity, lerpSpeed);
@@ -31,7 +35,7 @@ export function createScene() {
   const far = 600;
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
 
-  const density = 0.04
+  const density = 0.04; 
   scene.fog = new THREE.FogExp2(bgColor, density);
 
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);

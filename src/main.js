@@ -4,33 +4,52 @@ import { createCameraController } from './camera.js';
 import { createRenderer } from './renderer.js';
 import { initializeGame } from './gameInit.js';
 import { createAnimationLoop, setupSplitHandler } from './gameLoop.js';
+import { createPelletsInstanced, pelletMinSize } from './objects.js';
 import Stats from 'three/addons/libs/stats.module.js';
+import * as THREE from 'three';
+import { calculateCellMass } from './utils/playerUtils.js';
 
 const canvas = document.querySelector('#c');
 const renderer = createRenderer(canvas);
 const { scene, camera } = createScene();
 const stats = new Stats();
-stats.dom.style.display = 'none'; // Hide stats initially
+stats.dom.style.display = 'none'; 
 document.body.appendChild(stats.dom);
 
-// Home screen logic
+
 const homeScreen = document.getElementById('homeScreen');
 const playerNameInput = document.getElementById('playerName');
 const playButton = document.getElementById('playButton');
 
+
+const massCounter = document.createElement('div');
+massCounter.id = 'mass-counter';
+massCounter.style.position = 'fixed';
+massCounter.style.left = '50%';
+massCounter.style.top = '55%';
+massCounter.style.transform = 'translate(-50%, 0)';
+massCounter.style.fontSize = '2rem';
+massCounter.style.color = '#fff';
+massCounter.style.textShadow = '0 2px 8px #000';
+massCounter.style.pointerEvents = 'none';
+massCounter.style.zIndex = '1000';
+massCounter.style.textAlign = 'center';
+massCounter.innerText = '';
+document.body.appendChild(massCounter);
+
 function startGame() {
   const playerName = playerNameInput.value.trim() || 'Player';
   
-  // Hide home screen
+  
   homeScreen.style.display = 'none';
   
-  // Show canvas and stats
+  
   canvas.style.display = 'block';
   stats.dom.style.display = 'block';
   
-  // Initialize game
+  
   initializeGame(scene, camera, (gameState) => {
-    gameStateRef = gameState; // Store reference for ESC menu
+    gameStateRef = gameState; 
     const { playerCell, playerDefaultOpacity, cells } = gameState;
     const cameraController = createCameraController(camera, playerCell);
     const controls = setupControls(canvas, cameraController);
@@ -48,6 +67,20 @@ function startGame() {
       stats
     );
 
+      
+      function updateMassCounter() {
+        if (gameState.playerCell && gameState.playerCell.geometry && !gameState.playerCell.userData.isEaten) {
+          
+          const r = gameState.playerCell.geometry.parameters.radius * gameState.playerCell.scale.x;
+          const mass = calculateCellMass(playerCell, pelletMinSize)
+          massCounter.innerText = `Mass: ${Math.floor(mass)}`;
+        } else {
+          massCounter.innerText = '';
+        }
+        requestAnimationFrame(updateMassCounter);
+      }
+      updateMassCounter();
+
     animate();
   }, playerName);
 }
@@ -59,10 +92,10 @@ playerNameInput.addEventListener('keypress', (e) => {
   }
 });
 
-// Focus on name input
+
 playerNameInput.focus();
 
-// ESC menu logic
+
 const escMenu = document.getElementById('escMenu');
 const saveProgressButton = document.getElementById('saveProgressButton');
 const resumeButton = document.getElementById('resumeButton');
@@ -76,16 +109,16 @@ function checkEnemyProximity() {
   const playerPos = playerCell.position;
   const safeDistance = 50;
   
-  // Check all bots for proximity
+  
   for (const bot of bots) {
     if (bot.userData.isEaten) continue;
     const distance = playerPos.distanceTo(bot.position);
     if (distance < safeDistance) {
-      return false; // Not safe
+      return false; 
     }
   }
   
-  return true; // Safe
+  return true; 
 }
 
 function updateSaveButtonState() {
@@ -99,7 +132,7 @@ function updateSaveButtonState() {
 
 function toggleEscMenu() {
   isPaused = !isPaused;
-  window.isPaused = isPaused; // Share state with game loop
+  window.isPaused = isPaused; 
   if (isPaused) {
     escMenu.style.display = 'flex';
     updateSaveButtonState();
@@ -108,15 +141,15 @@ function toggleEscMenu() {
   }
 }
 
-// Listen for pointer lock exit to show menu
+
 document.addEventListener('pointerlockchange', () => {
   if (!document.pointerLockElement && gameStateRef && !isPaused) {
-    // Pointer lock was exited (ESC was pressed), show menu
+    
     toggleEscMenu();
   }
 });
 
-// Allow closing menu with ESC when menu is already open
+
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && gameStateRef && isPaused) {
     e.preventDefault();
@@ -131,7 +164,7 @@ resumeButton.addEventListener('click', () => {
 saveProgressButton.addEventListener('click', () => {
   if (saveProgressButton.classList.contains('safe')) {
     console.log('Progress saved!');
-    // Add your save logic here
+    
     alert('Progress saved successfully!');
   } else {
     alert('Cannot save! Enemies are too close. Get at least 50 units away.');

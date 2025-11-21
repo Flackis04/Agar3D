@@ -63,7 +63,7 @@ export function setupControls(canvas, cameraController) {
 
   function setViewingCell(viewing) {
     if (viewing && !viewingCell) {
-      // Copy current player rotation to cell rotation when starting to view
+      
       cellRotation.yaw = playerRotation.yaw;
       cellRotation.pitch = playerRotation.pitch;
     }

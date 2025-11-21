@@ -1,16 +1,19 @@
-// path: src/logic/playerAndPellets.js
+
 import * as THREE from 'three';
 import { createSplitSphere, mapSize, respawnPellet } from '../objects.js';
 import { smoothLerp } from '../scene.js';
 import { SpatialGrid } from './spatialGrid.js';
 
-/* -----------------------
-   Small math & util helpers
-   ----------------------- */
-
-export function checkDistanceToCell(playerCell, cell){
-  const distance = playerCell.position.distanceTo(cell.position)
+export function calculateDistanceBetweenCells(sourceCell, targetCell){
+  const distance = sourceCell.position.distanceTo(targetCell.position)
   return distance
+}
+
+export function calculateCellMass(playerCell, pelletMinSizeValue){
+  const playerRadius = computeCellRadius(playerCell);
+  const pelletRadius = pelletMinSizeValue; 
+  const mass = volumeFromRadius(playerRadius) / volumeFromRadius(pelletRadius);
+  return mass;
 }
 
 function computeCellRadius(cell) {
@@ -27,15 +30,13 @@ function volumeFromRadius(r) {
 }
 
 function canEatCell(predatorRadius, preyRadius) {
-  // Predator must be at least 15% larger to eat prey
+  
   return predatorRadius > preyRadius * 1.15;
 }
 
-/* --------------------------
-   InstancedMesh matrix helpers
-   -------------------------- */
+
 function hideInstanceAt(mesh, index, dummy) {
-  // tiny scale to "hide" visually
+  
   dummy.position.set(0, 0, 0);
   dummy.rotation.set(0, 0, 0);
   dummy.scale.setScalar(0.0001);
@@ -50,9 +51,7 @@ function updateInstanceFromDummy(mesh, index, dummy, position, size) {
   mesh.setMatrixAt(index, dummy.matrix);
 }
 
-/* --------------------------
-   Pellet respawn & handling
-   -------------------------- */
+
 function respawnPelletAt(i, {
   dummy,
   sizes,
@@ -91,9 +90,7 @@ function respawnPelletAt(i, {
   return newPos;
 }
 
-/* --------------------------
-   Pellet eating / check logic
-   -------------------------- */
+
 function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
   const {
     mesh,
@@ -106,29 +103,29 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
     pelletToMeshIndex
   } = pelletData;
 
-  active[i] = false; // mark eaten
+  active[i] = false; 
   eatenSizes.push(sizes[i]);
 
   const isPowerUp = powerUps && powerUps[i];
   const meshIndex = pelletToMeshIndex[i];
 
-  // Possibly toggle pellet magnet
+  
   if (isPowerUp && !toggleRef.value) {
     toggleRef.value = togglePelletMagnet(cell, pelletData, toggleRef.value);
     cell.pelletMagnetToggle = toggleRef.value;
   }
 
-  // hide instance (tiny scale)
+  
   if (isPowerUp && meshPowerup) {
     hideInstanceAt(meshPowerup, meshIndex, dummy);
   } else if (mesh) {
     hideInstanceAt(mesh, meshIndex, dummy);
   }
 
-  // Store old position for grid update
+  
   const oldPos = positions[i].clone();
   
-  // Respawn and reactivate
+  
   const newPos = respawnPelletAt(i, {
     dummy,
     sizes,
@@ -140,7 +137,7 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
     positions
   });
 
-  // Update spatial grid with new position
+  
   if (pelletData.spatialGrid) {
     pelletData.spatialGrid.updateItem(i, oldPos.x, oldPos.y, oldPos.z, newPos.x, newPos.y, newPos.z);
   }
@@ -148,7 +145,7 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
   active[i] = true;
 }
 
-export function checkEatCondition(cell, pelletData) {
+export function checkEatCondition(cell, pelletData, onEatCallback) {
   const {
     mesh,
     meshPowerup,
@@ -168,7 +165,7 @@ export function checkEatCondition(cell, pelletData) {
   let eatenCount = 0;
   const toggleRef = { value: cell.pelletMagnetToggle || false };
 
-  // Use spatial grid to only check nearby pellets
+  
   const nearbyIndices = spatialGrid 
     ? spatialGrid.getItemsInRadius(cellPosition.x, cellPosition.y, cellPosition.z, cellRadius + 5)
     : Array.from({ length: positions.length }, (_, i) => i);
@@ -186,18 +183,23 @@ export function checkEatCondition(cell, pelletData) {
   if (eatenCount > 0) {
     if (mesh) mesh.instanceMatrix.needsUpdate = true;
     if (meshPowerup) meshPowerup.instanceMatrix.needsUpdate = true;
+    if (onEatCallback && eatenCount > 0) {
+      
+      const avgSize = eatenSizes.reduce((a, b) => a + b, 0) / eatenSizes.length;
+      
+      const pitch = 1.5 - (avgSize * 1.0);
+      onEatCallback(pitch);
+    }
   }
 
   return { eatenCount, eatenSizes, pelletMagnetToggle: toggleRef.value };
 }
 
-/* --------------------------
-   Pellet magnet helpers
-   -------------------------- */
-export function togglePelletMagnet(playerCell, pelletData, currentToggle) {
-  if (currentToggle) return; // already on
 
-  // revert the toggle after 8 seconds (behavior preserved)
+export function togglePelletMagnet(playerCell, pelletData, currentToggle) {
+  if (currentToggle) return; 
+
+  
   setTimeout(() => {
     playerCell.pelletMagnetToggle = false;
   }, 8000);
@@ -224,7 +226,7 @@ function applyMagnetAttraction({
   const pz = playerPos.z;
   const magnetRange = Math.sqrt(magnetRangeSq);
 
-  // Use spatial grid to only check pellets within magnet range
+  
   const nearbyIndices = spatialGrid
     ? spatialGrid.getItemsInRadius(px, py, pz, magnetRange)
     : Array.from({ length: positions.length }, (_, i) => i);
@@ -242,7 +244,7 @@ function applyMagnetAttraction({
       const distance = Math.sqrt(distanceSq) || 1e-6;
       const factor = attractionSpeed / distance;
       
-      // Store old position for grid update
+      
       const oldX = pelletPos.x;
       const oldY = pelletPos.y;
       const oldZ = pelletPos.z;
@@ -251,7 +253,7 @@ function applyMagnetAttraction({
       pelletPos.y += dy * factor;
       pelletPos.z += dz * factor;
 
-      // Update spatial grid if position changed cells
+      
       if (spatialGrid) {
         spatialGrid.updateItem(i, oldX, oldY, oldZ, pelletPos.x, pelletPos.y, pelletPos.z);
       }
@@ -286,13 +288,14 @@ export function updatePelletMagnet(
   scene,
   magnetSphere,
   isWithinViewDistance = true,
-  attractionSpeed = 0.3
+  attractionSpeed = 0.3,
+  onEatSound = undefined
 ) {
   const playerCellRadius = computeCellRadius(playerCell);
   const magnetSphereRadius = playerCellRadius * 4;
   const magnetSphereBaseRadius = 4;
 
-  // visual magnet sphere scaling
+  
   if (magnetSphere) {
     const targetScale = pelletMagnetToggle ? (magnetSphereRadius / magnetSphereBaseRadius) : 0.001;
     const lerpSpeed = 0.1;
@@ -321,10 +324,10 @@ export function updatePelletMagnet(
 
   if (!mesh || !positions || !active) return;
 
-  // For bots not in view distance, skip animation and eat with magnetSphere
+  
   const shouldAnimate = !isBot || isWithinViewDistance;
 
-  // If animation true, pull pellets; otherwise use magnet sphere to eat nearby pellets
+  
   if (shouldAnimate) {
     const playerCellPosition = playerCell.position;
     const magnetRangeSq = magnetSphereRadius * magnetSphereRadius;
@@ -353,9 +356,20 @@ export function updatePelletMagnet(
     }
     return;
   } else {
-    // non-animation: magnet sphere eats pellets based on magnetSphere radius
-    // Create a temporary cell-like object with magnetSphere's properties
+    
+    
     if (!magnetSphere) return;
+    
+    
+    let soundCallback = undefined;
+    if (isBot && onEatSound && isWithinViewDistance) {
+      soundCallback = () => {
+        const distanceToPlayer = playerCell.position.distanceTo(playerCell.position); 
+        const viewDistance = 100;
+        const volume = Math.max(0, 1 - (distanceToPlayer / viewDistance));
+        onEatSound(volume);
+      };
+    }
     
     const magnetCellProxy = {
       position: playerCell.position,
@@ -368,13 +382,11 @@ export function updatePelletMagnet(
       pelletMagnetToggle: playerCell.pelletMagnetToggle
     };
     
-    return checkEatCondition(magnetCellProxy, pelletData);
+    return checkEatCondition(magnetCellProxy, pelletData, soundCallback);
   }
 }
 
-/* --------------------------
-   Player fade & growth helpers
-   -------------------------- */
+
 export function updatePlayerFade(playerCell, lastSplitTime, playerDefaultOpacity, deltaTime = 1/60) {
   if (!lastSplitTime) return null;
   const now = performance.now();
@@ -402,14 +414,14 @@ function applyGrowthFromPellets(playerCell, totalEatenSizes, pelletBaseRadius, d
     pelletsVolume += volumeFromRadius(pelletRadius);
   }
 
-  // Scale growth by deltaTime normalized to 60 FPS for consistency
+  
   const newVolume = playerCellVolume + pelletsVolume * (deltaTime * 60);
   const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
   const scale = newRadius / playerCell.geometry.parameters.radius;
   playerCell.scale.setScalar(scale);
 }
 
-export function checkCellEatCondition(predatorCell, allCells, scene, onEaten) {
+export function checkCellEatCondition(predatorCell, allCells, scene, onEaten, onEatCallback) {
   const predatorRadius = computeCellRadius(predatorCell);
   const predatorPos = predatorCell.position;
   
@@ -419,21 +431,21 @@ export function checkCellEatCondition(predatorCell, allCells, scene, onEaten) {
     
     const preyRadius = computeCellRadius(preyCell);
     
-    // Check if predator can eat prey
+    
     if (!canEatCell(predatorRadius, preyRadius)) continue;
     
     const distance = predatorPos.distanceTo(preyCell.position);
     
-    // If prey is within eating distance
+    
     if (distance <= predatorRadius) {
-      // Mark as eaten and remove from scene immediately
+      
       preyCell.userData.isEaten = true;
       scene.remove(preyCell);
       if (preyCell.magnetSphere) {
         scene.remove(preyCell.magnetSphere);
       }
       
-      // Calculate volume transfer
+      
       const preyVolume = volumeFromRadius(preyRadius);
       const predatorVolume = volumeFromRadius(predatorRadius);
       const newVolume = predatorVolume + preyVolume;
@@ -441,8 +453,16 @@ export function checkCellEatCondition(predatorCell, allCells, scene, onEaten) {
       const scale = newRadius / predatorCell.geometry.parameters.radius;
       predatorCell.scale.setScalar(scale);
       
-      // Notify callback for respawn
+      
       if (onEaten) onEaten(preyCell);
+      if (onEatCallback) {
+        
+        
+        const sizeRatio = preyRadius / predatorRadius;
+        
+        const pitch = 1.5 - (sizeRatio * 0.75);
+        onEatCallback(pitch);
+      }
       
       return true;
     }
@@ -451,22 +471,23 @@ export function checkCellEatCondition(predatorCell, allCells, scene, onEaten) {
   return false;
 }
 
-export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetSphere, playerPosition, allCells, onCellEaten, deltaTime = 1/60) {
+export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetSphere, playerPosition, allCells, onCellEaten, onEatSound, deltaTime = 1/60) {
   if (!pelletData) return;
 
-  // Determine if bot is within view distance of player (if bot)
-  // Calculate view distance based on fog density (matches fog visibility)
+  
+  
   const playerSize = playerCell.geometry?.parameters?.radius * (playerCell.scale?.x || 1) || 1;
   const fogDensity = scene.fog?.density || 0.04 / playerSize;
-  const viewDistance = 3 / fogDensity; // ~75% opacity in exponential fog
+  const viewDistance = 3 / fogDensity; 
   
   let isWithinViewDistance = true;
+  let distanceToPlayer = Infinity;
   if (isBot && playerPosition) {
-    const distanceToPlayer = playerCell.position.distanceTo(playerPosition);
+    distanceToPlayer = playerCell.position.distanceTo(playerPosition);
     isWithinViewDistance = distanceToPlayer <= viewDistance;
   }
 
-  // run magnet attraction animation pass first (original did this)
+  
   const magnetResult = updatePelletMagnet(
     isBot,
     playerCell,
@@ -474,30 +495,56 @@ export function updatePlayerGrowth(isBot, playerCell, pelletData, scene, magnetS
     playerCell.pelletMagnetToggle,
     scene,
     magnetSphere,
-    isWithinViewDistance
+    isWithinViewDistance,
+    0.3,
+    onEatSound
   );
 
-  // Check for eaten pellets by this cell
-  const { eatenCount, eatenSizes } = checkEatCondition(playerCell, pelletData);
+  
+  
+  let soundCallback = undefined;
+  if (!isBot && onEatSound) {
+    soundCallback = (pitch = 1.0) => {
+      onEatSound(1.0, pitch);
+    };
+  } else if (isBot && onEatSound && isWithinViewDistance) {
+    
+    soundCallback = (pitch = 1.0) => {
+      const volume = Math.max(0, 1 - (distanceToPlayer / viewDistance));
+      onEatSound(volume, pitch);
+    };
+  }
+  const { eatenCount, eatenSizes } = checkEatCondition(playerCell, pelletData, soundCallback);
 
   let totalEatenSizes = [...eatenSizes];
 
-  // Add magnet-eaten pellets if magnet is active for this cell
+  
   if (magnetResult && magnetResult.eatenCount > 0) {
     totalEatenSizes = totalEatenSizes.concat(magnetResult.eatenSizes);
   }
 
   applyGrowthFromPellets(playerCell, totalEatenSizes, pelletData.radius, deltaTime);
   
-  // Check if this cell can eat other cells
+  
   if (allCells && allCells.length > 0) {
-    checkCellEatCondition(playerCell, allCells, scene, onCellEaten);
+    
+    let cellSoundCallback = undefined;
+    if (isBot && onEatSound && isWithinViewDistance) {
+      cellSoundCallback = (pitch = 1.0) => {
+        
+        const volume = Math.max(0, 1 - (distanceToPlayer / viewDistance));
+        onEatSound(volume, pitch);
+      };
+    } else if (!isBot && onEatSound) {
+      cellSoundCallback = (pitch = 1.0) => {
+        onEatSound(1.0, pitch);
+      };
+    }
+    checkCellEatCondition(playerCell, allCells, scene, onCellEaten, cellSoundCallback);
   }
 }
 
-/* --------------------------
-   Cells update / split helpers
-   -------------------------- */
+
 function cameraFollowOtherCell(camera, otherCell, cellRotation) {
   const cellPos = otherCell.position;
   const followDistance = 10;
@@ -515,17 +562,16 @@ function tryMoveOtherCellTowardsPlayer(otherCell, playerCell, playerCellRadius, 
   const dist = toPlayerCell.length();
   const forwardPressed = getForwardButtonPressed();
 
-  if (dist > playerCellRadius + epsilon && !forwardPressed) {
-    const step = toPlayerCell.normalize().multiplyScalar(Math.min(dist - playerCellRadius, 0.2 * (deltaTime * 60)));
+  if (dist > playerCellRadius + epsilon) {
+    
+    
+    const t = (performance.now() - otherCell.userData.startTime) / 1000;
+    const speedMultiplier = Math.pow(1.5, Math.min(t / 3, 1)); 
+    const step = toPlayerCell.normalize().multiplyScalar(Math.min(dist - playerCellRadius, 0.55 * speedMultiplier * (deltaTime * 60)));
     otherCell.position.add(step);
     return { removed: false };
-  } else if (dist > playerCellRadius + epsilon && forwardPressed) {
-    otherCell.position.copy(
-      playerCell.position.clone().add(toPlayerCell.normalize().multiplyScalar(playerCellRadius + (otherCell.userData.peakDist || dist)))
-    );
-    return { removed: false };
-  }
-  // otherwise merge into player (removed)
+  } 
+  
   return { removed: true, dist, toPlayerCell };
 }
 
@@ -541,7 +587,7 @@ export function updateCells(cells, scene, playerCell, camera, getForwardButtonPr
     const playerCellRadius = basePlayerCellRadius * playerCell.scale.x;
     const cellRadius = otherPlayerCell.geometry.parameters.radius * otherPlayerCell.scale.x;
 
-    // camera-follow other player for first 2s (original behavior)
+    
     if (t <= 2) {
       cameraFollowOtherCell(camera, otherPlayerCell, cellRotation);
 
@@ -552,7 +598,7 @@ export function updateCells(cells, scene, playerCell, camera, getForwardButtonPr
       return { isSplit: true, splitCell: otherPlayerCell, viewingCell: true };
     }
 
-    // default: treat as split
+    
     isSplit = true;
     splitCell = otherPlayerCell;
 
@@ -568,7 +614,7 @@ export function updateCells(cells, scene, playerCell, camera, getForwardButtonPr
     if (!moveResult.removed) {
       continue;
     } else {
-      // merge: remove other cell, increase player size (behavior preserved)
+      
       scene.remove(otherPlayerCell);
       cells.splice(i, 1);
 
@@ -584,25 +630,58 @@ export function updateCells(cells, scene, playerCell, camera, getForwardButtonPr
   return { isSplit, splitCell };
 }
 
-/* --------------------------
-   Split execution
-   -------------------------- */
+
 function canSplit(now, lastSplit, cooldown) {
   if (now - lastSplit < cooldown) return lastSplit;
   return null;
 }
 
 export function executeSplit(playerCell, cells, camera, scene, playerCellSpeed) {
-  if (cells.length == 0){
-    cells.push(playerCell)
+  const now = performance.now();
+  const cellCap = 16;
+  
+  
+  const allPlayerCells = [playerCell, ...cells];
+  
+  
+  if (allPlayerCells.length >= cellCap) {
+    return cells;
   }
-  const cellCap = 16
-  const affectedCells = cells.length > cellCap / 2 ? cellCap - cells.length : cells.length
-  for (let i = 0; i < affectedCells; i++) {
-    const scale = computeCellRadius(cells[i]) / 2 / cells[i].geometry.parameters.radius ;
-    cells[i].scale.setScalar(scale);
-    cells.push(cells[i])
+  
+  
+  const maxNewCells = cellCap - allPlayerCells.length;
+  const cellsToSplit = Math.min(allPlayerCells.length, maxNewCells);
+  
+  const newCells = [...cells]; 
+  
+  
+  for (let i = 0; i < cellsToSplit; i++) {
+    const originalCell = allPlayerCells[i];
+    
+    
+    const originalRadius = computeCellRadius(originalCell);
+    const originalVolume = volumeFromRadius(originalRadius);
+    const newVolume = originalVolume / 2;
+    const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
+    const newScale = newRadius / originalCell.geometry.parameters.radius;
+    
+    
+    originalCell.scale.setScalar(newScale);
+    
+    
+    const splitCell = createSplitSphere(originalCell);
+    splitCell.position.copy(originalCell.position);
+    
+    
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    splitCell.userData.velocity = forward.clone().multiplyScalar(playerCellSpeed * 5.5);
+    splitCell.userData.startTime = now;
+    
+    
+    scene.add(splitCell);
+    newCells.push(splitCell);
   }
-  console.log(cells)
+  
+  return newCells;
 }
-

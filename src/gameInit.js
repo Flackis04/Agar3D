@@ -28,7 +28,7 @@ export function initializeGame(scene, camera, onReady, playerName = 'Player') {
   const magnetSphere = createMagnetSphere(playerCell, magnetRange);
   scene.add(magnetSphere);
 
-  // Multiplayer integration
+  
   initNetworking(scene);
   emitJoin(playerName, playerCell);
 
@@ -39,14 +39,14 @@ export function initializeGame(scene, camera, onReady, playerName = 'Player') {
     scene.add(loadedBorder);
 
     const pelletColors = [
-      0xff0000, // Red
-      0x0077ff, // Blue
-      0x00ff00, // Green
-      0xffff00, // Yellow
-      0x9b30ff, // Purple
-      0xff9900, // Orange
-      0x7ed6ff, // Light Blue
-      0xff69b4  // Pink
+      0xff0000, 
+      0x0077ff, 
+      0x00ff00, 
+      0xffff00, 
+      0x9b30ff, 
+      0xff9900, 
+      0x7ed6ff, 
+      0xff69b4  
     ];
 
     const PELLET_COUNT = 25000;

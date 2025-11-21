@@ -1,7 +1,7 @@
 import { io } from 'socket.io-client';
 import * as THREE from 'three';
 
-export const socket = io('https://1b0ff8538306.ngrok-free.app');
+export const socket = io('https:
 export const otherPlayers = {};
 
 socket.on('connect', () => {

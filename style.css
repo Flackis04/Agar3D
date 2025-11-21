@@ -172,3 +172,22 @@ canvas {
   background: linear-gradient(135deg, #0088ff 0%, #00aaff 100%);
   box-shadow: 0 0 30px rgba(102, 170, 255, 0.6);
 }
+
+#mass-counter {
+  position: fixed;
+  left: 50%;
+  bottom: 32px; /* use bottom instead of top for more reliable placement */
+  top: auto;
+  transform: translate(-50%, 0);
+  font-size: 1.2rem;
+  color: #fff;
+  background: rgba(0,0,0,0.5);
+  border-radius: 6px;
+  padding: 6px 16px;
+  box-shadow: none;
+  text-shadow: none;
+  pointer-events: none;
+  z-index: 1000;
+  text-align: center;
+  font-family: inherit;
+}

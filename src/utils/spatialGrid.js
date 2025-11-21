@@ -1,14 +1,14 @@
-// 3D Spatial Grid for efficient collision detection
+
 export class SpatialGrid {
   constructor(worldSize, voxelSize) {
     this.worldSize = worldSize;
     this.voxelSize = voxelSize;
     this.halfWorld = worldSize / 2;
     this.gridDimension = Math.ceil(worldSize / voxelSize);
-    this.grid = new Map(); // Use Map for sparse grid
+    this.grid = new Map(); 
   }
 
-  // Convert world position to grid coordinates
+  
   _getGridCoords(x, y, z) {
     const gx = Math.floor((x + this.halfWorld) / this.voxelSize);
     const gy = Math.floor((y + this.halfWorld) / this.voxelSize);
@@ -16,23 +16,23 @@ export class SpatialGrid {
     return { gx, gy, gz };
   }
 
-  // Convert grid coordinates to voxel key
+  
   _getVoxelKey(gx, gy, gz) {
     return `${gx},${gy},${gz}`;
   }
 
-  // Get voxel key from world position
+  
   getVoxelKeyFromPosition(x, y, z) {
     const { gx, gy, gz } = this._getGridCoords(x, y, z);
     return this._getVoxelKey(gx, gy, gz);
   }
 
-  // Clear all voxels
+  
   clear() {
     this.grid.clear();
   }
 
-  // Add item to grid
+  
   addItem(index, x, y, z) {
     const key = this.getVoxelKeyFromPosition(x, y, z);
     if (!this.grid.has(key)) {
@@ -41,7 +41,7 @@ export class SpatialGrid {
     this.grid.get(key).push(index);
   }
 
-  // Get all items in voxels within radius of position
+  
   getItemsInRadius(x, y, z, radius) {
     const { gx, gy, gz } = this._getGridCoords(x, y, z);
     const voxelRadius = Math.ceil(radius / this.voxelSize);
@@ -62,7 +62,7 @@ export class SpatialGrid {
     return items;
   }
 
-  // Build grid from pellet data
+  
   buildFromPelletData(pelletData) {
     this.clear();
     const { positions, active } = pelletData;
@@ -74,14 +74,14 @@ export class SpatialGrid {
     }
   }
 
-  // Update single pellet position in grid
+  
   updateItem(index, oldX, oldY, oldZ, newX, newY, newZ) {
     const oldKey = this.getVoxelKeyFromPosition(oldX, oldY, oldZ);
     const newKey = this.getVoxelKeyFromPosition(newX, newY, newZ);
 
-    if (oldKey === newKey) return; // Same voxel, no update needed
+    if (oldKey === newKey) return; 
 
-    // Remove from old voxel
+    
     const oldVoxel = this.grid.get(oldKey);
     if (oldVoxel) {
       const idx = oldVoxel.indexOf(index);
@@ -93,7 +93,7 @@ export class SpatialGrid {
       }
     }
 
-    // Add to new voxel
+    
     if (!this.grid.has(newKey)) {
       this.grid.set(newKey, []);
     }

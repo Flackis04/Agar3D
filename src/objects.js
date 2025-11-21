@@ -4,6 +4,8 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 import { SpatialGrid } from './utils/spatialGrid.js';
 
 export const mapSize = 250;
+export const pelletMinSize = 0.3;
+export const pelletMaxSize = 0.55
 
 export function createPlayerCell(isBot, scene, camera) {
   const playerStartingMass = 1;
@@ -151,8 +153,6 @@ export function createPelletsInstanced(scene, count, colors) {
     const color = new THREE.Color(colors[i % colors.length]);
     const isPowerUp = powerUps[i];
 
-    const pelletMinSize = 0.3
-    const pelletMaxSize = 0.55
     const size = Math.random() * (pelletMaxSize-pelletMinSize) + pelletMinSize;
     sizes.push(size);
 
