@@ -1,22 +1,33 @@
-import { 
-  createMapBox, 
-  createPelletsInstanced, 
-  createPlayerCell, 
+import {
+  createMapBox,
+  createPelletsInstanced,
+  createPlayerCell,
   createViruses,
-  createMagnetSphere, 
+  createMagnetSphere,
   createBot,
   createCellSpatialGrid,
-  pelletMinSize
-} from './objects.js';
-import { initNetworking, emitJoin, emitInitPellets, setupPelletSync, emitPelletEaten, emitPelletRespawn } from './multiplayer.js';
-import { updateFogDensity } from './scene.js';
-import { calculateCellMass } from './utils/playerUtils.js';
+  pelletMinSize,
+} from "./objects.js";
+import {
+  initNetworking,
+  emitJoin,
+  emitInitPellets,
+  setupPelletSync,
+  emitPelletEaten,
+  emitPelletRespawn,
+} from "./multiplayer.js";
+import { updateFogDensity } from "./scene.js";
+import { calculateCellMass } from "./utils/playerUtils.js";
 
-export function initializeGame(scene, camera, onReady, playerName = 'Player') {
+export function initializeGame(scene, camera, onReady, playerName = "Player") {
   createViruses(scene);
 
-  const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(false, scene, camera);
-  
+  const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(
+    false,
+    scene,
+    camera
+  );
+
   const initialMass = calculateCellMass(playerCell, pelletMinSize);
   updateFogDensity(scene, initialMass);
 
@@ -30,11 +41,10 @@ export function initializeGame(scene, camera, onReady, playerName = 'Player') {
     scene.add(botMagnetSphere);
     botCells.push(cell);
   }
-  
+
   const magnetSphere = createMagnetSphere(playerCell, magnetRange);
   scene.add(magnetSphere);
 
-  
   initNetworking(scene);
   emitJoin(playerName, playerCell);
 
@@ -45,23 +55,22 @@ export function initializeGame(scene, camera, onReady, playerName = 'Player') {
     scene.add(loadedBorder);
 
     const pelletColors = [
-      0xff0000, 
-      0x0077ff, 
-      0x00ff00, 
-      0xffff00, 
-      0x9b30ff, 
-      0xff9900, 
-      0x7ed6ff, 
-      0xff69b4  
+      0xff0000, 0x0077ff, 0x00ff00, 0xffff00, 0x9b30ff, 0xff9900, 0x7ed6ff,
+      0xff69b4,
     ];
 
     const PELLET_COUNT = 25000;
-    const pelletData = createPelletsInstanced(scene, PELLET_COUNT, pelletColors);
+    const pelletData = createPelletsInstanced(
+      scene,
+      PELLET_COUNT,
+      pelletColors
+    );
     const cellSpatialGrid = createCellSpatialGrid();
-    
+
     // Initialize multiplayer pellet sync
     emitInitPellets(pelletData);
-    setupPelletSync(pelletData, 
+    setupPelletSync(
+      pelletData,
       (index) => {
         // When another player eats a pellet
         pelletData.active[index] = false;
@@ -82,7 +91,7 @@ export function initializeGame(scene, camera, onReady, playerName = 'Player') {
       lastSplitTime,
       border: loadedBorder,
       pelletData,
-      cellSpatialGrid
+      cellSpatialGrid,
     });
   });
 }

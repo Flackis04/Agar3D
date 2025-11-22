@@ -1,14 +1,12 @@
-
 export class SpatialGrid {
   constructor(worldSize, voxelSize) {
     this.worldSize = worldSize;
     this.voxelSize = voxelSize;
     this.halfWorld = worldSize / 2;
     this.gridDimension = Math.ceil(worldSize / voxelSize);
-    this.grid = new Map(); 
+    this.grid = new Map();
   }
 
-  
   _getGridCoords(x, y, z) {
     const gx = Math.floor((x + this.halfWorld) / this.voxelSize);
     const gy = Math.floor((y + this.halfWorld) / this.voxelSize);
@@ -16,23 +14,19 @@ export class SpatialGrid {
     return { gx, gy, gz };
   }
 
-  
   _getVoxelKey(gx, gy, gz) {
     return `${gx},${gy},${gz}`;
   }
 
-  
   getVoxelKeyFromPosition(x, y, z) {
     const { gx, gy, gz } = this._getGridCoords(x, y, z);
     return this._getVoxelKey(gx, gy, gz);
   }
 
-  
   clear() {
     this.grid.clear();
   }
 
-  
   addItem(index, x, y, z) {
     const key = this.getVoxelKeyFromPosition(x, y, z);
     if (!this.grid.has(key)) {
@@ -41,7 +35,6 @@ export class SpatialGrid {
     this.grid.get(key).push(index);
   }
 
-  
   getItemsInRadius(x, y, z, radius) {
     const { gx, gy, gz } = this._getGridCoords(x, y, z);
     const voxelRadius = Math.ceil(radius / this.voxelSize);
@@ -62,11 +55,10 @@ export class SpatialGrid {
     return items;
   }
 
-  
   buildFromPelletData(pelletData) {
     this.clear();
     const { positions, active } = pelletData;
-    
+
     for (let i = 0; i < positions.length; i++) {
       if (!active[i]) continue;
       const pos = positions[i];
@@ -74,14 +66,12 @@ export class SpatialGrid {
     }
   }
 
-  
   updateItem(index, oldX, oldY, oldZ, newX, newY, newZ) {
     const oldKey = this.getVoxelKeyFromPosition(oldX, oldY, oldZ);
     const newKey = this.getVoxelKeyFromPosition(newX, newY, newZ);
 
-    if (oldKey === newKey) return; 
+    if (oldKey === newKey) return;
 
-    
     const oldVoxel = this.grid.get(oldKey);
     if (oldVoxel) {
       const idx = oldVoxel.indexOf(index);
@@ -93,7 +83,6 @@ export class SpatialGrid {
       }
     }
 
-    
     if (!this.grid.has(newKey)) {
       this.grid.set(newKey, []);
     }

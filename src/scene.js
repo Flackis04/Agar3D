@@ -1,33 +1,30 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 function lerp(startValue, endValue, t) {
-    return startValue + (endValue - startValue) * t;
+  return startValue + (endValue - startValue) * t;
 }
 
 export function smoothLerp(startValue, endValue, t) {
-    t = t * t * (3 - 2 * t);
-    return lerp(startValue, endValue, t);
+  t = t * t * (3 - 2 * t);
+  return lerp(startValue, endValue, t);
 }
 
 export function updateFogDensity(scene, mass) {
-    if (!scene.fog) return;
+  if (!scene.fog) return;
 
-    const baseDensity = 0.02;
-    const massFactor = 5; // higher = fog decreases faster
+  const baseDensity = 0.02;
+  const massFactor = 5; // higher = fog decreases faster
 
-    let targetDensity = baseDensity * (1 - mass / massFactor);
-    targetDensity = Math.max(targetDensity, 0);
+  let targetDensity = baseDensity * (1 - mass / massFactor);
+  targetDensity = Math.max(targetDensity, 0);
 
-    const currentDensity = scene.fog.density;
-    const lerpSpeed = 0.02;
-    scene.fog.density = smoothLerp(currentDensity, targetDensity, lerpSpeed);
-    console.log(scene.fog.density)
+  const currentDensity = scene.fog.density;
+  const lerpSpeed = 0.02;
+  scene.fog.density = smoothLerp(currentDensity, targetDensity, lerpSpeed);
+  console.log(scene.fog.density);
 
-    return scene.fog.density;
+  return scene.fog.density;
 }
-
-
-
 
 export function createScene() {
   const scene = new THREE.Scene();
@@ -41,7 +38,7 @@ export function createScene() {
   const far = 600;
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
 
-  const density = 0.04; 
+  const density = 0.04;
   scene.fog = new THREE.FogExp2(bgColor, density);
 
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);

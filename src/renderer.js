@@ -1,10 +1,10 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 export function createRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
     canvas,
-    powerPreference: 'high-performance'
+    powerPreference: "high-performance",
   });
 
   renderer.setSize(window.innerWidth, window.innerHeight);
