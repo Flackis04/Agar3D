@@ -21,7 +21,14 @@ function calculateDirectionVector(yaw, pitch, scale = 1) {
   );
 }
 
-
+function increasePlayerMass(cell, growthRate = 0.0015) {
+  if (!cell || !cell.scale) return;
+  const scaleMultiplier = 1 + growthRate;
+  cell.scale.multiplyScalar(scaleMultiplier);
+  if (cell.magnetSphere) {
+    cell.magnetSphere.scale.multiplyScalar(scaleMultiplier);
+  }
+}
 
 export function createCameraController(camera, playerCell) {
   let devMode = false;
@@ -76,10 +83,9 @@ export function createCameraController(camera, playerCell) {
     if (!playerCell || !playerCell.position) return;
 
     const playerRadius = calculateCellRadius(playerCell);
-    const baseMultiplier = magnetActive ? 12 : 8;
+    const baseMultiplier = magnetActive ? 12 : 10;
 
-    // Add offset that brings camera closer as player gets bigger
-    const sizeOffset = Math.sqrt(playerRadius) * 0.5; // Adjust multiplier to control how much closer
+    const sizeOffset = Math.sqrt(playerRadius) * 1.5; // Adjust multiplier to control how much closer
     const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, 3); // Min distance of 3
 
     const targetFollowDistance = playerRadius * adjustedMultiplier;
@@ -104,10 +110,7 @@ export function createCameraController(camera, playerCell) {
 
     camera.position.copy(playerCell.position.clone().add(offset));
 
-
-
     ensureCameraIsInBox(camera.position);
-
 
     camera.lookAt(playerCell.position);
   }

@@ -13,7 +13,7 @@ export function updateFogDensity(scene, mass) {
   if (!scene.fog) return;
 
   const baseDensity = 0.02;
-  const massFactor = 5; // higher = fog decreases faster
+  const massFactor = 50; // higher = fog decreases faster
 
   let targetDensity = baseDensity * (1 - mass / massFactor);
   targetDensity = Math.max(targetDensity, 0);
@@ -41,10 +41,19 @@ export function createScene() {
   const density = 0.04;
   scene.fog = new THREE.FogExp2(bgColor, density);
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-  directionalLight.position.set(100, 200, 100);
-  scene.add(ambientLight, directionalLight);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+  const hemiLight = new THREE.HemisphereLight(0x88c2ff, 0x080010, 0.6);
+
+  const keyLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  keyLight.position.set(120, 220, 160);
+
+  const fillLight = new THREE.DirectionalLight(0x88aaff, 0.4);
+  fillLight.position.set(-80, 150, -60);
+
+  const rimLight = new THREE.PointLight(0xff66aa, 0.25);
+  rimLight.position.set(0, 250, -150);
+
+  scene.add(ambientLight, hemiLight, keyLight, fillLight, rimLight);
 
   return { scene, camera };
 }

@@ -59,7 +59,7 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
       0xff69b4,
     ];
 
-    const PELLET_COUNT = 25000;
+    const PELLET_COUNT = 50000;
     const pelletData = createPelletsInstanced(
       scene,
       PELLET_COUNT,

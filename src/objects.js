@@ -3,12 +3,12 @@ import * as THREE from "three";
 import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { SpatialGrid } from "./utils/spatialGrid.js";
 
-export const mapSize = 250;
+export const mapSize = 500;
 export const pelletMinSize = 0.3;
 export const pelletMaxSize = 0.55;
 
 export function createPlayerCell(isBot, scene, camera) {
-  const playerStartingRadius = isBot ? Math.random() * 5 : 1;
+  const playerStartingRadius = isBot ? Math.random() * 5 : 0.5;
   const playerDefaultOpacity = 0.65;
   const playerCellColor = isBot ? 0xff3333 : 0x00aaff;
 
