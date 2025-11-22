@@ -2,7 +2,7 @@ body {
   margin: 0;
   overflow: hidden;
   background: black;
-  font-family: 'Arial', sans-serif;
+  font-family: "Arial", sans-serif;
 }
 canvas {
   display: block;
@@ -35,7 +35,7 @@ canvas {
 }
 
 #menuContainer h1 {
-  color: #66AAFF;
+  color: #66aaff;
   font-size: 72px;
   margin: 0 0 40px 0;
   text-shadow: 0 0 20px rgba(102, 170, 255, 0.5);
@@ -58,7 +58,7 @@ canvas {
 }
 
 #playerName:focus {
-  border-color: #66AAFF;
+  border-color: #66aaff;
   box-shadow: 0 0 15px rgba(102, 170, 255, 0.5);
 }
 
@@ -71,7 +71,7 @@ canvas {
   padding: 15px 40px;
   font-size: 24px;
   font-weight: bold;
-  border: 2px solid #66AAFF;
+  border: 2px solid #66aaff;
   border-radius: 10px;
   background: linear-gradient(135deg, #0066cc 0%, #0088ff 100%);
   color: white;
@@ -118,7 +118,7 @@ canvas {
 }
 
 #escMenuContainer h2 {
-  color: #66AAFF;
+  color: #66aaff;
   font-size: 48px;
   margin: 0;
   text-shadow: 0 0 20px rgba(102, 170, 255, 0.5);
@@ -165,7 +165,7 @@ canvas {
 
 #resumeButton {
   background: linear-gradient(135deg, #0066cc 0%, #0088ff 100%);
-  border-color: #66AAFF;
+  border-color: #66aaff;
 }
 
 #resumeButton:hover {
@@ -181,7 +181,7 @@ canvas {
   transform: translate(-50%, 0);
   font-size: 1.2rem;
   color: #fff;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.5);
   border-radius: 6px;
   padding: 6px 16px;
   box-shadow: none;

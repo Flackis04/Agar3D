@@ -1,105 +1,96 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Three.js Particles</title>
-  <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: black;
-    }
-    #info {
-      position: absolute;
-      top: 10px;
-      width: 100%;
-      text-align: center;
-      color: white;
-      font-family: sans-serif;
-    }
-  </style>
-</head>
-<body>
-  <!-- Home Screen -->
-  <div id="homeScreen">
-    <div id="menuContainer">
-      <h1>Agar3D</h1>
-      <input type="text" id="playerName" placeholder="Enter your name" maxlength="20" />
-      <button id="playButton">Play</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Three.js Particles</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <!-- Home Screen -->
+    <div id="homeScreen">
+      <div id="menuContainer">
+        <h1>Agar3D</h1>
+        <input
+          type="text"
+          id="playerName"
+          placeholder="Enter your name"
+          maxlength="20"
+        />
+        <button id="playButton">Play</button>
+      </div>
     </div>
-  </div>
 
-  <!-- ESC Menu -->
-  <div id="escMenu" style="display: none;">
-    <div id="escMenuContainer">
-      <h2>Paused</h2>
-      <button id="saveProgressButton">Save Progress</button>
-      <button id="resumeButton">Resume</button>
+    <!-- ESC Menu -->
+    <div id="escMenu" style="display: none">
+      <div id="escMenuContainer">
+        <h2>Paused</h2>
+        <button id="saveProgressButton">Save Progress</button>
+        <button id="resumeButton">Resume</button>
+      </div>
     </div>
-  </div>
 
-  <canvas id="c" style="display: none;"></canvas>
+    <canvas id="c" style="display: none"></canvas>
 
-  <!-- Vertex Shader -->
-  <script type="x-shader/x-vertex" id="vertexshader">
-    attribute float size;
-    attribute vec3 customColor;
-    varying vec3 vColor;
-    varying float vFogDepth;
-    void main() {
-      vColor = customColor;
-      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-      vFogDepth = -mvPosition.z;
-      gl_PointSize = size * (300.0 / -mvPosition.z);
-      gl_Position = projectionMatrix * mvPosition;
-    }
-  </script>
-
-  <!-- Fragment Shader -->
-  <script type="x-shader/x-fragment" id="fragmentshader">
-    uniform vec3 color;
-    uniform sampler2D pointTexture;
-    uniform float alphaTest;
-    uniform vec3 fogColor;
-    uniform float fogDensity;
-    varying vec3 vColor;
-    varying float vFogDepth;
-    void main() {
-      gl_FragColor = vec4(color * vColor, 1.0);
-      gl_FragColor *= texture2D(pointTexture, gl_PointCoord);
-      
-      float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
-      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
-      
-      if (gl_FragColor.a < alphaTest) discard;
-    }
-  </script>
-
-  <!-- Import Map for Three.js modules -->
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+    <!-- Vertex Shader -->
+    <script type="x-shader/x-vertex" id="vertexshader">
+      attribute float size;
+      attribute vec3 customColor;
+      varying vec3 vColor;
+      varying float vFogDepth;
+      void main() {
+        vColor = customColor;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vFogDepth = -mvPosition.z;
+        gl_PointSize = size * (300.0 / -mvPosition.z);
+        gl_Position = projectionMatrix * mvPosition;
       }
-    }
-  </script>
+    </script>
 
-  <!-- Stats Panel -->
-  <script type="module">
-    import Stats from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/libs/stats.module.js';
-    const stats = new Stats();
-    stats.showPanel(0); // 0 = fps
-    document.body.appendChild(stats.dom);
-    stats.dom.style.position = 'absolute';
-    stats.dom.style.bottom = '0px';
-    stats.dom.style.right = '0px';
-    stats.dom.style.pointerEvents = 'none';
-    window.stats = stats; // optional global reference
-  </script>
+    <!-- Fragment Shader -->
+    <script type="x-shader/x-fragment" id="fragmentshader">
+      uniform vec3 color;
+      uniform sampler2D pointTexture;
+      uniform float alphaTest;
+      uniform vec3 fogColor;
+      uniform float fogDensity;
+      varying vec3 vColor;
+      varying float vFogDepth;
+      void main() {
+        gl_FragColor = vec4(color * vColor, 1.0);
+        gl_FragColor *= texture2D(pointTexture, gl_PointCoord);
 
-  <!-- Main script -->
-  <script type="module" src="/src/main.js"></script>
-</body>
+        float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+
+        if (gl_FragColor.a < alphaTest) discard;
+      }
+    </script>
+
+    <!-- Import Map for Three.js modules -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <!-- Stats Panel -->
+    <script type="module">
+      import Stats from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/libs/stats.module.js";
+      const stats = new Stats();
+      stats.showPanel(0); // 0 = fps
+      document.body.appendChild(stats.dom);
+      stats.dom.style.position = "absolute";
+      stats.dom.style.bottom = "0px";
+      stats.dom.style.right = "0px";
+      stats.dom.style.pointerEvents = "none";
+      window.stats = stats; // optional global reference
+    </script>
+
+    <!-- Main script -->
+    <script type="module" src="/src/main.js"></script>
+  </body>
 </html>

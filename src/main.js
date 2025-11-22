@@ -10,6 +10,7 @@ import * as THREE from "three";
 import { calculateCellMass, convertMassToRadius } from "./utils/playerUtils.js";
 
 const canvas = document.querySelector("#c");
+
 const renderer = createRenderer(canvas);
 const { scene, camera } = createScene();
 const stats = new Stats();
@@ -122,6 +123,10 @@ playerNameInput.addEventListener("keypress", (e) => {
 playerNameInput.focus();
 
 const escMenu = document.getElementById("escMenu");
+
+
+
+
 const saveProgressButton = document.getElementById("saveProgressButton");
 const resumeButton = document.getElementById("resumeButton");
 let isInEscMenu = false;
@@ -147,7 +152,6 @@ function checkEnemyProximity() {
 
 function updateSaveButtonState() {
   const isSafe = checkEnemyProximity();
-  console.log(isSafe);
   if (isSafe) {
     saveProgressButton.classList.add("safe");
     saveProgressButton.style.color = "#00ff00";
