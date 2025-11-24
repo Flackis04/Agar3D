@@ -163,6 +163,17 @@ canvas {
   box-shadow: 0 0 30px rgba(0, 255, 0, 0.5);
 }
 
+#saveProgressButton {
+  background: linear-gradient(135deg, #aa0000 0%, #cc0000 100%);
+  border-color: #ff0000;
+  box-shadow: 0 0 20px rgba(255, 0, 0, 0.3);
+}
+
+#saveProgressButton:hover {
+  background: linear-gradient(135deg, #cc0000 0%, #ff0000 100%);
+  box-shadow: 0 0 30px rgba(255, 0, 0, 0.5);
+}
+
 #resumeButton {
   background: linear-gradient(135deg, #0066cc 0%, #0088ff 100%);
   border-color: #66aaff;
