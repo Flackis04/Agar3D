@@ -9,21 +9,53 @@ export function smoothLerp(startValue, endValue, t) {
   return lerp(startValue, endValue, t);
 }
 
-export function updateFogDensity(scene, mass) {
+let fogTransition = {
+  isAnimating: false,
+  startValue: 0,
+  targetValue: 0,
+  startTime: 0,
+  duration: 500, // 0.5 seconds
+};
+
+export function updateFogDistance(scene, cameraDistance, playerRadius) {
   if (!scene.fog) return;
 
-  const baseDensity = 0.02;
-  const massFactor = 5; // higher = fog decreases faster
+  const targetFogFar = cameraDistance * 2 + playerRadius * 2;
 
-  let targetDensity = baseDensity * (1 - mass / massFactor);
-  targetDensity = Math.max(targetDensity, 0);
+  // If we're currently animating, continue the animation
+  if (fogTransition.isAnimating) {
+    const elapsed = performance.now() - fogTransition.startTime;
+    const t = Math.min(elapsed / fogTransition.duration, 1);
 
-  const currentDensity = scene.fog.density;
-  const lerpSpeed = 0.02;
-  scene.fog.density = smoothLerp(currentDensity, targetDensity, lerpSpeed);
-  console.log(scene.fog.density);
+    scene.fog.far = lerp(
+      fogTransition.startValue,
+      fogTransition.targetValue,
+      t
+    );
 
-  return scene.fog.density;
+    // Animation complete
+    if (t >= 1) {
+      fogTransition.isAnimating = false;
+      scene.fog.far = fogTransition.targetValue;
+    }
+  } else {
+    // Not animating, just use the target value
+    scene.fog.far = targetFogFar;
+  }
+
+  return scene.fog.far;
+}
+
+export function triggerFogTransition(scene, cameraDistance, playerRadius) {
+  if (!scene.fog) return;
+
+  const newTargetFogFar = cameraDistance * 2 + playerRadius * 2;
+
+  // Start a new transition
+  fogTransition.startValue = scene.fog.far;
+  fogTransition.targetValue = newTargetFogFar;
+  fogTransition.startTime = performance.now();
+  fogTransition.isAnimating = true;
 }
 
 export function createScene() {
@@ -34,12 +66,13 @@ export function createScene() {
 
   const fov = 75;
   const aspect = window.innerWidth / window.innerHeight;
-  const near = 0.1;
+  const near = 0.2;
   const far = 600;
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
 
-  const density = 0.04;
-  scene.fog = new THREE.FogExp2(bgColor, density);
+  const fogNear = 0;
+  const fogFar = 100; // Initial value, will be updated dynamically
+  scene.fog = new THREE.Fog(bgColor, fogNear, fogFar);
 
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
   const directionalLight = new THREE.DirectionalLight(0xffffff, 1);

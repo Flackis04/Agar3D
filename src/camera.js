@@ -21,8 +21,6 @@ function calculateDirectionVector(yaw, pitch, scale = 1) {
   );
 }
 
-
-
 export function createCameraController(camera, playerCell) {
   let devMode = false;
   const devCameraPos = new THREE.Vector3();
@@ -76,7 +74,7 @@ export function createCameraController(camera, playerCell) {
     if (!playerCell || !playerCell.position) return;
 
     const playerRadius = calculateCellRadius(playerCell);
-    const baseMultiplier = magnetActive ? 12 : 8;
+    const baseMultiplier = magnetActive ? 24 : 16;
 
     // Add offset that brings camera closer as player gets bigger
     const sizeOffset = Math.sqrt(playerRadius) * 0.5; // Adjust multiplier to control how much closer
@@ -104,12 +102,11 @@ export function createCameraController(camera, playerCell) {
 
     camera.position.copy(playerCell.position.clone().add(offset));
 
-
-
     ensureCameraIsInBox(camera.position);
 
-
     camera.lookAt(playerCell.position);
+
+    //checkCellDistanceFromCamera()
   }
 
   function clampToBoxBounds(position, playerCell) {
@@ -145,7 +142,22 @@ export function createCameraController(camera, playerCell) {
     return devMode;
   }
 
-  return { updateCamera, toggleDeveloperMode, updateDevRotation, isDevMode };
+  function getCameraDistance() {
+    return smoothFollowDistance;
+  }
+
+  function getPlayerRadius() {
+    return playerCell ? calculateCellRadius(playerCell) : 1;
+  }
+
+  return {
+    updateCamera,
+    toggleDeveloperMode,
+    updateDevRotation,
+    isDevMode,
+    getCameraDistance,
+    getPlayerRadius,
+  };
 }
 
 export function handleDevModeObjectVisibility(

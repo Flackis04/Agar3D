@@ -16,7 +16,7 @@ import {
   emitPelletEaten,
   emitPelletRespawn,
 } from "./multiplayer.js";
-import { updateFogDensity } from "./scene.js";
+import { updateFogDistance } from "./scene.js";
 import { calculateCellMass } from "./utils/playerUtils.js";
 
 export function initializeGame(scene, camera, onReady, playerName = "Player") {
@@ -28,12 +28,18 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
     camera
   );
 
-  const initialMass = calculateCellMass(playerCell, pelletMinSize);
-  updateFogDensity(scene, initialMass);
+  const playerRadius =
+    playerCell.geometry.parameters.radius *
+    Math.max(playerCell.scale.x, playerCell.scale.y, playerCell.scale.z);
+  const baseMultiplier = 16; // Matches camera.js default (non-magnet)
+  const sizeOffset = Math.sqrt(playerRadius) * 0.5;
+  const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, 3);
+  const initialCameraDistance = playerRadius * adjustedMultiplier;
+  updateFogDistance(scene, initialCameraDistance, playerRadius);
 
   const botCount = 25;
   const botCells = [];
-  const magnetRange = 4;
+  const magnetRange = 3;
 
   for (let index = 0; index < botCount; index++) {
     const cell = createBot(scene, camera);

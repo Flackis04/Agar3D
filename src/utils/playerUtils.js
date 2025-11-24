@@ -4,6 +4,13 @@ import { smoothLerp } from "../scene.js";
 import { SpatialGrid } from "./spatialGrid.js";
 import { emitPelletEaten, emitPelletRespawn } from "../multiplayer.js";
 
+export function checkCellDistanceFromCamera(activeCell, cameraDistance){
+  if (activeCell.position.distanceTo(camera.position) > cameraDistance){
+    hideInstanceAt(activeCell.mesh, index, activeCell)
+  }
+}
+
+
 export function calculateDistanceBetweenCells(sourceCell, targetCell) {
   const distance = sourceCell.position.distanceTo(targetCell.position);
   return distance;
@@ -525,7 +532,7 @@ export function updatePlayerGrowth(
   onCellEaten,
   onEatSound,
   deltaTime = 1 / 60,
-  onPelletEaten = null
+  onPelletEaten = false
 ) {
   if (!pelletData) return;
 

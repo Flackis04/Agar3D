@@ -1,4 +1,4 @@
-import { updateFogDensity } from "./scene.js";
+import { updateFogDistance, triggerFogTransition } from "./scene.js";
 import { handleDevModeObjectVisibility } from "./camera.js";
 import { updateBot, respawnCell, pelletMinSize } from "./objects.js";
 import {
@@ -42,9 +42,10 @@ export function createAnimationLoop(
       setTimeout(() => respawnCell(eatenCell, scene), 2000);
     };
     const onPelletEaten = () =>
-      updateFogDensity(
+      triggerFogTransition(
         scene,
-        calculateCellMass(gameState.playerCell, pelletMinSize)
+        cameraController.getCameraDistance(),
+        cameraController.getPlayerRadius()
       );
 
     const allCells = [
@@ -63,7 +64,7 @@ export function createAnimationLoop(
       handleCellEaten,
       audioManager.playEatSoundSegment.bind(audioManager),
       deltaTime,
-      onPelletEaten
+      onPelletEaten //
     );
     for (const botCell of gameState.botCells) {
       if (botCell.userData.isEaten) continue;
@@ -120,6 +121,14 @@ export function createAnimationLoop(
       gameState.playerDefaultOpacity,
       deltaTime
     );
+
+    // Update fog distance every frame (handles animation)
+    updateFogDistance(
+      scene,
+      cameraController.getCameraDistance(),
+      cameraController.getPlayerRadius()
+    );
+
     emitPlayerMove(gameState.playerCell);
     stats.begin();
     renderer.render(scene, camera);
