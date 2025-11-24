@@ -124,9 +124,6 @@ playerNameInput.focus();
 
 const escMenu = document.getElementById("escMenu");
 
-
-
-
 const saveProgressButton = document.getElementById("saveProgressButton");
 const resumeButton = document.getElementById("resumeButton");
 let isInEscMenu = false;
@@ -154,10 +151,8 @@ function updateSaveButtonState() {
   const isSafe = checkEnemyProximity();
   if (isSafe) {
     saveProgressButton.classList.add("safe");
-    saveProgressButton.style.color = "#00ff00";
   } else {
     saveProgressButton.classList.remove("safe");
-    saveProgressButton.style.color = "#ff0000";
   }
 }
 
