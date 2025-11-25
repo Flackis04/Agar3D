@@ -4,12 +4,11 @@ import { smoothLerp } from "../scene.js";
 import { SpatialGrid } from "./spatialGrid.js";
 import { emitPelletEaten, emitPelletRespawn } from "../multiplayer.js";
 
-export function checkCellDistanceFromCamera(activeCell, cameraDistance){
-  if (activeCell.position.distanceTo(camera.position) > cameraDistance){
-    hideInstanceAt(activeCell.mesh, index, activeCell)
+export function checkCellDistanceFromCamera(activeCell, cameraDistance) {
+  if (activeCell.position.distanceTo(camera.position) > cameraDistance) {
+    hideInstanceAt(activeCell.mesh, index, activeCell);
   }
 }
-
 
 export function calculateDistanceBetweenCells(sourceCell, targetCell) {
   const distance = sourceCell.position.distanceTo(targetCell.position);
@@ -328,7 +327,8 @@ export function updatePelletMagnet(
   magnetSphere,
   isWithinViewDistance = true,
   attractionSpeed = 0.3,
-  onEatSound = undefined
+  onEatSound = undefined,
+  playerPosition = null
 ) {
   const playerCellRadius = computeCellRadius(playerCell);
   const magnetSphereRadius = playerCellRadius * 4;
@@ -402,13 +402,16 @@ export function updatePelletMagnet(
     if (!magnetSphere) return;
 
     let soundCallback = undefined;
-    if (isBot && onEatSound && isWithinViewDistance) {
+    if (isBot && onEatSound && isWithinViewDistance && playerPosition) {
       soundCallback = () => {
-        const distanceToPlayer = playerCell.position.distanceTo(
-          playerCell.position
-        );
-        const viewDistance = 100;
-        const volume = Math.max(0, 1 - distanceToPlayer / viewDistance);
+        // Recalculate distance and fog far each time sound is played
+        const fogFar = getFogFarDistance(scene);
+        const distanceToPlayer = playerCell.position.distanceTo(playerPosition);
+
+        // Don't play sound if outside fog far distance
+        if (distanceToPlayer > fogFar) return;
+
+        const volume = Math.max(0, 1 - distanceToPlayer / fogFar);
         onEatSound(volume);
       };
     }
@@ -521,6 +524,57 @@ export function checkCellEatCondition(
   return false;
 }
 
+function getFogFarDistance(scene) {
+  if (!scene.fog) {
+    console.warn("No fog found, returning default 100");
+    return 100;
+  }
+  const fogFar = scene.fog.far;
+  console.log("Fog far distance:", fogFar);
+  return fogFar;
+}
+
+function isWithinViewRange(playerCell, playerPosition, fogFar) {
+  if (!playerPosition) return true;
+  const distanceToPlayer = playerCell.position.distanceTo(playerPosition);
+  return distanceToPlayer <= fogFar;
+}
+
+function createSoundCallback(
+  isBot,
+  onEatSound,
+  playerCell,
+  playerPosition,
+  scene
+) {
+  if (!onEatSound) return undefined;
+
+  if (!isBot) {
+    return (pitch = 1.0) => onEatSound(1.0, pitch);
+  }
+
+  if (!playerPosition) return undefined;
+
+  return (pitch = 1.0) => {
+    // Recalculate distance and fog far each time sound is played
+    const fogFar = getFogFarDistance(scene);
+    const distanceToPlayer = playerCell.position.distanceTo(playerPosition);
+
+    // Don't play sound if outside fog far distance
+    if (distanceToPlayer > fogFar) return;
+
+    const volume = Math.max(0, 1 - distanceToPlayer / fogFar);
+    onEatSound(volume, pitch);
+  };
+}
+
+function mergeMagnetEatenSizes(eatenSizes, magnetResult) {
+  if (!magnetResult || magnetResult.eatenCount === 0) {
+    return eatenSizes;
+  }
+  return eatenSizes.concat(magnetResult.eatenSizes);
+}
+
 export function updatePlayerGrowth(
   isBot,
   playerCell,
@@ -536,17 +590,16 @@ export function updatePlayerGrowth(
 ) {
   if (!pelletData) return;
 
-  const playerSize =
-    playerCell.geometry?.parameters?.radius * (playerCell.scale?.x || 1) || 1;
-  const fogDensity = scene.fog?.density || 0.04 / playerSize;
-  const viewDistance = 3 / fogDensity;
+  const fogFar = getFogFarDistance(scene);
+  const isWithinView = isBot
+    ? isWithinViewRange(playerCell, playerPosition, fogFar)
+    : true;
 
-  let isWithinViewDistance = true;
-  let distanceToPlayer = Infinity;
-  if (isBot && playerPosition) {
-    distanceToPlayer = playerCell.position.distanceTo(playerPosition);
-    isWithinViewDistance = distanceToPlayer <= viewDistance;
-  }
+  const { eatenCount, eatenSizes } = checkEatCondition(
+    playerCell,
+    pelletData,
+    createSoundCallback(isBot, onEatSound, playerCell, playerPosition, scene)
+  );
 
   const magnetResult = updatePelletMagnet(
     isBot,
@@ -555,33 +608,13 @@ export function updatePlayerGrowth(
     playerCell.pelletMagnetToggle,
     scene,
     magnetSphere,
-    isWithinViewDistance,
+    isWithinView,
     0.3,
-    onEatSound
+    onEatSound,
+    playerPosition
   );
 
-  let soundCallback = undefined;
-  if (!isBot && onEatSound) {
-    soundCallback = (pitch = 1.0) => {
-      onEatSound(1.0, pitch);
-    };
-  } else if (isBot && onEatSound && isWithinViewDistance) {
-    soundCallback = (pitch = 1.0) => {
-      const volume = Math.max(0, 1 - distanceToPlayer / viewDistance);
-      onEatSound(volume, pitch);
-    };
-  }
-  const { eatenCount, eatenSizes } = checkEatCondition(
-    playerCell,
-    pelletData,
-    soundCallback
-  );
-
-  let totalEatenSizes = [...eatenSizes];
-
-  if (magnetResult && magnetResult.eatenCount > 0) {
-    totalEatenSizes = totalEatenSizes.concat(magnetResult.eatenSizes);
-  }
+  const totalEatenSizes = mergeMagnetEatenSizes(eatenSizes, magnetResult);
 
   applyGrowthFromPellets(
     playerCell,
@@ -596,27 +629,6 @@ export function updatePlayerGrowth(
     (eatenCount > 0 || (magnetResult && magnetResult.eatenCount > 0))
   ) {
     onPelletEaten();
-  }
-
-  if (allCells && allCells.length > 0) {
-    let cellSoundCallback = undefined;
-    if (isBot && onEatSound && isWithinViewDistance) {
-      cellSoundCallback = (pitch = 1.0) => {
-        const volume = Math.max(0, 1 - distanceToPlayer / viewDistance);
-        onEatSound(volume, pitch);
-      };
-    } else if (!isBot && onEatSound) {
-      cellSoundCallback = (pitch = 1.0) => {
-        onEatSound(1.0, pitch);
-      };
-    }
-    checkCellEatCondition(
-      playerCell,
-      allCells,
-      scene,
-      onCellEaten,
-      cellSoundCallback
-    );
   }
 }
 
@@ -769,7 +781,6 @@ export function executeSplit(
 
     originalCell.scale.setScalar(newScale);
 
-  
     const splitCell = createSplitSphere(originalCell);
     splitCell.position.copy(originalCell.position);
 
