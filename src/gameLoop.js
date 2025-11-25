@@ -47,12 +47,14 @@ export function createAnimationLoop(
         cameraController.getCameraDistance(),
         cameraController.getPlayerRadius()
       );
-    
+
     const allCells = [
       gameState.playerCell,
       ...gameState.botCells,
       ...gameState.cells,
     ].filter((c) => !c.userData.isEaten);
+
+    // Process player cell
     updatePlayerGrowth(
       false,
       gameState.playerCell,
@@ -64,8 +66,10 @@ export function createAnimationLoop(
       handleCellEaten,
       audioManager.playEatSoundSegment.bind(audioManager),
       deltaTime,
-      onPelletEaten //
+      onPelletEaten
     );
+
+    // Process bot cells
     for (const botCell of gameState.botCells) {
       if (botCell.userData.isEaten) continue;
       updateBot(botCell, gameState.pelletData, deltaTime);
@@ -83,7 +87,9 @@ export function createAnimationLoop(
       );
     }
 
-    allCells.forEach((cell) => {
+    // Process split cells (from player splits)
+    gameState.cells.forEach((cell) => {
+      if (cell.userData.isEaten) return;
       updatePlayerGrowth(
         false,
         cell,

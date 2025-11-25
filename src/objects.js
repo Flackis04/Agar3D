@@ -437,5 +437,4 @@ export function updateBot(botCell, pelletData, deltaTime = 1 / 60) {
     const speed = 0.08 * (deltaTime * 60);
     botCell.position.addScaledVector(direction, speed);
   }
-  checkEatCondition(botCell, pelletData);
 }

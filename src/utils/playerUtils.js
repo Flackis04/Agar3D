@@ -207,9 +207,8 @@ export function checkEatCondition(cell, pelletData, onEatCallback) {
   if (eatenCount > 0) {
     if (mesh) mesh.instanceMatrix.needsUpdate = true;
     if (meshPowerup) meshPowerup.instanceMatrix.needsUpdate = true;
-    if (onEatCallback && eatenCount > 0) {
+    if (onEatCallback) {
       const avgSize = eatenSizes.reduce((a, b) => a + b, 0) / eatenSizes.length;
-
       const pitch = 1.5 - avgSize * 1.0;
       onEatCallback(pitch);
     }
@@ -414,7 +413,7 @@ export function updatePelletMagnet(
     return checkEatCondition(
       magnetCellProxy,
       pelletData,
-      createSoundCallback(isBot, onEatSound, playerCell)
+      createSoundCallback(isBot, onEatSound, playerCell, playerPosition, scene)
     );
   }
 }
@@ -535,13 +534,17 @@ export function createSoundCallback(
   playerPosition,
   scene
 ) {
-  if (!onEatSound) return undefined;
+  if (!onEatSound) {
+    return undefined;
+  }
 
   if (!isBot) {
     return (pitch = 1.0) => onEatSound(1.0, pitch);
   }
 
-  if (!playerPosition) return undefined;
+  if (!playerPosition) {
+    return undefined;
+  }
 
   return (pitch = 1.0) => {
     // Recalculate distance and fog far each time sound is played
@@ -549,9 +552,18 @@ export function createSoundCallback(
     const distanceToPlayer = playerCell.position.distanceTo(playerPosition);
 
     // Don't play sound if outside fog far distance
-    if (distanceToPlayer > fogFar) return;
+    if (distanceToPlayer > fogFar) {
+      return;
+    }
 
     const volume = Math.max(0, 1 - distanceToPlayer / fogFar);
+    console.log(
+      `[Bot Sound] Distance: ${distanceToPlayer.toFixed(
+        2
+      )}, FogFar: ${fogFar.toFixed(2)}, Volume: ${volume.toFixed(
+        3
+      )}, Pitch: ${pitch.toFixed(2)}`
+    );
     onEatSound(volume, pitch);
   };
 }
