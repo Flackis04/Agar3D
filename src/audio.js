@@ -43,6 +43,7 @@ export class AudioManager {
   }
 
   playEatSoundSegment(volume = 1.0, pitch = 1.0) {
+    console.log(volume)
     if (!this.audioBuffer) {
       console.log("DEBUG: Audio buffer not ready yet");
       return;

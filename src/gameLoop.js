@@ -7,6 +7,7 @@ import {
   updatePlayerGrowth,
   executeSplit,
   calculateCellMass,
+  createSoundCallback,
 } from "./utils/playerUtils.js";
 import { emitPlayerMove } from "./multiplayer.js";
 import { AudioManager } from "./audio.js";
@@ -38,7 +39,6 @@ export function createAnimationLoop(
       gameState.border
     );
     const handleCellEaten = (eatenCell) => {
-      audioManager.playEatSoundSegment();
       setTimeout(() => respawnCell(eatenCell, scene), 2000);
     };
     const onPelletEaten = () =>
@@ -47,7 +47,7 @@ export function createAnimationLoop(
         cameraController.getCameraDistance(),
         cameraController.getPlayerRadius()
       );
-
+    
     const allCells = [
       gameState.playerCell,
       ...gameState.botCells,

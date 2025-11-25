@@ -35,7 +35,6 @@ function volumeFromRadius(r) {
   return (4 / 3) * Math.PI * Math.pow(r, 3);
 }
 
-// Converts mass (in pellet units) to radius using sphere volume formula
 export function convertMassToRadius(mass, pelletMinSizeValue = 1) {
   const pelletVolume = volumeFromRadius(pelletMinSizeValue);
   const cellVolume = mass * pelletVolume;
@@ -401,21 +400,6 @@ export function updatePelletMagnet(
   } else {
     if (!magnetSphere) return;
 
-    let soundCallback = undefined;
-    if (isBot && onEatSound && isWithinViewDistance && playerPosition) {
-      soundCallback = () => {
-        // Recalculate distance and fog far each time sound is played
-        const fogFar = getFogFarDistance(scene);
-        const distanceToPlayer = playerCell.position.distanceTo(playerPosition);
-
-        // Don't play sound if outside fog far distance
-        if (distanceToPlayer > fogFar) return;
-
-        const volume = Math.max(0, 1 - distanceToPlayer / fogFar);
-        onEatSound(volume);
-      };
-    }
-
     const magnetCellProxy = {
       position: playerCell.position,
       geometry: {
@@ -427,7 +411,11 @@ export function updatePelletMagnet(
       pelletMagnetToggle: playerCell.pelletMagnetToggle,
     };
 
-    return checkEatCondition(magnetCellProxy, pelletData, soundCallback);
+    return checkEatCondition(
+      magnetCellProxy,
+      pelletData,
+      createSoundCallback(isBot, onEatSound, playerCell)
+    );
   }
 }
 
@@ -530,7 +518,7 @@ function getFogFarDistance(scene) {
     return 100;
   }
   const fogFar = scene.fog.far;
-  console.log("Fog far distance:", fogFar);
+  //console.log("Fog far distance:", fogFar);
   return fogFar;
 }
 
@@ -540,7 +528,7 @@ function isWithinViewRange(playerCell, playerPosition, fogFar) {
   return distanceToPlayer <= fogFar;
 }
 
-function createSoundCallback(
+export function createSoundCallback(
   isBot,
   onEatSound,
   playerCell,
