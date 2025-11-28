@@ -65,6 +65,8 @@
         float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
         gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
 
+        // Discard particles beyond fog distance to prevent black dots
+        if (vFogDepth > fogFar) discard;
         if (gl_FragColor.a < alphaTest) discard;
       }
     </script>

@@ -17,6 +17,20 @@ let fogTransition = {
   duration: 500, // 0.5 seconds
 };
 
+function updateBorderFog(scene) {
+  // Find the border (Points mesh) and update its fog uniforms
+  scene.traverse((object) => {
+    if (
+      object.isPoints &&
+      object.material.uniforms &&
+      object.material.uniforms.fogNear
+    ) {
+      object.material.uniforms.fogNear.value = scene.fog.near;
+      object.material.uniforms.fogFar.value = scene.fog.far;
+    }
+  });
+}
+
 export function updateFogDistance(scene, cameraDistance, playerRadius) {
   if (!scene.fog) return;
 
@@ -43,9 +57,11 @@ export function updateFogDistance(scene, cameraDistance, playerRadius) {
     scene.fog.far = targetFogFar;
   }
 
+  // Update border material fog uniforms to match scene fog
+  updateBorderFog(scene);
+
   return scene.fog.far;
 }
-
 
 export function createScene() {
   const scene = new THREE.Scene();
