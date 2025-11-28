@@ -27,16 +27,21 @@ const massCounter = document.createElement("div");
 massCounter.id = "mass-counter";
 massCounter.style.position = "fixed";
 massCounter.style.left = "50%";
-massCounter.style.bottom = "5%";
+massCounter.style.bottom = "8%";
 massCounter.style.transform = "translateX(-50%)";
-massCounter.style.fontSize = "2rem";
-massCounter.style.color = "#fff";
+massCounter.style.fontSize = "2.5rem";
+massCounter.style.color = "#00e676"; // bright green
 massCounter.style.textShadow = "0 2px 8px #000";
 massCounter.style.pointerEvents = "none";
 massCounter.style.zIndex = "1000";
 massCounter.style.textAlign = "center";
 massCounter.style.display = "none";
-massCounter.innerText = "";
+
+// Label and value split for animation
+const massValue = document.createElement("span");
+massValue.style.display = "inline-block";
+massValue.style.transition = "transform 0.15s cubic-bezier(.4,1.4,.6,1)";
+massCounter.appendChild(massValue);
 document.body.appendChild(massCounter);
 
 function startGame() {
@@ -83,14 +88,21 @@ function startGame() {
           gameState.playerCell.userData.isEaten
         ) {
           massCounter.style.display = "none";
-          massCounter.innerText = "";
+          massValue.textContent = "";
         } else {
           massCounter.style.display = "block";
           const r =
             gameState.playerCell.geometry.parameters.radius *
             gameState.playerCell.scale.x;
-          const mass = calculateCellMass(playerCell, pelletMinSize);
-          massCounter.innerText = `Mass: ${Math.floor(mass)}`;
+          const mass = Math.floor(calculateCellMass(playerCell, pelletMinSize));
+          if (massValue.textContent !== `${mass}`) {
+            massValue.textContent = `${mass}`;
+            // Animate only the number
+            massValue.style.transform = "scale(1.18)";
+            setTimeout(() => {
+              massValue.style.transform = "scale(1)";
+            }, 150);
+          }
         }
         requestAnimationFrame(updateMassCounter);
       }
