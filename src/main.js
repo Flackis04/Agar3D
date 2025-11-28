@@ -35,6 +35,7 @@ massCounter.style.textShadow = "0 2px 8px #000";
 massCounter.style.pointerEvents = "none";
 massCounter.style.zIndex = "1000";
 massCounter.style.textAlign = "center";
+massCounter.style.display = "none";
 massCounter.innerText = "";
 document.body.appendChild(massCounter);
 
@@ -76,17 +77,20 @@ function startGame() {
 
       function updateMassCounter() {
         if (
-          gameState.playerCell &&
-          gameState.playerCell.geometry &&
-          !gameState.playerCell.userData.isEaten
+          homeScreen.style.display !== "none" ||
+          !gameState.playerCell ||
+          !gameState.playerCell.geometry ||
+          gameState.playerCell.userData.isEaten
         ) {
+          massCounter.style.display = "none";
+          massCounter.innerText = "";
+        } else {
+          massCounter.style.display = "block";
           const r =
             gameState.playerCell.geometry.parameters.radius *
             gameState.playerCell.scale.x;
           const mass = calculateCellMass(playerCell, pelletMinSize);
           massCounter.innerText = `Mass: ${Math.floor(mass)}`;
-        } else {
-          massCounter.innerText = "";
         }
         requestAnimationFrame(updateMassCounter);
       }
