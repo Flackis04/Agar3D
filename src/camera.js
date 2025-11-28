@@ -21,14 +21,34 @@ function calculateDirectionVector(yaw, pitch, scale = 1) {
   );
 }
 
-export function createCameraController(camera, playerCell) {
+function calculateCameraDistanceFromPlayer(
+  playerCell,
+  magnetActive,
+  smoothFollowDistance,
+  cameraLerpSpeed = 0.005
+) {
+  const playerRadius = calculateCellRadius(playerCell);
+  const baseMultiplier = magnetActive ? 16 : 12;
+
+  // Add offset that brings camera closer as player gets bigger
+
+  const sizeOffset = Math.sqrt(playerRadius) * 3; // Adjust multiplier to control how much closer
+  const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, 3); // Min distance of 3
+
+  const targetFollowDistance = playerRadius * adjustedMultiplier;
+
+  smoothFollowDistance +=
+    (targetFollowDistance - smoothFollowDistance) * cameraLerpSpeed;
+  return smoothFollowDistance;
+}
+
+export function createCameraController(camera, playerCell, cameraLerpSpeed) {
   let devMode = false;
   const devCameraPos = new THREE.Vector3();
   const devRotation = { yaw: 0, pitch: 0 };
   const devSpeed = 1;
-
+  const followLerpSpeed = cameraLerpSpeed ?? 0.005;
   let smoothFollowDistance = 8;
-  const cameraLerpSpeed = 0.005;
 
   function ensureCameraIsInBox(pos) {
     pos.x = Math.max(-mapSize / 2, Math.min(mapSize / 2, pos.x));
@@ -73,17 +93,12 @@ export function createCameraController(camera, playerCell) {
   ) {
     if (!playerCell || !playerCell.position) return;
 
-    const playerRadius = calculateCellRadius(playerCell);
-    const baseMultiplier = magnetActive ? 16 : 12;
-
-    // Add offset that brings camera closer as player gets bigger
-    const sizeOffset = Math.sqrt(playerRadius) * 0.5; // Adjust multiplier to control how much closer
-    const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, 3); // Min distance of 3
-
-    const targetFollowDistance = playerRadius * adjustedMultiplier;
-
-    smoothFollowDistance +=
-      (targetFollowDistance - smoothFollowDistance) * cameraLerpSpeed;
+    smoothFollowDistance = calculateCameraDistanceFromPlayer(
+      playerCell,
+      magnetActive,
+      smoothFollowDistance,
+      followLerpSpeed
+    );
 
     const offset = calculateDirectionVector(
       playerRotation.yaw,

@@ -1,4 +1,4 @@
-import { updateFogDistance, triggerFogTransition } from "./scene.js";
+import { updateFogDistance } from "./scene.js";
 import { handleDevModeObjectVisibility } from "./camera.js";
 import { updateBot, respawnCell, pelletMinSize } from "./objects.js";
 import {
@@ -8,6 +8,7 @@ import {
   executeSplit,
   calculateCellMass,
   createSoundCallback,
+  checkCellEatCondition,
 } from "./utils/playerUtils.js";
 import { emitPlayerMove } from "./multiplayer.js";
 import { AudioManager } from "./audio.js";
@@ -41,12 +42,6 @@ export function createAnimationLoop(
     const handleCellEaten = (eatenCell) => {
       setTimeout(() => respawnCell(eatenCell, scene), 2000);
     };
-    const onPelletEaten = () =>
-      triggerFogTransition(
-        scene,
-        cameraController.getCameraDistance(),
-        cameraController.getPlayerRadius()
-      );
 
     const allCells = [
       gameState.playerCell,
@@ -65,8 +60,16 @@ export function createAnimationLoop(
       allCells,
       handleCellEaten,
       audioManager.playEatSoundSegment.bind(audioManager),
-      deltaTime,
-      onPelletEaten
+      deltaTime
+    );
+
+    // Check if player can eat other cells
+    checkCellEatCondition(
+      gameState.playerCell,
+      allCells,
+      scene,
+      handleCellEaten,
+      audioManager.playEatSoundSegment.bind(audioManager)
     );
 
     // Process bot cells
@@ -85,6 +88,15 @@ export function createAnimationLoop(
         audioManager.playEatSoundSegment.bind(audioManager),
         deltaTime
       );
+
+      // Check if bot can eat other cells
+      checkCellEatCondition(
+        botCell,
+        allCells,
+        scene,
+        handleCellEaten,
+        audioManager.playEatSoundSegment.bind(audioManager)
+      );
     }
 
     // Process split cells (from player splits)
@@ -101,6 +113,15 @@ export function createAnimationLoop(
         handleCellEaten,
         audioManager.playEatSoundSegment.bind(audioManager),
         deltaTime
+      );
+
+      // Check if split cell can eat other cells
+      checkCellEatCondition(
+        cell,
+        allCells,
+        scene,
+        handleCellEaten,
+        audioManager.playEatSoundSegment.bind(audioManager)
       );
     });
 

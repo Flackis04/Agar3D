@@ -8,7 +8,7 @@ export const pelletMinSize = 0.3;
 export const pelletMaxSize = 0.55;
 
 export function createPlayerCell(isBot, scene, camera) {
-  const playerStartingRadius = isBot ? Math.random() * 5 : 0.75;
+  const playerStartingRadius = isBot ? Math.random() * 5 : 5;
   const playerDefaultOpacity = 0.65;
   const playerCellColor = isBot ? 0xff3333 : 0x00aaff;
 

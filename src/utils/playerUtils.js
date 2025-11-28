@@ -557,13 +557,6 @@ export function createSoundCallback(
     }
 
     const volume = Math.max(0, 1 - distanceToPlayer / fogFar);
-    console.log(
-      `[Bot Sound] Distance: ${distanceToPlayer.toFixed(
-        2
-      )}, FogFar: ${fogFar.toFixed(2)}, Volume: ${volume.toFixed(
-        3
-      )}, Pitch: ${pitch.toFixed(2)}`
-    );
     onEatSound(volume, pitch);
   };
 }
@@ -586,7 +579,6 @@ export function updatePlayerGrowth(
   onCellEaten,
   onEatSound,
   deltaTime = 1 / 60,
-  onPelletEaten = false
 ) {
   if (!pelletData) return;
 
@@ -622,14 +614,6 @@ export function updatePlayerGrowth(
     pelletData.radius,
     deltaTime
   );
-
-  if (
-    !isBot &&
-    onPelletEaten &&
-    (eatenCount > 0 || (magnetResult && magnetResult.eatenCount > 0))
-  ) {
-    onPelletEaten();
-  }
 }
 
 function cameraFollowOtherCell(camera, otherCell, cellRotation) {
