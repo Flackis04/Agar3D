@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Three.js Particles</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <!-- Home Screen -->
@@ -53,14 +53,16 @@
       uniform sampler2D pointTexture;
       uniform float alphaTest;
       uniform vec3 fogColor;
-      uniform float fogDensity;
+      uniform float fogNear;
+      uniform float fogFar;
       varying vec3 vColor;
       varying float vFogDepth;
       void main() {
         gl_FragColor = vec4(color * vColor, 1.0);
         gl_FragColor *= texture2D(pointTexture, gl_PointCoord);
 
-        float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+        // Linear fog (same as THREE.Fog)
+        float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
         gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
 
         if (gl_FragColor.a < alphaTest) discard;

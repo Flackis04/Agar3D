@@ -115,7 +115,8 @@ export function createMapBox(onReady) {
           pointTexture: { value: texture },
           alphaTest: { value: 0.9 }, // fully opaque
           fogColor: { value: new THREE.Color(0x080020) },
-          fogDensity: { value: 0.025 },
+          fogNear: { value: 0 },
+          fogFar: { value: 100 },
         },
         vertexShader: document.getElementById("vertexshader").textContent,
         fragmentShader: document.getElementById("fragmentshader").textContent,

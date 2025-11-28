@@ -74,7 +74,7 @@ export function createCameraController(camera, playerCell) {
     if (!playerCell || !playerCell.position) return;
 
     const playerRadius = calculateCellRadius(playerCell);
-    const baseMultiplier = magnetActive ? 24 : 16;
+    const baseMultiplier = magnetActive ? 16 : 12;
 
     // Add offset that brings camera closer as player gets bigger
     const sizeOffset = Math.sqrt(playerRadius) * 0.5; // Adjust multiplier to control how much closer
