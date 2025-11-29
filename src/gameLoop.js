@@ -23,6 +23,8 @@ export function createAnimationLoop(
 ) {
   let lastSplitTime = gameState.lastSplitTime;
   let lastFrameTime = performance.now();
+  let lastNetworkUpdate = 0;
+  const networkUpdateInterval = 50; // Send position updates every 50ms (20 times per second)
   const audioManager = new AudioManager();
 
   function animate() {
@@ -132,7 +134,12 @@ export function createAnimationLoop(
       deltaTime
     );
 
-    emitPlayerMove(gameState.playerCell);
+    // Throttle network updates to reduce bandwidth
+    if (now - lastNetworkUpdate > networkUpdateInterval) {
+      emitPlayerMove(gameState.playerCell);
+      lastNetworkUpdate = now;
+    }
+
     stats.begin();
     renderer.render(scene, camera);
     stats.end();

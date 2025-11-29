@@ -37,16 +37,17 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
   const initialCameraDistance = playerRadius * adjustedMultiplier;
   updateFogDistance(scene, initialCameraDistance, playerRadius);
 
-  const botCount = 25;
+  // Bots disabled for multiplayer - only players will be visible
+  const botCount = 0;
   const botCells = [];
   const magnetRange = 3;
 
-  for (let index = 0; index < botCount; index++) {
-    const cell = createBot(scene, camera);
-    const botMagnetSphere = createMagnetSphere(cell, magnetRange);
-    scene.add(botMagnetSphere);
-    botCells.push(cell);
-  }
+  // for (let index = 0; index < botCount; index++) {
+  //   const cell = createBot(scene, camera);
+  //   const botMagnetSphere = createMagnetSphere(cell, magnetRange);
+  //   scene.add(botMagnetSphere);
+  //   botCells.push(cell);
+  // }
 
   const magnetSphere = createMagnetSphere(playerCell, magnetRange);
   scene.add(magnetSphere);

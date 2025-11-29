@@ -8,6 +8,7 @@ import { createPelletsInstanced, pelletMinSize } from "./objects.js";
 import Stats from "three/addons/libs/stats.module.js";
 import * as THREE from "three";
 import { calculateCellMass, convertMassToRadius } from "./utils/playerUtils.js";
+import { otherPlayers } from "./multiplayer.js";
 
 const canvas = document.querySelector("#c");
 
@@ -163,6 +164,24 @@ function startGame() {
               });
             }
           });
+
+          // Add other networked players
+          for (const id in otherPlayers) {
+            const otherPlayer = otherPlayers[id];
+            if (otherPlayer.mesh && !otherPlayer.mesh.userData?.isEaten) {
+              const otherPlayerRadius =
+                otherPlayer.mesh.geometry.parameters.radius *
+                otherPlayer.mesh.scale.x;
+              const otherPlayerMass = Math.floor(
+                (otherPlayerRadius / pelletMinSize) ** 3
+              );
+              allEntries.push({
+                name: otherPlayer.name || "Player",
+                mass: otherPlayerMass,
+                isPlayer: false,
+              });
+            }
+          }
 
           // Sort by mass descending
           allEntries.sort((a, b) => b.mass - a.mass);
