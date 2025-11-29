@@ -8,7 +8,6 @@ import {
   executeSplit,
   calculateCellMass,
   createSoundCallback,
-  checkCellEatCondition,
 } from "./utils/playerUtils.js";
 import { emitPlayerMove } from "./multiplayer.js";
 import { AudioManager } from "./audio.js";
@@ -49,8 +48,8 @@ export function createAnimationLoop(
       ...gameState.cells,
     ].filter((c) => !c.userData.isEaten);
 
-    // Process player cell
-    updatePlayerGrowth(
+    // Process player cell (includes both pellet and cell eating)
+    const playerAte = updatePlayerGrowth(
       false,
       gameState.playerCell,
       gameState.pelletData,
@@ -61,15 +60,6 @@ export function createAnimationLoop(
       handleCellEaten,
       audioManager.playEatSoundSegment.bind(audioManager),
       deltaTime
-    );
-
-    // Check if player can eat other cells
-    checkCellEatCondition(
-      gameState.playerCell,
-      allCells,
-      scene,
-      handleCellEaten,
-      audioManager.playEatSoundSegment.bind(audioManager)
     );
 
     // Process bot cells
@@ -88,21 +78,13 @@ export function createAnimationLoop(
         audioManager.playEatSoundSegment.bind(audioManager),
         deltaTime
       );
-
-      // Check if bot can eat other cells
-      checkCellEatCondition(
-        botCell,
-        allCells,
-        scene,
-        handleCellEaten,
-        audioManager.playEatSoundSegment.bind(audioManager)
-      );
     }
 
     // Process split cells (from player splits)
+    let splitCellsAte = false;
     gameState.cells.forEach((cell) => {
       if (cell.userData.isEaten) return;
-      updatePlayerGrowth(
+      const ate = updatePlayerGrowth(
         false,
         cell,
         gameState.pelletData,
@@ -114,16 +96,17 @@ export function createAnimationLoop(
         audioManager.playEatSoundSegment.bind(audioManager),
         deltaTime
       );
-
-      // Check if split cell can eat other cells
-      checkCellEatCondition(
-        cell,
-        allCells,
-        scene,
-        handleCellEaten,
-        audioManager.playEatSoundSegment.bind(audioManager)
-      );
+      if (ate) splitCellsAte = true;
     });
+
+    // Update fog distance only when player or split cells eat something
+    if (playerAte || splitCellsAte) {
+      updateFogDistance(
+        scene,
+        cameraController.getCameraDistance(),
+        cameraController.getPlayerRadius()
+      );
+    }
 
     const cellResult = updateCells(
       gameState.cells,
@@ -147,13 +130,6 @@ export function createAnimationLoop(
       lastSplitTime,
       gameState.playerDefaultOpacity,
       deltaTime
-    );
-
-    // Update fog distance every frame (handles animation)
-    updateFogDistance(
-      scene,
-      cameraController.getCameraDistance(),
-      cameraController.getPlayerRadius()
     );
 
     emitPlayerMove(gameState.playerCell);

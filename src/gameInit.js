@@ -31,8 +31,8 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
   const playerRadius =
     playerCell.geometry.parameters.radius *
     Math.max(playerCell.scale.x, playerCell.scale.y, playerCell.scale.z);
-  const baseMultiplier = 16; // Matches camera.js default (non-magnet)
-  const sizeOffset = Math.sqrt(playerRadius) * 0.5;
+  const baseMultiplier = 12; // Matches camera.js default (non-magnet)
+  const sizeOffset = Math.sqrt(playerRadius) * 3;
   const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, 3);
   const initialCameraDistance = playerRadius * adjustedMultiplier;
   updateFogDistance(scene, initialCameraDistance, playerRadius);

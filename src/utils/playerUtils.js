@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createSplitSphere, mapSize, respawnPellet } from "../objects.js";
-import { smoothLerp } from "../scene.js";
+import { smoothLerp, updateFogDistance } from "../scene.js";
 import { SpatialGrid } from "./spatialGrid.js";
 import { emitPelletEaten, emitPelletRespawn } from "../multiplayer.js";
 
@@ -199,6 +199,8 @@ export function checkEatCondition(cell, pelletData, onEatCallback) {
     if (!active[i]) continue;
     const distance = cellPosition.distanceTo(positions[i]);
     if (distance <= cellRadius) {
+      if (!cell.isBot) {
+      }
       eatenCount++;
       processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef);
     }
@@ -578,7 +580,7 @@ export function updatePlayerGrowth(
   allCells,
   onCellEaten,
   onEatSound,
-  deltaTime = 1 / 60,
+  deltaTime = 1 / 60
 ) {
   if (!pelletData) return;
 
@@ -614,6 +616,18 @@ export function updatePlayerGrowth(
     pelletData.radius,
     deltaTime
   );
+
+  // Check cell eating in the same function to avoid duplicate iteration
+  const ateCells = checkCellEatCondition(
+    playerCell,
+    allCells,
+    scene,
+    onCellEaten,
+    onEatSound
+  );
+
+  // Return true if ate any pellets or cells
+  return eatenCount > 0 || ateCells;
 }
 
 function cameraFollowOtherCell(camera, otherCell, cellRotation) {
