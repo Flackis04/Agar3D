@@ -4,18 +4,10 @@ import {
   createPlayerCell,
   createViruses,
   createMagnetSphere,
-  createBot,
   createCellSpatialGrid,
   pelletMinSize,
 } from "./objects.js";
-import {
-  initNetworking,
-  emitJoin,
-  emitInitPellets,
-  setupPelletSync,
-  emitPelletEaten,
-  emitPelletRespawn,
-} from "./multiplayer.js";
+import { initNetworking, emitJoin, setupPelletSync } from "./multiplayer.js";
 import { updateFogDistance, updateBorderFog } from "./scene.js";
 import { calculateCellMass } from "./utils/playerUtils.js";
 
@@ -52,8 +44,8 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
   const magnetSphere = createMagnetSphere(playerCell, magnetRange);
   scene.add(magnetSphere);
 
-  initNetworking(scene);
-  emitJoin(playerName, playerCell);
+  initNetworking(scene, playerCell);
+  emitJoin(playerName);
 
   const cells = [];
   let lastSplitTime = null;
@@ -77,21 +69,7 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
     );
     const cellSpatialGrid = createCellSpatialGrid();
 
-    // Initialize multiplayer pellet sync
-    emitInitPellets(pelletData);
-    setupPelletSync(
-      pelletData,
-      (index) => {
-        // When another player eats a pellet
-        pelletData.active[index] = false;
-      },
-      (index, position, isPowerUp) => {
-        // When a pellet respawns
-        pelletData.positions[index].set(position.x, position.y, position.z);
-        pelletData.active[index] = true;
-        pelletData.powerUps[index] = isPowerUp;
-      }
-    );
+    setupPelletSync(pelletData);
 
     onReady({
       playerCell,

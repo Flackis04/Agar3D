@@ -1,16 +1,6 @@
 import { updateFogDistance } from "./scene.js";
 import { handleDevModeObjectVisibility } from "./camera.js";
-import { updateBot, respawnCell, pelletMinSize } from "./objects.js";
-import {
-  updateCells,
-  updatePlayerFade,
-  updatePlayerGrowth,
-  executeSplit,
-  calculateCellMass,
-  createSoundCallback,
-} from "./utils/playerUtils.js";
-import { emitPlayerMove } from "./multiplayer.js";
-import { AudioManager } from "./audio.js";
+import { sendPlayerInput } from "./multiplayer.js";
 
 export function createAnimationLoop(
   renderer,
@@ -21,156 +11,76 @@ export function createAnimationLoop(
   controls,
   stats
 ) {
-  let lastSplitTime = gameState.lastSplitTime;
-  let lastFrameTime = performance.now();
-  let lastNetworkUpdate = 0;
-  const networkUpdateInterval = 50; // Send position updates every 50ms (20 times per second)
-  const audioManager = new AudioManager();
+  let lastInputPayload = {
+    forward: false,
+    rotation: { yaw: 0, pitch: 0 },
+  };
+  let lastInputSend = 0;
+  let lastRadius = null;
 
   function animate() {
     requestAnimationFrame(animate);
-    if (!gameState.border) return;
+    if (!gameState.playerCell) return;
     if (window.isPaused) return renderer.render(scene, camera);
     const now = performance.now();
-    const deltaTime = (now - lastFrameTime) / 1000;
-    lastFrameTime = now;
     handleDevModeObjectVisibility(
       scene,
       cameraController,
       gameState.pelletData,
       gameState.border
     );
-    const handleCellEaten = (eatenCell) => {
-      setTimeout(() => respawnCell(eatenCell, scene), 2000);
+    const sendInput = () => {
+      const payload = {
+        forward: controls.getForwardButtonPressed(),
+        rotation: {
+          yaw: controls.playerRotation.yaw,
+          pitch: controls.playerRotation.pitch,
+        },
+      };
+      const rotationChanged =
+        Math.abs(payload.rotation.yaw - lastInputPayload.rotation.yaw) >
+          0.005 ||
+        Math.abs(payload.rotation.pitch - lastInputPayload.rotation.pitch) >
+          0.005;
+      if (
+        payload.forward !== lastInputPayload.forward ||
+        rotationChanged ||
+        now - lastInputSend > 250
+      ) {
+        sendPlayerInput(payload);
+        lastInputPayload = {
+          forward: payload.forward,
+          rotation: { ...payload.rotation },
+        };
+        lastInputSend = now;
+      }
     };
 
-    const allCells = [
-      gameState.playerCell,
-      ...gameState.botCells,
-      ...gameState.cells,
-    ].filter((c) => !c.userData.isEaten);
+    const updateFog = () => {
+      const currentRadius = cameraController.getPlayerRadius();
+      if (lastRadius === null || Math.abs(currentRadius - lastRadius) > 0.05) {
+        updateFogDistance(
+          scene,
+          cameraController.getCameraDistance(),
+          currentRadius
+        );
+        lastRadius = currentRadius;
+      }
+    };
 
-    // Process player cell (includes both pellet and cell eating)
-    const playerAte = updatePlayerGrowth(
-      false,
-      gameState.playerCell,
-      gameState.pelletData,
-      scene,
-      gameState.playerCell.magnetSphere,
-      gameState.playerCell.position,
-      allCells,
-      handleCellEaten,
-      audioManager.playEatSoundSegment.bind(audioManager),
-      deltaTime
+    sendInput();
+    updateFog();
+
+    controls.updateCamera(
+      gameState.pelletData && gameState.playerCell.pelletMagnetToggle
     );
 
-    // Process bot cells
-    for (const botCell of gameState.botCells) {
-      if (botCell.userData.isEaten) continue;
-      updateBot(botCell, gameState.pelletData, deltaTime);
-      updatePlayerGrowth(
-        true,
-        botCell,
-        gameState.pelletData,
-        scene,
-        botCell.magnetSphere,
-        gameState.playerCell.position,
-        allCells,
-        handleCellEaten,
-        audioManager.playEatSoundSegment.bind(audioManager),
-        deltaTime
-      );
-    }
-
-    // Process split cells (from player splits)
-    let splitCellsAte = false;
-    gameState.cells.forEach((cell) => {
-      if (cell.userData.isEaten) return;
-      const ate = updatePlayerGrowth(
-        false,
-        cell,
-        gameState.pelletData,
-        scene,
-        cell.magnetSphere,
-        gameState.playerCell.position,
-        allCells,
-        handleCellEaten,
-        audioManager.playEatSoundSegment.bind(audioManager),
-        deltaTime
-      );
-      if (ate) splitCellsAte = true;
-    });
-
-    // Update fog distance only when player or split cells eat something
-    if (playerAte || splitCellsAte) {
-      updateFogDistance(
-        scene,
-        cameraController.getCameraDistance(),
-        cameraController.getPlayerRadius()
-      );
-    }
-
-    const cellResult = updateCells(
-      gameState.cells,
-      scene,
-      gameState.playerCell,
-      camera,
-      controls.getForwardButtonPressed,
-      controls.playerRotation,
-      controls.cellRotation,
-      deltaTime
-    );
-    controls.setViewingCell(cellResult.viewingCell);
-    if (!cellResult.viewingCell)
-      controls.updateCamera(
-        gameState.pelletData && gameState.playerCell.pelletMagnetToggle
-      );
     if (scene.userData.animateViruses)
       scene.userData.animateViruses(performance.now());
-    lastSplitTime = updatePlayerFade(
-      gameState.playerCell,
-      lastSplitTime,
-      gameState.playerDefaultOpacity,
-      deltaTime
-    );
-
-    // Throttle network updates to reduce bandwidth
-    if (now - lastNetworkUpdate > networkUpdateInterval) {
-      emitPlayerMove(gameState.playerCell);
-      lastNetworkUpdate = now;
-    }
 
     stats.begin();
     renderer.render(scene, camera);
     stats.end();
   }
-  return { animate, getLastSplitTime: () => lastSplitTime };
-}
-
-export function setupSplitHandler(
-  playerCell,
-  camera,
-  scene,
-  cells,
-  playerSpeed
-) {
-  window.addEventListener(
-    "keydown",
-    (e) => {
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (calculateCellMass(playerCell, pelletMinSize) < 20) return;
-        const newCells = executeSplit(
-          playerCell,
-          cells,
-          camera,
-          scene,
-          playerSpeed
-        );
-        cells.length = 0;
-        cells.push(...newCells);
-      }
-    },
-    true
-  );
+  return { animate, getLastSplitTime: () => null };
 }

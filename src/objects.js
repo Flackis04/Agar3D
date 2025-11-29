@@ -105,28 +105,64 @@ export function createMapBox(onReady) {
   );
   geometry.setAttribute("size", new THREE.Float32BufferAttribute(sizes, 1));
 
+  function createFallbackTexture() {
+    const size = 128;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const gradient = ctx.createRadialGradient(
+      size / 2,
+      size / 2,
+      size * 0.1,
+      size / 2,
+      size / 2,
+      size * 0.45
+    );
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size * 0.45, 0, Math.PI * 2);
+    ctx.fill();
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  function buildMaterial(texture) {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        color: { value: new THREE.Color(0xffffff) },
+        pointTexture: { value: texture },
+        alphaTest: { value: 0.9 },
+        fogColor: { value: new THREE.Color(0x080020) },
+        fogNear: { value: 0 },
+        fogFar: { value: 100 },
+      },
+      vertexShader: document.getElementById("vertexshader").textContent,
+      fragmentShader: document.getElementById("fragmentshader").textContent,
+      transparent: false,
+      depthWrite: true,
+    });
+  }
+
+  function finalize(material) {
+    material.needsUpdate = true;
+    const particles = new THREE.Points(geometry, material);
+    onReady(particles, PARTICLE_SIZE);
+  }
+
   const loader = new THREE.TextureLoader();
   loader.load(
     "https://threejs.org/examples/textures/sprites/disc.png",
     (texture) => {
-      const material = new THREE.ShaderMaterial({
-        uniforms: {
-          color: { value: new THREE.Color(0xffffff) },
-          pointTexture: { value: texture },
-          alphaTest: { value: 0.9 }, // fully opaque
-          fogColor: { value: new THREE.Color(0x080020) },
-          fogNear: { value: 0 },
-          fogFar: { value: 100 },
-        },
-        vertexShader: document.getElementById("vertexshader").textContent,
-        fragmentShader: document.getElementById("fragmentshader").textContent,
-        transparent: false,
-        depthWrite: true,
-      });
-
-      material.needsUpdate = true;
-      const particles = new THREE.Points(geometry, material);
-      onReady(particles, PARTICLE_SIZE);
+      finalize(buildMaterial(texture));
+    },
+    undefined,
+    () => {
+      console.warn("Falling back to canvas texture for border points");
+      finalize(buildMaterial(createFallbackTexture()));
     }
   );
 }

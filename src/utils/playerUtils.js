@@ -2,7 +2,6 @@ import * as THREE from "three";
 import { createSplitSphere, mapSize, respawnPellet } from "../objects.js";
 import { smoothLerp, updateFogDistance } from "../scene.js";
 import { SpatialGrid } from "./spatialGrid.js";
-import { emitPelletEaten, emitPelletRespawn } from "../multiplayer.js";
 
 export function checkCellDistanceFromCamera(activeCell, cameraDistance) {
   if (activeCell.position.distanceTo(camera.position) > cameraDistance) {
@@ -117,9 +116,6 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
   active[i] = false;
   eatenSizes.push(sizes[i]);
 
-  // Emit pellet eaten event to sync with other players
-  emitPelletEaten(i);
-
   const isPowerUp = powerUps && powerUps[i];
   const meshIndex = pelletToMeshIndex[i];
 
@@ -160,9 +156,6 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
   }
 
   active[i] = true;
-
-  // Emit pellet respawn event to sync with other players
-  emitPelletRespawn(i, newPos, isPowerUp);
 }
 
 export function checkEatCondition(cell, pelletData, onEatCallback) {

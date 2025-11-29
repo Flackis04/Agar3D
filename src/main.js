@@ -3,11 +3,11 @@ import { setupControls } from "./controls.js";
 import { createCameraController } from "./camera.js";
 import { createRenderer } from "./renderer.js";
 import { initializeGame } from "./gameInit.js";
-import { createAnimationLoop, setupSplitHandler } from "./gameLoop.js";
+import { createAnimationLoop } from "./gameLoop.js";
 import { createPelletsInstanced, pelletMinSize } from "./objects.js";
 import Stats from "three/addons/libs/stats.module.js";
 import * as THREE from "three";
-import { calculateCellMass, convertMassToRadius } from "./utils/playerUtils.js";
+import { calculateCellMass } from "./utils/playerUtils.js";
 import { otherPlayers } from "./multiplayer.js";
 
 const canvas = document.querySelector("#c");
@@ -76,18 +76,9 @@ function startGame() {
     camera,
     (gameState) => {
       gameStateRef = gameState;
-      const { playerCell, playerDefaultOpacity, cells } = gameState;
-      // If resuming, set player mass
-      if (savedMass && playerCell && playerCell.geometry) {
-        const newRadius = convertMassToRadius(savedMass, pelletMinSize);
-        const scale = newRadius / playerCell.geometry.parameters.radius;
-        playerCell.scale.setScalar(scale);
-      }
+      const { playerCell, playerDefaultOpacity } = gameState;
       const cameraController = createCameraController(camera, playerCell);
       const controls = setupControls(canvas, cameraController);
-      const { playerSpeed, lastSplit } = controls;
-
-      setupSplitHandler(playerCell, camera, scene, cells, playerSpeed);
 
       const { animate } = createAnimationLoop(
         renderer,

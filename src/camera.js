@@ -106,15 +106,6 @@ export function createCameraController(camera, playerCell, cameraLerpSpeed) {
       smoothFollowDistance
     );
 
-    const forward = offset.clone().normalize().negate();
-    if (keys["w"]) {
-      const nextPosition = playerCell.position
-        .clone()
-        .addScaledVector(forward, playerSpeed);
-      clampToBoxBounds(nextPosition, playerCell);
-      playerCell.position.copy(nextPosition);
-    }
-
     camera.position.copy(playerCell.position.clone().add(offset));
 
     ensureCameraIsInBox(camera.position);
