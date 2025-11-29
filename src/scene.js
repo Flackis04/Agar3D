@@ -17,7 +17,7 @@ let fogTransition = {
   duration: 500, // 0.5 seconds
 };
 
-function updateBorderFog(scene) {
+export function updateBorderFog(scene) {
   // Find the border (Points mesh) and update its fog uniforms
   scene.traverse((object) => {
     if (
@@ -55,7 +55,7 @@ export function updateFogDistance(scene, cameraDistance, playerRadius) {
   } else {
     // Not animating, just use the target value
     scene.fog.far = targetFogFar;
-    console.log(scene.fog.far)
+    console.log(scene.fog.far);
   }
 
   // Update border material fog uniforms to match scene fog

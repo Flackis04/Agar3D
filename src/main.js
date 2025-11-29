@@ -44,6 +44,24 @@ massValue.style.transition = "transform 0.15s cubic-bezier(.4,1.4,.6,1)";
 massCounter.appendChild(massValue);
 document.body.appendChild(massCounter);
 
+// Create leaderboard
+const leaderboard = document.createElement("div");
+leaderboard.id = "leaderboard";
+leaderboard.style.position = "fixed";
+leaderboard.style.top = "20px";
+leaderboard.style.right = "20px";
+leaderboard.style.backgroundColor = "rgba(0, 0, 0, 0.6)";
+leaderboard.style.padding = "15px";
+leaderboard.style.borderRadius = "8px";
+leaderboard.style.color = "#fff";
+leaderboard.style.fontFamily = "Arial, sans-serif";
+leaderboard.style.fontSize = "14px";
+leaderboard.style.minWidth = "200px";
+leaderboard.style.zIndex = "1000";
+leaderboard.style.display = "none";
+leaderboard.style.backdropFilter = "blur(5px)";
+document.body.appendChild(leaderboard);
+
 function startGame() {
   const playerName = playerNameInput.value.trim() || "Player";
 
@@ -107,6 +125,79 @@ function startGame() {
         requestAnimationFrame(updateMassCounter);
       }
       updateMassCounter();
+
+      function updateLeaderboard() {
+        if (
+          homeScreen.style.display !== "none" ||
+          !gameState.playerCell ||
+          gameState.playerCell.userData.isEaten
+        ) {
+          leaderboard.style.display = "none";
+        } else {
+          leaderboard.style.display = "block";
+
+          // Collect all cells with their mass and names
+          const allEntries = [];
+
+          // Add player
+          const playerMass = Math.floor(
+            calculateCellMass(gameState.playerCell, pelletMinSize)
+          );
+          allEntries.push({
+            name: playerName,
+            mass: playerMass,
+            isPlayer: true,
+          });
+
+          // Add bots
+          gameState.botCells.forEach((botCell, index) => {
+            if (!botCell.userData.isEaten) {
+              const botMass = Math.floor(
+                calculateCellMass(botCell, pelletMinSize)
+              );
+              const botName = botCell.userData.name || `Bot ${index + 1}`;
+              allEntries.push({
+                name: botName,
+                mass: botMass,
+                isPlayer: false,
+              });
+            }
+          });
+
+          // Sort by mass descending
+          allEntries.sort((a, b) => b.mass - a.mass);
+
+          // Find player's rank
+          const playerIndex = allEntries.findIndex((entry) => entry.isPlayer);
+          const playerRank = playerIndex + 1;
+
+          // Display top 10
+          let html =
+            '<div style="font-weight: bold; margin-bottom: 10px; font-size: 16px;">Leaderboard</div>';
+          allEntries.slice(0, 10).forEach((entry, index) => {
+            const color = entry.isPlayer ? "#00e676" : "#fff";
+            const rank = index + 1;
+            html += `<div style="margin: 5px 0; color: ${color}; display: flex; justify-content: space-between;">`;
+            html += `<span>${rank}. ${entry.name}</span>`;
+            html += `<span style="margin-left: 15px;">${entry.mass}</span>`;
+            html += `</div>`;
+          });
+
+          // If player is not in top 10, add their entry
+          if (playerRank > 10) {
+            const playerEntry = allEntries[playerIndex];
+            html += `<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.3);"></div>`;
+            html += `<div style="margin: 5px 0; color: #00e676; display: flex; justify-content: space-between;">`;
+            html += `<span>${playerRank}. ${playerEntry.name}</span>`;
+            html += `<span style="margin-left: 15px;">${playerEntry.mass}</span>`;
+            html += `</div>`;
+          }
+
+          leaderboard.innerHTML = html;
+        }
+        requestAnimationFrame(updateLeaderboard);
+      }
+      updateLeaderboard();
 
       animate();
       // Clear savedMass after resuming

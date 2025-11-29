@@ -16,7 +16,7 @@ import {
   emitPelletEaten,
   emitPelletRespawn,
 } from "./multiplayer.js";
-import { updateFogDistance } from "./scene.js";
+import { updateFogDistance, updateBorderFog } from "./scene.js";
 import { calculateCellMass } from "./utils/playerUtils.js";
 
 export function initializeGame(scene, camera, onReady, playerName = "Player") {
@@ -59,6 +59,9 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
 
   createMapBox((loadedBorder) => {
     scene.add(loadedBorder);
+
+    // Update border fog uniforms to match scene fog
+    updateBorderFog(scene);
 
     const pelletColors = [
       0xff0000, 0x0077ff, 0x00ff00, 0xffff00, 0x9b30ff, 0xff9900, 0x7ed6ff,
