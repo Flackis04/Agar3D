@@ -2,13 +2,15 @@ function clampPitch(pitch) {
   return Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
 }
 
+// Browser input lives here. This module does not move the player directly;
+// it records intent, and the game loop sends that intent to the server.
 export function setupControls(canvas, cameraController) {
   const keys = {};
   const playerRotation = { yaw: 0, pitch: 0 };
   const cellRotation = { yaw: 0, pitch: 0 };
   const sensitivity = 0.002;
   const playerSpeed = 0.12;
-  let forwardBtnIsPressed = false;
+  let isForwardPressed = false;
   let lastSplit = 0;
   let viewingCell = false;
 
@@ -17,14 +19,14 @@ export function setupControls(canvas, cameraController) {
     keys[key] = true;
 
     if (key === 'x') cameraController.toggleDeveloperMode();
-    if (key === 'w') forwardBtnIsPressed = true;
+    if (key === 'w') isForwardPressed = true;
   }
 
   function onKeyUp(e) {
     const key = e.key.toLowerCase();
     keys[key] = false;
 
-    if (key === 'w') forwardBtnIsPressed = false;
+    if (key === 'w') isForwardPressed = false;
   }
 
   async function onCanvasClick() {
@@ -83,5 +85,15 @@ export function setupControls(canvas, cameraController) {
     document.removeEventListener('mousemove', onMouseMove);
   }
 
-  return { updateCamera, getForwardButtonPressed: () => forwardBtnIsPressed, keys, playerSpeed, lastSplit, playerRotation, cellRotation, setViewingCell, dispose };
+  return {
+    updateCamera,
+    getForwardButtonPressed: () => isForwardPressed,
+    keys,
+    playerSpeed,
+    lastSplit,
+    playerRotation,
+    cellRotation,
+    setViewingCell,
+    dispose,
+  };
 }

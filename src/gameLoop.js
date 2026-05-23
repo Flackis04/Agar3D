@@ -45,6 +45,9 @@ export function createGameFrame(
   let lastRadius = null;
 
   function step() {
+    // One call to step() is one rendered game frame in the browser.
+    // The server owns multiplayer movement, so this frame sends input
+    // and then renders the latest state that the server has sent back.
     if (!gameState.playerCell) return;
     if (window.isPaused) return;
     const now = performance.now();
@@ -55,6 +58,8 @@ export function createGameFrame(
       gameState.border
     );
     const sendInput = () => {
+      // This payload is the full client intent: "am I moving forward?"
+      // plus "which direction am I facing?"
       const payload = {
         forward: controls.getForwardButtonPressed(),
         rotation: {

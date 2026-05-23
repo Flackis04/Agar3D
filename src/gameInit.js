@@ -11,6 +11,8 @@ import { initNetworking, emitJoin, setupPelletSync } from "./multiplayer.js";
 import { updateFogDistance, updateBorderFog } from "./scene.js";
 import { calculateCellMass } from "./utils/playerUtils.js";
 
+// Builds one playable match. It creates local Three.js objects first, then
+// connects them to the multiplayer server so server updates can drive them.
 export function initializeGame(scene, camera, onReady, playerName = "Player") {
   createViruses(scene);
 
@@ -44,6 +46,8 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
   const magnetSphere = createMagnetSphere(playerCell, magnetRange);
   scene.add(magnetSphere);
 
+  // After this, multiplayer.js listens for server snapshots and applies them
+  // to playerCell, pellets, and other players' meshes.
   initNetworking(scene, playerCell);
   emitJoin(playerName);
 

@@ -35,6 +35,8 @@ export function GameScene({ playerName, onReady }) {
   }, []);
 
   useEffect(() => {
+    // React mounts this component when Play is clicked. From here on, the
+    // Three.js scene is built by initializeGame and advanced by useFrame.
     const originalChildren = new Set(scene.children);
     const backgroundColor = new THREE.Color(0x050010);
     scene.background = backgroundColor;
@@ -67,6 +69,8 @@ export function GameScene({ playerName, onReady }) {
     );
 
     return () => {
+      // React may unmount the game when returning to the menu. Dispose objects
+      // here so a fresh game does not keep old meshes or controls alive.
       controls.current?.dispose?.();
       stats.dom.remove();
       frameStep.current = null;

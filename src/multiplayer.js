@@ -4,6 +4,8 @@ import * as THREE from "three";
 const resolvedHost = window.location.hostname;
 const socketUrl = `http://${resolvedHost}:3001`;
 
+// The browser page is served on port 3000, while Socket.IO runs on 3001.
+// Reusing window.__socket prevents duplicate sockets during Vite hot reloads.
 let socket;
 if (!window.__socket) {
   socket = io(socketUrl, {
@@ -125,6 +127,9 @@ export function initNetworking(scene, playerCell) {
   handlersRegistered = true;
 
   socket.on("world-update", ({ players }) => {
+    // The server sends every player's latest position and size.
+    // This client applies its own state locally and creates/updates meshes
+    // for everyone else.
     if (!players || players.length === 0) return;
     const seen = new Set();
     players.forEach((playerState) => {
@@ -165,6 +170,8 @@ export function initNetworking(scene, playerCell) {
 }
 
 export function sendPlayerInput({ forward, rotation }) {
+  // Input is intentionally small. The server receives this and decides how far
+  // the player actually moves during its next tick.
   socket.emit("player-input", {
     forward,
     rotation,

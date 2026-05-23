@@ -169,6 +169,8 @@ function handlePlayerCollisions(player) {
 
 function updatePlayers(delta) {
   players.forEach((player) => {
+    // The server is authoritative: clients send input, but this function is
+    // where movement actually changes the shared multiplayer state.
     if (player.input.forward) {
       const direction = rotationToForward(player.input.rotation);
       player.position.x += direction.x * player.speed * delta;
@@ -201,6 +203,8 @@ function broadcastWorldState() {
 }
 
 setInterval(() => {
+  // Main server loop. At 20 ticks per second it moves players, handles
+  // collisions, and broadcasts the new world snapshot to every browser.
   const now = Date.now();
   const delta = (now - lastTick) / 1000;
   lastTick = now;

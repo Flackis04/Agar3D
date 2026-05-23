@@ -136,6 +136,8 @@ function Leaderboard({ gameState, playerName, visible }) {
 }
 
 export function App() {
+  // App owns the menu-level state. The Three.js world only exists while the
+  // screen is "playing" or "paused"; returning home unmounts the Canvas.
   const [screen, setScreen] = useState("home");
   const [playerName, setPlayerName] = useState("");
   const [savedMass, setSavedMass] = useState(null);
@@ -198,6 +200,8 @@ export function App() {
   }, [screen]);
 
   function startGame() {
+    // Changing sessionKey forces GameScene to mount fresh, which creates a
+    // new match instead of reusing old Three.js objects.
     gameState.current = null;
     setSessionKey((key) => key + 1);
     setScreen("playing");
