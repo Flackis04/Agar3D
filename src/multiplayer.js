@@ -1,11 +1,7 @@
 import { io } from "socket.io-client";
 import * as THREE from "three";
 
-const localHosts = ["localhost", "127.0.0.1", "::1"];
-const hostIp = "10.33.247.2";
-const resolvedHost = localHosts.includes(window.location.hostname)
-  ? hostIp
-  : window.location.hostname;
+const resolvedHost = window.location.hostname;
 const socketUrl = `http://${resolvedHost}:3001`;
 
 let socket;

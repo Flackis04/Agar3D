@@ -2,6 +2,7 @@
 export default {
   server: {
     port: 3000,
+    strictPort: true,
     allowedHosts: [
       '3613701d66c0.ngrok-free.app',
       '3ed1d0861bcb.ngrok-free.app',

@@ -4,33 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Three.js Particles</title>
-    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <!-- Home Screen -->
-    <div id="homeScreen">
-      <div id="menuContainer">
-        <h1>Agar3D</h1>
-        <input
-          type="text"
-          id="playerName"
-          placeholder="Enter your name"
-          maxlength="20"
-        />
-        <button id="playButton">Play</button>
-      </div>
-    </div>
-
-    <!-- ESC Menu -->
-    <div id="escMenu" style="display: none">
-      <div id="escMenuContainer">
-        <h2>Paused</h2>
-        <button id="saveProgressButton">Save Progress</button>
-        <button id="resumeButton">Resume</button>
-      </div>
-    </div>
-
-    <canvas id="c" style="display: none"></canvas>
+    <div id="root"></div>
 
     <!-- Vertex Shader -->
     <script type="x-shader/x-vertex" id="vertexshader">
@@ -71,30 +47,6 @@
       }
     </script>
 
-    <!-- Import Map for Three.js modules -->
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
-        }
-      }
-    </script>
-
-    <!-- Stats Panel -->
-    <script type="module">
-      import Stats from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/libs/stats.module.js";
-      const stats = new Stats();
-      stats.showPanel(0); // 0 = fps
-      document.body.appendChild(stats.dom);
-      stats.dom.style.position = "absolute";
-      stats.dom.style.bottom = "0px";
-      stats.dom.style.right = "0px";
-      stats.dom.style.pointerEvents = "none";
-      window.stats = stats; // optional global reference
-    </script>
-
-    <!-- Main script -->
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

@@ -11,6 +11,32 @@ export function createAnimationLoop(
   controls,
   stats
 ) {
+  const { step } = createGameFrame(
+    scene,
+    camera,
+    gameState,
+    cameraController,
+    controls,
+    stats
+  );
+
+  function animate() {
+    requestAnimationFrame(animate);
+    step();
+    renderer.render(scene, camera);
+  }
+
+  return { animate, getLastSplitTime: () => null };
+}
+
+export function createGameFrame(
+  scene,
+  camera,
+  gameState,
+  cameraController,
+  controls,
+  stats
+) {
   let lastInputPayload = {
     forward: false,
     rotation: { yaw: 0, pitch: 0 },
@@ -18,10 +44,9 @@ export function createAnimationLoop(
   let lastInputSend = 0;
   let lastRadius = null;
 
-  function animate() {
-    requestAnimationFrame(animate);
+  function step() {
     if (!gameState.playerCell) return;
-    if (window.isPaused) return renderer.render(scene, camera);
+    if (window.isPaused) return;
     const now = performance.now();
     handleDevModeObjectVisibility(
       scene,
@@ -78,9 +103,9 @@ export function createAnimationLoop(
     if (scene.userData.animateViruses)
       scene.userData.animateViruses(performance.now());
 
-    stats.begin();
-    renderer.render(scene, camera);
-    stats.end();
+    stats?.begin();
+    stats?.end();
   }
-  return { animate, getLastSplitTime: () => null };
+
+  return { step, getLastSplitTime: () => null };
 }
