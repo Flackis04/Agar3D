@@ -2,20 +2,17 @@ import {
   createMapBox,
   createPelletsInstanced,
   createPlayerCell,
-  createViruses,
   createMagnetSphere,
   createCellSpatialGrid,
   pelletMinSize,
 } from "./objects.js";
 import { initNetworking, emitJoin, setupPelletSync } from "./multiplayer.js";
 import { updateFogDistance, updateBorderFog } from "./scene.js";
-import { calculateCellMass } from "./utils/playerUtils.js";
+import { calculateCameraDistanceTarget } from "./camera.js";
 
 // Builds one playable match. It creates local Three.js objects first, then
 // connects them to the multiplayer server so server updates can drive them.
-export function initializeGame(scene, camera, onReady, playerName = "Player") {
-  createViruses(scene);
-
+export function initializeGame(scene, camera, onReady, playerName = "Player", audioManager = null) {
   const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(
     false,
     scene,
@@ -25,10 +22,7 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
   const playerRadius =
     playerCell.geometry.parameters.radius *
     Math.max(playerCell.scale.x, playerCell.scale.y, playerCell.scale.z);
-  const baseMultiplier = 12; // Matches camera.js default (non-magnet)
-  const sizeOffset = Math.sqrt(playerRadius) * 3;
-  const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, 3);
-  const initialCameraDistance = playerRadius * adjustedMultiplier;
+  const initialCameraDistance = calculateCameraDistanceTarget(playerCell, false);
   updateFogDistance(scene, initialCameraDistance, playerRadius);
 
   // Bots disabled for multiplayer - only players will be visible
@@ -48,7 +42,7 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
 
   // After this, multiplayer.js listens for server snapshots and applies them
   // to playerCell, pellets, and other players' meshes.
-  initNetworking(scene, playerCell);
+  initNetworking(scene, playerCell, audioManager, camera);
   emitJoin(playerName);
 
   const cells = [];
@@ -65,7 +59,7 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
       0xff69b4,
     ];
 
-    const PELLET_COUNT = 25000;
+    const PELLET_COUNT = 5000;
     const pelletData = createPelletsInstanced(
       scene,
       PELLET_COUNT,
@@ -84,6 +78,8 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
       border: loadedBorder,
       pelletData,
       cellSpatialGrid,
+      magnetSphere,
+      audioManager,
     });
   });
 }

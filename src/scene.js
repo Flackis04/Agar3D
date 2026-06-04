@@ -55,7 +55,6 @@ export function updateFogDistance(scene, cameraDistance, playerRadius) {
   } else {
     // Not animating, just use the target value
     scene.fog.far = targetFogFar;
-    console.log(scene.fog.far);
   }
 
   // Update border material fog uniforms to match scene fog
@@ -73,7 +72,7 @@ export function createScene() {
   const fov = 75;
   const aspect = window.innerWidth / window.innerHeight;
   const near = 0.2;
-  const far = 600;
+  const far = 1000;
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
 
   const fogNear = 0;

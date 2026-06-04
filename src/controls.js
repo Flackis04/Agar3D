@@ -10,7 +10,8 @@ export function setupControls(canvas, cameraController) {
   const cellRotation = { yaw: 0, pitch: 0 };
   const sensitivity = 0.002;
   const playerSpeed = 0.12;
-  let isForwardPressed = false;
+  let isShooting = false;
+  let weaponMode = 'bullet';
   let lastSplit = 0;
   let viewingCell = false;
 
@@ -19,22 +20,32 @@ export function setupControls(canvas, cameraController) {
     keys[key] = true;
 
     if (key === 'x') cameraController.toggleDeveloperMode();
-    if (key === 'w') isForwardPressed = true;
+    if (key === '1') weaponMode = 'bullet';
+    if (key === '2') weaponMode = 'laser';
   }
 
   function onKeyUp(e) {
     const key = e.key.toLowerCase();
     keys[key] = false;
-
-    if (key === 'w') isForwardPressed = false;
   }
 
   async function onCanvasClick() {
+    if (document.pointerLockElement === canvas) return;
     try {
       await canvas.requestPointerLock();
     } catch (err) {
       if (err.name !== 'SecurityError') console.error(err);
     }
+  }
+
+  function onMouseDown(e) {
+    if (e.button !== 0 || document.pointerLockElement !== canvas) return;
+    isShooting = true;
+  }
+
+  function onMouseUp(e) {
+    if (e.button !== 0) return;
+    isShooting = false;
   }
 
   function onMouseMove(e) {
@@ -61,7 +72,9 @@ export function setupControls(canvas, cameraController) {
 
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('mouseup', onMouseUp);
   canvas.addEventListener('click', onCanvasClick);
+  canvas.addEventListener('mousedown', onMouseDown);
   document.addEventListener('pointerlockchange', onPointerLockChange);
 
   function updateCamera(magnetActive) {
@@ -80,14 +93,26 @@ export function setupControls(canvas, cameraController) {
   function dispose() {
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('mouseup', onMouseUp);
     canvas.removeEventListener('click', onCanvasClick);
+    canvas.removeEventListener('mousedown', onMouseDown);
     document.removeEventListener('pointerlockchange', onPointerLockChange);
     document.removeEventListener('mousemove', onMouseMove);
   }
 
   return {
     updateCamera,
-    getForwardButtonPressed: () => isForwardPressed,
+    getMovementInput: () => ({
+      forward: Boolean(keys.w),
+      backward: Boolean(keys.s),
+      left: Boolean(keys.a),
+      right: Boolean(keys.d),
+      up: Boolean(keys.e),
+      down: Boolean(keys.q),
+    }),
+    getForwardButtonPressed: () => Boolean(keys.w),
+    getShootButtonPressed: () => isShooting,
+    getWeaponMode: () => weaponMode,
     keys,
     playerSpeed,
     lastSplit,

@@ -4,22 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { calculateCellMass } from "./utils/playerUtils.js";
 import { pelletMinSize } from "./objects.js";
-import { otherPlayers } from "./multiplayer.js";
+import { otherPlayers, socket } from "./multiplayer.js";
 import { GameScene } from "./GameScene.jsx";
 
-function useAnimationTick(enabled, callback) {
+function useTimedTick(enabled, callback, intervalMs = 250) {
   useEffect(() => {
     if (!enabled) return undefined;
-    let frameId = 0;
 
-    function tick() {
-      callback();
-      frameId = requestAnimationFrame(tick);
-    }
-
-    tick();
-    return () => cancelAnimationFrame(frameId);
-  }, [callback, enabled]);
+    callback();
+    const intervalId = window.setInterval(callback, intervalMs);
+    return () => window.clearInterval(intervalId);
+  }, [callback, enabled, intervalMs]);
 }
 
 function MassCounter({ gameState, visible }) {
@@ -43,7 +38,7 @@ function MassCounter({ gameState, visible }) {
     });
   }, [gameState, visible]);
 
-  useAnimationTick(visible, updateMass);
+  useTimedTick(visible, updateMass, 150);
 
   if (mass === null) return null;
 
@@ -98,7 +93,7 @@ function Leaderboard({ gameState, playerName, visible }) {
     setEntries(nextEntries);
   }, [gameState, playerName, visible]);
 
-  useAnimationTick(visible, updateLeaderboard);
+  useTimedTick(visible, updateLeaderboard, 500);
 
   if (!visible || entries.length === 0) return null;
 
@@ -135,6 +130,159 @@ function Leaderboard({ gameState, playerName, visible }) {
   );
 }
 
+function UpgradePanel({ visible }) {
+  const [upgradeState, setUpgradeState] = useState(null);
+
+  useEffect(() => {
+    function onUpgradeState(state) {
+      setUpgradeState(state);
+    }
+
+    socket.on("upgrade-state", onUpgradeState);
+    return () => {
+      socket.off("upgrade-state", onUpgradeState);
+    };
+  }, []);
+
+  if (!visible || !upgradeState?.upgrades) return null;
+
+  return (
+    <div id="upgrade-panel">
+      <div className="upgrade-title">Upgrades</div>
+      <div className="upgrade-mass">Mass {upgradeState.mass}</div>
+      {Object.entries(upgradeState.upgrades).map(([key, upgrade]) => {
+        const isMaxed = upgrade.level >= upgrade.maxLevel;
+        const canBuy = !isMaxed && upgradeState.mass >= upgrade.cost;
+        return (
+          <button
+            className={canBuy ? "upgrade-row affordable" : "upgrade-row"}
+            key={key}
+            onClick={() => socket.emit("buy-upgrade", { key })}
+            disabled={isMaxed}
+          >
+            <span>{upgrade.label}</span>
+            <span>
+              {upgrade.level}/{upgrade.maxLevel}
+              {isMaxed ? " MAX" : ` - ${upgrade.cost}`}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PlayerHpHud({ visible }) {
+  const [hpState, setHpState] = useState({ hp: 100, maxHp: 100 });
+
+  useEffect(() => {
+    function onLocalPlayerState(event) {
+      setHpState({
+        hp: event.detail?.hp ?? 100,
+        maxHp: event.detail?.maxHp ?? 100,
+      });
+    }
+
+    window.addEventListener("local-player-state", onLocalPlayerState);
+    return () => {
+      window.removeEventListener("local-player-state", onLocalPlayerState);
+    };
+  }, []);
+
+  if (!visible) return null;
+
+  const ratio = Math.max(0, Math.min(1, hpState.hp / Math.max(1, hpState.maxHp)));
+  const hpLabel = `${Math.ceil(hpState.hp)} / ${Math.ceil(hpState.maxHp)}`;
+
+  return (
+    <div id="player-hp-hud">
+      <div className="player-hp-label">
+        <span>HP</span>
+        <span>{hpLabel}</span>
+      </div>
+      <div className="player-hp-track">
+        <div
+          className="player-hp-fill"
+          style={{
+            width: `${ratio * 100}%`,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MassGainPopups({ visible }) {
+  const [popups, setPopups] = useState([]);
+  const lastMassRef = useRef(null);
+
+  useEffect(() => {
+    if (!visible) {
+      lastMassRef.current = null;
+      setPopups([]);
+    }
+  }, [visible]);
+
+  useEffect(() => {
+    function onLocalPlayerState(event) {
+      const mass = event.detail?.mass;
+      if (typeof mass !== "number") return;
+
+      const previousMass = lastMassRef.current;
+      lastMassRef.current = mass;
+      if (previousMass === null || mass <= previousMass) return;
+
+      const gained = Math.floor(mass - previousMass);
+      if (gained <= 0) return;
+
+      const id = `${Date.now()}-${Math.random()}`;
+      setPopups((current) => [...current.slice(-4), { id, gained }]);
+      window.setTimeout(() => {
+        setPopups((current) => current.filter((popup) => popup.id !== id));
+      }, 850);
+    }
+
+    window.addEventListener("local-player-state", onLocalPlayerState);
+    return () => {
+      window.removeEventListener("local-player-state", onLocalPlayerState);
+    };
+  }, []);
+
+  if (!visible || popups.length === 0) return null;
+
+  return (
+    <div id="mass-gain-popups">
+      {popups.map((popup) => (
+        <div className="mass-gain-popup" key={popup.id}>
+          +{popup.gained}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DevControls({ visible }) {
+  if (!visible) return null;
+
+  return (
+    <div id="dev-controls">
+      <button
+        id="dev-tp-near-player"
+        type="button"
+        onClick={() => socket.emit("dev-teleport-near-player")}
+      >
+        TP Near Player
+      </button>
+    </div>
+  );
+}
+
+function Crosshair({ visible }) {
+  if (!visible) return null;
+
+  return <div id="crosshair" aria-hidden="true" />;
+}
+
 export function App() {
   // App owns the menu-level state. The Three.js world only exists while the
   // screen is "playing" or "paused"; returning home unmounts the Canvas.
@@ -165,13 +313,25 @@ export function App() {
     return true;
   }, []);
 
-  useAnimationTick(screen === "paused", () => {
+  useTimedTick(screen === "paused", () => {
     setIsSafeToSave(checkEnemyProximity());
-  });
+  }, 250);
 
   useEffect(() => {
     window.isPaused = screen === "paused";
   }, [screen]);
+
+  useEffect(() => {
+    function onPlayerDied() {
+      gameState.current = null;
+      setScreen("home");
+    }
+
+    socket.on("player-died", onPlayerDied);
+    return () => {
+      socket.off("player-died", onPlayerDied);
+    };
+  }, []);
 
   useEffect(() => {
     function onPointerLockChange() {
@@ -223,7 +383,7 @@ export function App() {
     <>
       {gameIsMounted && (
         <Canvas
-          camera={{ fov: 75, near: 0.2, far: 600 }}
+          camera={{ fov: 75, near: 0.2, far: 1000 }}
           gl={{
             antialias: true,
             powerPreference: "high-performance",
@@ -284,11 +444,16 @@ export function App() {
       )}
 
       <MassCounter gameState={gameState} visible={isPlaying} />
+      <MassGainPopups visible={isPlaying} />
+      <Crosshair visible={isPlaying} />
+      <PlayerHpHud visible={isPlaying} />
+      <DevControls visible={isPlaying} />
       <Leaderboard
         gameState={gameState}
         playerName={playerName.trim() || "Player"}
         visible={isPlaying}
       />
+      <UpgradePanel visible={isPlaying} />
     </>
   );
 }

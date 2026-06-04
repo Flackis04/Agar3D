@@ -7,6 +7,7 @@ import { setupControls } from "./controls.js";
 import { createCameraController } from "./camera.js";
 import { initializeGame } from "./gameInit.js";
 import { createGameFrame } from "./gameLoop.js";
+import { AudioManager } from "./audio.js";
 
 function disposeObject(object) {
   object.traverse((child) => {
@@ -24,6 +25,7 @@ export function GameScene({ playerName, onReady }) {
   const frameStep = useRef(null);
   const controls = useRef(null);
   const createdObjects = useRef([]);
+  const audioManager = useRef(null);
   const stats = useMemo(() => {
     const panel = new Stats();
     panel.dom.style.display = "block";
@@ -42,6 +44,9 @@ export function GameScene({ playerName, onReady }) {
     scene.background = backgroundColor;
     scene.fog = new THREE.Fog(backgroundColor, 0, 100);
     document.body.appendChild(stats.dom);
+
+    // Initialize audio manager
+    audioManager.current = new AudioManager();
 
     initializeGame(
       scene,
@@ -65,7 +70,8 @@ export function GameScene({ playerName, onReady }) {
         );
         onReady(gameState);
       },
-      playerName
+      playerName,
+      audioManager.current
     );
 
     return () => {
