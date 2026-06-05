@@ -16,6 +16,8 @@ const BALANCE_STORAGE_KEY = "agar3dBalance";
 const AUTH_TOKEN_STORAGE_KEY = "agar3dAuthToken";
 const DEFAULT_API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "::1"];
+const IS_LOCAL_DEV = LOCAL_HOSTS.includes(window.location.hostname);
 const CRYPTO_ASSETS = ["USDC", "USDT", "ETH", "BTC"];
 const PAYMENT_METHODS = [
   { id: "card", label: "Card", helper: "Visa, Mastercard, Amex" },
@@ -530,6 +532,15 @@ function App() {
   }, [gameState, isEscMenuOpen]);
 
   const startGame = useCallback(async () => {
+    if (IS_LOCAL_DEV) {
+      setActivePlayerName(playerName.trim() || "Player");
+      setGameState(null);
+      setIsEscMenuOpen(false);
+      setIsPlaying(true);
+      if (savedMass) setSavedMass(null);
+      return;
+    }
+
     if (!currentUser) {
       alert("Create an account or log in before playing.");
       return;
@@ -582,6 +593,8 @@ function App() {
 
   const playButtonText = savedMass
     ? "Resume"
+    : IS_LOCAL_DEV
+      ? "Play Local"
     : balance < START_COST
       ? "Need $20"
       : "Play - $20";
@@ -636,9 +649,9 @@ function App() {
                 <button
                   id="playButton"
                   onClick={startGame}
-                  disabled={!savedMass && (!currentUser || balance < START_COST)}
+                  disabled={!IS_LOCAL_DEV && !savedMass && (!currentUser || balance < START_COST)}
                 >
-                  {currentUser ? playButtonText : "Log in to play"}
+                  {IS_LOCAL_DEV || currentUser ? playButtonText : "Log in to play"}
                 </button>
               </section>
 
