@@ -1615,8 +1615,9 @@ function randomBetween(min, max) {
 }
 
 function randomPosition(radius = PLAYER_BASE_RADIUS) {
-  const minBound = -HALF_WORLD + radius;
-  const maxBound = HALF_WORLD - radius;
+  const spawnRange = Math.max(0, HALF_WORLD - radius);
+  const minBound = -spawnRange;
+  const maxBound = spawnRange;
   return {
     x: randomBetween(minBound, maxBound),
     y: randomBetween(minBound, maxBound),

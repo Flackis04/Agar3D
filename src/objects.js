@@ -10,6 +10,12 @@ export const pelletMaxSize = 0.04;
 export const minBetUsd = 5;
 export const startingMassUsd = 20;
 
+function randomInsideWorld(radius = 0) {
+  const halfMapSize = mapSize / 2;
+  const maxSpawnRange = Math.max(0, halfMapSize - radius);
+  return (Math.random() - 0.5) * 2 * maxSpawnRange;
+}
+
 export function createPlayerCell(
   isBot,
   scene,
@@ -32,12 +38,9 @@ export function createPlayerCell(
     opacity: playerDefaultOpacity,
   });
 
-  const halfMapSize = mapSize / 2;
-  const maxSpawnRange = halfMapSize - playerStartingRadius;
-
   const [x, y, z] = Array(3)
     .fill()
-    .map(() => (Math.random() - 0.5) * 2 * maxSpawnRange);
+    .map(() => randomInsideWorld(playerStartingRadius));
 
   const cell = new THREE.Mesh(geometry, material);
 
@@ -307,7 +310,7 @@ export function respawnPellet({
 }) {
   const pelletRadius = size;
   const halfMapSize = mapSize / 2;
-  const maxPos = halfMapSize - pelletRadius;
+  const maxPos = Math.max(0, halfMapSize - pelletRadius);
 
   const position = new THREE.Vector3(
     (Math.random() - 0.5) * 2 * maxPos,
@@ -431,13 +434,14 @@ export function createBot(scene, camera) {
 }
 
 export function respawnCell(cell, scene) {
-  const playerStartingMass = 1;
-  const halfMapSize = mapSize / 2;
-  const maxSpawnRange = halfMapSize - playerStartingMass;
+  const radius =
+    cell.geometry?.boundingSphere?.radius && Number.isFinite(cell.geometry.boundingSphere.radius)
+      ? cell.geometry.boundingSphere.radius * Math.max(cell.scale.x, cell.scale.y, cell.scale.z)
+      : 1;
 
   const [x, y, z] = Array(3)
     .fill()
-    .map(() => (Math.random() - 0.5) * 2 * maxSpawnRange);
+    .map(() => randomInsideWorld(radius));
 
   cell.position.set(x, y, z);
   cell.scale.setScalar(1);
