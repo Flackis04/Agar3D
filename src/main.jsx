@@ -705,10 +705,14 @@ function AppContent() {
       }
       if (typeof data.balance === "number") saveBalance(data.balance);
       const status = data.withdrawal?.status || "pending";
+      const payout = data.withdrawal?.payout;
+      const payoutText = payout
+        ? ` (${payout.amount.toFixed(2)} ${payout.currency} payout)`
+        : "";
       setWalletMessage(
         status === "pending"
           ? `Withdrawal pending: ${formatMoney(amount)}. Balance changes after approval.`
-          : `Withdrawal ${status}: ${formatMoney(amount)} removed from balance.`
+          : `Withdrawal ${status}: ${formatMoney(amount)} removed from balance${payoutText}.`
       );
       setWalletAmount("");
     } catch {

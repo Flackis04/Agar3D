@@ -12,6 +12,8 @@ const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
 const databasePath = process.env.DATABASE_PATH || "./data/agar3d.sqlite";
+const stripePayoutCurrency = (process.env.STRIPE_PAYOUT_CURRENCY || "sek").toLowerCase();
+const stripePayoutRate = Number(process.env.STRIPE_PAYOUT_RATE || "10");
 const relayApiBaseUrl = process.env.RELAY_API_BASE_URL || "https://api.relay.link";
 const relayApiKey = process.env.RELAY_API_KEY || "";
 const cryptoDepositPollingEnabled =
@@ -287,6 +289,13 @@ function dollarsToCents(amount) {
 
 function centsToDollars(cents) {
   return Math.round(Number(cents || 0)) / 100;
+}
+
+function convertUsdCentsToPayoutCents(usdCents) {
+  if (!Number.isFinite(stripePayoutRate) || stripePayoutRate <= 0) {
+    return null;
+  }
+  return Math.round(Number(usdCents || 0) * stripePayoutRate);
 }
 
 function normalizeEmail(email) {
@@ -908,35 +917,52 @@ async function requestWithdrawal(req, res) {
         });
         return;
       }
+      const payoutAmountCents = convertUsdCentsToPayoutCents(amountCents);
+      if (!payoutAmountCents) {
+        sendJson(res, 503, {
+          error: "Stripe payout conversion rate is not configured.",
+        });
+        return;
+      }
       const stripeBalance = await stripe.balance.retrieve();
-      const availableUsdCents = findStripeBalanceAmount(
+      const availablePayoutCents = findStripeBalanceAmount(
         stripeBalance.available || [],
-        "usd"
+        stripePayoutCurrency
       );
-      const pendingUsdCents = findStripeBalanceAmount(
+      const pendingPayoutCents = findStripeBalanceAmount(
         stripeBalance.pending || [],
-        "usd"
+        stripePayoutCurrency
       );
-      if (availableUsdCents < amountCents) {
+      if (availablePayoutCents < payoutAmountCents) {
         sendJson(res, 402, {
-          error: `Insufficient available Stripe USD balance. Available: ${centsToDollars(
-            availableUsdCents
-          )} USD. Pending: ${centsToDollars(
-            pendingUsdCents
-          )} USD. Make a completed USD test deposit or wait for funds to become available.`,
-          availableStripeBalance: centsToDollars(availableUsdCents),
-          pendingStripeBalance: centsToDollars(pendingUsdCents),
+          error: `Insufficient available Stripe ${stripePayoutCurrency.toUpperCase()} balance. Available: ${centsToDollars(
+            availablePayoutCents
+          )} ${stripePayoutCurrency.toUpperCase()}. Pending: ${centsToDollars(
+            pendingPayoutCents
+          )} ${stripePayoutCurrency.toUpperCase()}. This ${centsToDollars(
+            amountCents
+          )} USD withdrawal needs ${centsToDollars(
+            payoutAmountCents
+          )} ${stripePayoutCurrency.toUpperCase()}.`,
+          availableStripeBalance: centsToDollars(availablePayoutCents),
+          pendingStripeBalance: centsToDollars(pendingPayoutCents),
+          stripePayoutCurrency,
+          stripePayoutAmount: centsToDollars(payoutAmountCents),
         });
         return;
       }
       let transfer;
       try {
         transfer = await stripe.transfers.create({
-          amount: amountCents,
-          currency: "usd",
+          amount: payoutAmountCents,
+          currency: stripePayoutCurrency,
           destination: account.id,
           metadata: {
             agar3d_user_id: user.id,
+            withdrawal_amount_usd: centsToDollars(amountCents).toFixed(2),
+            payout_amount: centsToDollars(payoutAmountCents).toFixed(2),
+            payout_currency: stripePayoutCurrency,
+            payout_rate: String(stripePayoutRate),
             withdrawal_method: "card",
           },
         });
@@ -981,13 +1007,21 @@ async function requestWithdrawal(req, res) {
     sendJson(res, 200, {
       balance,
       withdrawal: {
-        id: withdrawalId,
-        amount: centsToDollars(amountCents),
-        method: normalizedMethod,
-        status: withdrawalStatus,
-        providerReference,
-      },
-    });
+      id: withdrawalId,
+      amount: centsToDollars(amountCents),
+      method: normalizedMethod,
+      status: withdrawalStatus,
+      providerReference,
+      payout:
+        normalizedMethod === "card"
+          ? {
+              amount: centsToDollars(convertUsdCentsToPayoutCents(amountCents)),
+              currency: stripePayoutCurrency.toUpperCase(),
+              rate: stripePayoutRate,
+            }
+          : null,
+    },
+  });
   } catch (error) {
     console.error("Withdrawal request failed:", {
       message: error?.message,
