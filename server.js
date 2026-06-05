@@ -143,7 +143,7 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e8,
 });
 
-const WORLD_SIZE = 250;
+const WORLD_SIZE = 125;
 const HALF_WORLD = WORLD_SIZE / 2;
 const DEFAULT_STARTING_MASS_USD = 20;
 const MIN_BET_USD = 5;

@@ -3,7 +3,7 @@ import * as THREE from "three";
 import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { SpatialGrid } from "./utils/spatialGrid.js";
 
-export const mapSize = 250;
+export const mapSize = 125;
 export const pelletCount = 100000;
 export const pelletMinSize = 0.03;
 export const pelletMaxSize = 0.04;
