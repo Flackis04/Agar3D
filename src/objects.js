@@ -199,33 +199,26 @@ export function createPelletsInstanced(scene, count, colors) {
   const bombRolls = new Array(count);
   const pelletToMeshIndex = new Array(count);
 
-  let powerupCount = 0;
-  let normalCount = 0;
   for (let i = 0; i < count; i++) {
     const color = new THREE.Color(colors[i % colors.length]);
     const isPowerUp =
       color.getHex() === 0xff0000 && Math.floor(Math.random() * 3) === 0;
     powerUps[i] = isPowerUp;
     bombRolls[i] = Math.random();
-    if (isPowerUp) powerupCount++;
-    else normalCount++;
   }
 
   const meshNormal = new THREE.InstancedMesh(
     geometry,
     materialNormal,
-    normalCount
+    count
   );
   const meshPowerup = new THREE.InstancedMesh(
     geometry,
     materialPowerup,
-    powerupCount
+    1
   );
   meshNormal.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   meshPowerup.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-
-  let normalIdx = 0;
-  let powerupIdx = 0;
 
   for (let i = 0; i < count; i++) {
     const color = new THREE.Color(colors[i % colors.length]);
@@ -244,22 +237,21 @@ export function createPelletsInstanced(scene, count, colors) {
       isPowerUp,
       meshNormal,
       meshPowerup,
-      normalIdx,
-      powerupIdx,
+      normalIdx: i,
+      powerupIdx: 0,
       pelletToMeshIndex,
       i,
       isInitialSpawn: true,
     });
-    if (isPowerUp) {
-      powerupIdx++;
-    } else {
-      normalIdx++;
-    }
     positions.push(position.clone());
   }
 
   meshNormal.instanceMatrix.needsUpdate = true;
   if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
+  dummy.position.set(0, 0, 0);
+  dummy.scale.setScalar(0.0001);
+  dummy.updateMatrix();
+  meshPowerup.setMatrixAt(0, dummy.matrix);
   meshPowerup.instanceMatrix.needsUpdate = true;
   if (meshPowerup.instanceColor) meshPowerup.instanceColor.needsUpdate = true;
 
@@ -334,19 +326,11 @@ export function respawnPellet({
   dummy.scale.setScalar(initialScale);
   dummy.updateMatrix();
 
-  if (isPowerUp) {
-    meshPowerup.setMatrixAt(powerupIdx, dummy.matrix);
-    meshPowerup.setColorAt(powerupIdx, color);
-    meshPowerup.instanceMatrix.needsUpdate = true;
-    if (meshPowerup.instanceColor) meshPowerup.instanceColor.needsUpdate = true;
-    pelletToMeshIndex[i] = powerupIdx;
-  } else {
-    meshNormal.setMatrixAt(normalIdx, dummy.matrix);
-    meshNormal.setColorAt(normalIdx, color);
-    meshNormal.instanceMatrix.needsUpdate = true;
-    if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
-    pelletToMeshIndex[i] = normalIdx;
-  }
+  meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+  meshNormal.setColorAt(normalIdx, color);
+  meshNormal.instanceMatrix.needsUpdate = true;
+  if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
+  pelletToMeshIndex[i] = normalIdx;
 
   if (!isInitialSpawn) {
     const spawnTime = performance.now();
@@ -365,13 +349,8 @@ export function respawnPellet({
       dummy.scale.setScalar(currentScale);
       dummy.updateMatrix();
 
-      if (isPowerUp) {
-        meshPowerup.setMatrixAt(powerupIdx, dummy.matrix);
-        meshPowerup.instanceMatrix.needsUpdate = true;
-      } else {
-        meshNormal.setMatrixAt(normalIdx, dummy.matrix);
-        meshNormal.instanceMatrix.needsUpdate = true;
-      }
+      meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+      meshNormal.instanceMatrix.needsUpdate = true;
 
       if (progress < 1) {
         requestAnimationFrame(animateGrowth);

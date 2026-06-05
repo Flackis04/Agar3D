@@ -333,8 +333,7 @@ let pelletHandlersRegistered = false;
 
 function updatePelletInstance(index) {
   if (!pelletDataRef) return;
-  const isPowerUp = pelletDataRef.powerUps[index];
-  const mesh = isPowerUp ? pelletDataRef.meshPowerup : pelletDataRef.mesh;
+  const mesh = pelletDataRef.mesh;
   if (!mesh) return;
   const meshIndex = pelletDataRef.pelletToMeshIndex[index];
   if (meshIndex === undefined) return;
@@ -364,6 +363,9 @@ function registerPelletHandlers() {
       if (Array.isArray(state.sizes) && typeof state.sizes[i] === "number") {
         pelletDataRef.sizes[i] = state.sizes[i];
       }
+      if (Array.isArray(state.powerUps)) {
+        pelletDataRef.powerUps[i] = Boolean(state.powerUps[i]);
+      }
       pelletDataRef.positions[i].set(
         state.positions[i].x,
         state.positions[i].y,
@@ -386,6 +388,12 @@ function registerPelletHandlers() {
       data.position.y,
       data.position.z
     );
+    if (typeof data.size === "number") {
+      pelletDataRef.sizes[data.index] = data.size;
+    }
+    if (typeof data.isPowerUp === "boolean") {
+      pelletDataRef.powerUps[data.index] = data.isPowerUp;
+    }
     pelletDataRef.active[data.index] = true;
     updatePelletInstance(data.index);
   });

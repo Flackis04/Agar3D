@@ -1485,6 +1485,7 @@ function createGameTicket({ userId, startingMass }) {
   gameTickets.set(ticket, {
     userId,
     startingMass,
+    entryCharged: true,
     expiresAt: Date.now() + 60_000,
   });
   return ticket;
@@ -1515,8 +1516,22 @@ function respawnPellet(pellet) {
   io.emit("pellet-respawn", {
     index: pellet.index,
     position: pellet.position,
+    size: pellet.size,
     isPowerUp: pellet.isPowerUp,
   });
+}
+
+function settlePlayerDeath(player) {
+  if (!player?.userId || player.entryCharged) return;
+  const entryCents = Math.max(0, Math.round((player.startingMass || 0) * 100));
+  if (!entryCents) return;
+  adjustUserBalance({
+    userId: player.userId,
+    amountCents: -entryCents,
+    type: "game_death_loss",
+    notes: `Lost ${player.startingMass} entry mass on death.`,
+  });
+  player.entryCharged = true;
 }
 
 function handlePelletCollisions(player) {
@@ -1538,6 +1553,7 @@ function handlePelletCollisions(player) {
         gainedMass / Math.max(1, player.startingMass || DEFAULT_STARTING_MASS_USD)
       );
       if (pellet.bombRoll < bombChance) {
+        settlePlayerDeath(player);
         players.delete(player.id);
         io.emit("pellet-eaten", { index: pellet.index });
         io.emit("player-killed", { id: player.id });
@@ -1694,6 +1710,7 @@ io.on("connection", (socket) => {
     const player = {
       id: socket.id,
       userId: ticket?.userId || null,
+      entryCharged: Boolean(ticket?.entryCharged),
       name: name || "Player",
       position: spawnPosition,
       radius: playerRadius,
