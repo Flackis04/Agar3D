@@ -834,132 +834,145 @@ function createWithdrawalRequest({
 }
 
 async function requestWithdrawal(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  if (user.frozen) {
-    sendJson(res, 403, { error: "Account is frozen pending payment review." });
-    return;
-  }
-  if (!user.terms_accepted_at) {
-    sendJson(res, 403, { error: "Terms must be accepted before withdrawing." });
-    return;
-  }
-
-  const { amountUsd, method, destination, cryptoAsset } = await readJsonBody(req);
-  const amountCents = dollarsToCents(amountUsd);
-  if (!amountCents) {
-    sendJson(res, 400, { error: "Enter a valid withdrawal amount." });
-    return;
-  }
-  if (amountCents > user.balance_cents) {
-    sendJson(res, 402, { error: "Insufficient balance." });
-    return;
-  }
-
-  const normalizedMethod = `${method || ""}`.toLowerCase();
-  if (!["card", "crypto"].includes(normalizedMethod)) {
-    sendJson(res, 400, { error: "Choose Mastercard/card or crypto withdrawal." });
-    return;
-  }
-  const payoutMode = process.env[
-    normalizedMethod === "crypto" ? "CRYPTO_PAYOUT_MODE" : "CARD_PAYOUT_MODE"
-  ] || "manual";
-  if (payoutMode !== "manual") {
-    sendJson(res, 503, {
-      error:
-        "Automatic payouts are not configured. Set payout provider credentials before enabling this mode.",
-    });
-    return;
-  }
-  const payoutDestination =
-    normalizedMethod === "crypto"
-      ? `${cryptoAsset || "CRYPTO"}:${destination || ""}`.trim()
-      : `${destination || "card payout method on file"}`;
-  if (normalizedMethod === "crypto" && !destination) {
-    sendJson(res, 400, { error: "Enter a crypto wallet address." });
-    return;
-  }
-
-  let providerReference = null;
-  let withdrawalStatus = "pending";
-  if (normalizedMethod === "card") {
-    if (!stripe) {
-      sendJson(res, 503, { error: "Stripe is not configured." });
+  try {
+    const user = requireUser(req, res);
+    if (!user) return;
+    if (user.frozen) {
+      sendJson(res, 403, { error: "Account is frozen pending payment review." });
       return;
     }
-    const account = await getOrCreateStripeConnectedAccount(user);
-    if (!stripeAccountCanReceiveWithdrawal(account)) {
-      const accountLink = await createStripeConnectOnboardingLink(user, clientUrl);
-      sendJson(res, 409, {
-        error: "Complete Stripe payout onboarding before withdrawing.",
-        onboardingUrl: accountLink.url,
-        account: {
-          id: account.id,
-          detailsSubmitted: Boolean(account.details_submitted),
-          payoutsEnabled: Boolean(account.payouts_enabled),
-        },
-      });
+    if (!user.terms_accepted_at) {
+      sendJson(res, 403, { error: "Terms must be accepted before withdrawing." });
       return;
     }
-    let transfer;
-    try {
-      transfer = await stripe.transfers.create({
-        amount: amountCents,
-        currency: "usd",
-        destination: account.id,
-        metadata: {
-          agar3d_user_id: user.id,
-          withdrawal_method: "card",
-        },
-      });
-    } catch (error) {
-      console.error("Stripe transfer failed:", {
-        message: error?.message,
-        code: error?.code,
-        type: error?.type,
-        declineCode: error?.decline_code,
-      });
-      sendJson(res, 502, {
+
+    const { amountUsd, method, destination, cryptoAsset } = await readJsonBody(req);
+    const amountCents = dollarsToCents(amountUsd);
+    if (!amountCents) {
+      sendJson(res, 400, { error: "Enter a valid withdrawal amount." });
+      return;
+    }
+    if (amountCents > user.balance_cents) {
+      sendJson(res, 402, { error: "Insufficient balance." });
+      return;
+    }
+
+    const normalizedMethod = `${method || ""}`.toLowerCase();
+    if (!["card", "crypto"].includes(normalizedMethod)) {
+      sendJson(res, 400, { error: "Choose Mastercard/card or crypto withdrawal." });
+      return;
+    }
+    const payoutMode = process.env[
+      normalizedMethod === "crypto" ? "CRYPTO_PAYOUT_MODE" : "CARD_PAYOUT_MODE"
+    ] || "manual";
+    if (payoutMode !== "manual") {
+      sendJson(res, 503, {
         error:
-          error?.message ||
-          "Stripe could not create the withdrawal transfer. Check your Stripe balance and Connect setup.",
-        code: error?.code || null,
+          "Automatic payouts are not configured. Set payout provider credentials before enabling this mode.",
       });
       return;
     }
-    providerReference = transfer.id;
-    withdrawalStatus = "processing";
-  }
+    const payoutDestination =
+      normalizedMethod === "crypto"
+        ? `${cryptoAsset || "CRYPTO"}:${destination || ""}`.trim()
+        : `${destination || "card payout method on file"}`;
+    if (normalizedMethod === "crypto" && !destination) {
+      sendJson(res, 400, { error: "Enter a crypto wallet address." });
+      return;
+    }
 
-  const withdrawalId = createWithdrawalRequest({
-    userId: user.id,
-    amountCents,
-    method: normalizedMethod,
-    destination: payoutDestination,
-    status: withdrawalStatus,
-    providerReference,
-  });
-  const balance =
-    withdrawalStatus === "pending"
-      ? centsToDollars(user.balance_cents)
-      : adjustUserBalance({
-          userId: user.id,
-          amountCents: -amountCents,
-          type: "withdrawal_accepted",
-          provider: normalizedMethod,
-          providerReference: withdrawalId,
-          notes: `Withdrawal accepted via ${normalizedMethod}.`,
+    let providerReference = null;
+    let withdrawalStatus = "pending";
+    if (normalizedMethod === "card") {
+      if (!stripe) {
+        sendJson(res, 503, { error: "Stripe is not configured." });
+        return;
+      }
+      const account = await getOrCreateStripeConnectedAccount(user);
+      if (!stripeAccountCanReceiveWithdrawal(account)) {
+        const accountLink = await createStripeConnectOnboardingLink(user, clientUrl);
+        sendJson(res, 409, {
+          error: "Complete Stripe payout onboarding before withdrawing.",
+          onboardingUrl: accountLink.url,
+          account: {
+            id: account.id,
+            detailsSubmitted: Boolean(account.details_submitted),
+            payoutsEnabled: Boolean(account.payouts_enabled),
+          },
         });
-  sendJson(res, 200, {
-    balance,
-    withdrawal: {
-      id: withdrawalId,
-      amount: centsToDollars(amountCents),
+        return;
+      }
+      let transfer;
+      try {
+        transfer = await stripe.transfers.create({
+          amount: amountCents,
+          currency: "usd",
+          destination: account.id,
+          metadata: {
+            agar3d_user_id: user.id,
+            withdrawal_method: "card",
+          },
+        });
+      } catch (error) {
+        console.error("Stripe transfer failed:", {
+          message: error?.message,
+          code: error?.code,
+          type: error?.type,
+          declineCode: error?.decline_code,
+        });
+        sendJson(res, 502, {
+          error:
+            error?.message ||
+            "Stripe could not create the withdrawal transfer. Check your Stripe balance and Connect setup.",
+          code: error?.code || null,
+        });
+        return;
+      }
+      providerReference = transfer.id;
+      withdrawalStatus = "processing";
+    }
+
+    const withdrawalId = createWithdrawalRequest({
+      userId: user.id,
+      amountCents,
       method: normalizedMethod,
+      destination: payoutDestination,
       status: withdrawalStatus,
       providerReference,
-    },
-  });
+    });
+    const balance =
+      withdrawalStatus === "pending"
+        ? centsToDollars(user.balance_cents)
+        : adjustUserBalance({
+            userId: user.id,
+            amountCents: -amountCents,
+            type: "withdrawal_accepted",
+            provider: normalizedMethod,
+            providerReference: withdrawalId,
+            notes: `Withdrawal accepted via ${normalizedMethod}.`,
+          });
+    sendJson(res, 200, {
+      balance,
+      withdrawal: {
+        id: withdrawalId,
+        amount: centsToDollars(amountCents),
+        method: normalizedMethod,
+        status: withdrawalStatus,
+        providerReference,
+      },
+    });
+  } catch (error) {
+    console.error("Withdrawal request failed:", {
+      message: error?.message,
+      code: error?.code,
+      type: error?.type,
+      stack: error?.stack,
+    });
+    sendJson(res, 502, {
+      error: error?.message || "Withdrawal failed before it could be submitted.",
+      code: error?.code || null,
+    });
+  }
 }
 
 async function createCryptoDepositSession(req, res) {
