@@ -4,51 +4,10 @@ import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js"
 import { SpatialGrid } from "./utils/spatialGrid.js";
 
 export const mapSize = 250;
+export const pelletCount = 25000;
 export const pelletMinSize = 0.3;
 export const pelletMaxSize = 0.55;
 export const startingMassUsd = 20;
-const powerUpInterval = 24;
-const pelletClusterCount = 96;
-const pelletClusterChance = 0.28;
-const pelletClusterRadius = 28;
-
-function isPowerUpIndex(index) {
-  return index % powerUpInterval === 0;
-}
-
-function randomClusterOffset(radius) {
-  const distance = Math.pow(Math.random(), 1.8) * radius;
-  const theta = Math.random() * Math.PI * 2;
-  const phi = Math.acos(2 * Math.random() - 1);
-  return new THREE.Vector3(
-    distance * Math.sin(phi) * Math.cos(theta),
-    distance * Math.sin(phi) * Math.sin(theta),
-    distance * Math.cos(phi)
-  );
-}
-
-function randomMapPosition(radius) {
-  const maxPos = mapSize / 2 - radius;
-  return new THREE.Vector3(
-    (Math.random() - 0.5) * 2 * maxPos,
-    (Math.random() - 0.5) * 2 * maxPos,
-    (Math.random() - 0.5) * 2 * maxPos
-  );
-}
-
-function randomPelletPosition(radius, clusterCenters) {
-  if (!clusterCenters?.length || Math.random() > pelletClusterChance) {
-    return randomMapPosition(radius);
-  }
-
-  const center = clusterCenters[Math.floor(Math.random() * clusterCenters.length)];
-  const position = center.clone().add(randomClusterOffset(pelletClusterRadius));
-  const maxPos = mapSize / 2 - radius;
-  position.x = Math.max(-maxPos, Math.min(maxPos, position.x));
-  position.y = Math.max(-maxPos, Math.min(maxPos, position.y));
-  position.z = Math.max(-maxPos, Math.min(maxPos, position.z));
-  return position;
-}
 
 export function createPlayerCell(isBot, scene, camera) {
   const playerStartingRadius = isBot
@@ -213,7 +172,7 @@ export function createMapBox(onReady) {
 }
 
 export function createPelletsInstanced(scene, count, colors) {
-  const geometry = new THREE.SphereGeometry(1, 5, 3);
+  const geometry = new THREE.SphereGeometry(1, 8, 8);
   const materialNormal = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     opacity: 1,
@@ -231,14 +190,13 @@ export function createPelletsInstanced(scene, count, colors) {
   const active = new Array(count).fill(true);
   const powerUps = new Array(count);
   const pelletToMeshIndex = new Array(count);
-  const clusterCenters = Array.from({ length: pelletClusterCount }, () =>
-    randomMapPosition(pelletClusterRadius)
-  );
 
   let powerupCount = 0;
   let normalCount = 0;
   for (let i = 0; i < count; i++) {
-    const isPowerUp = isPowerUpIndex(i);
+    const color = new THREE.Color(colors[i % colors.length]);
+    const isPowerUp =
+      color.getHex() === 0xff0000 && Math.floor(Math.random() * 3) === 0;
     powerUps[i] = isPowerUp;
     if (isPowerUp) powerupCount++;
     else normalCount++;
@@ -254,13 +212,15 @@ export function createPelletsInstanced(scene, count, colors) {
     materialPowerup,
     powerupCount
   );
+  meshNormal.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  meshPowerup.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
   let normalIdx = 0;
   let powerupIdx = 0;
 
   for (let i = 0; i < count; i++) {
+    const color = new THREE.Color(colors[i % colors.length]);
     const isPowerUp = powerUps[i];
-    const color = new THREE.Color(isPowerUp ? 0xff0000 : colors[i % colors.length]);
 
     const size =
       Math.random() * (pelletMaxSize - pelletMinSize) + pelletMinSize;
@@ -278,7 +238,6 @@ export function createPelletsInstanced(scene, count, colors) {
       normalIdx,
       powerupIdx,
       pelletToMeshIndex,
-      clusterCenters,
       i,
       isInitialSpawn: true,
     });
@@ -340,12 +299,18 @@ export function respawnPellet({
   normalIdx,
   powerupIdx,
   pelletToMeshIndex,
-  clusterCenters,
   i,
   isInitialSpawn = false,
 }) {
   const pelletRadius = size;
-  const position = randomPelletPosition(pelletRadius, clusterCenters);
+  const halfMapSize = mapSize / 2;
+  const maxPos = halfMapSize - pelletRadius;
+
+  const position = new THREE.Vector3(
+    (Math.random() - 0.5) * 2 * maxPos,
+    (Math.random() - 0.5) * 2 * maxPos,
+    (Math.random() - 0.5) * 2 * maxPos
+  );
 
   const initialScale = isInitialSpawn ? size : 0;
 
@@ -406,6 +371,55 @@ export function respawnPellet({
   }
 
   return position;
+}
+
+export function createViruses(scene) {
+  const VIRUS_COUNT = 125;
+  const VIRUS_SIZE = 1.75;
+  const virusColor = 0x32cd32;
+  const geometry = new THREE.DodecahedronGeometry(VIRUS_SIZE);
+  const material = new THREE.MeshStandardMaterial({
+    color: virusColor,
+    opacity: 0.8,
+    transparent: true,
+  });
+  const border = mapSize / 2 - VIRUS_SIZE;
+  const positions = [];
+  const virusCells = [];
+  for (let i = 0; i < VIRUS_COUNT; i++) {
+    let pos;
+    let tries = 0;
+    do {
+      pos = new THREE.Vector3(
+        Math.random() * (border * 2 - VIRUS_SIZE * 2) - (border - VIRUS_SIZE),
+        Math.random() * (border * 2 - VIRUS_SIZE * 2) - (border - VIRUS_SIZE),
+        Math.random() * (border * 2 - VIRUS_SIZE * 2) - (border - VIRUS_SIZE)
+      );
+      tries++;
+    } while (
+      positions.some((p) => p.distanceTo(pos) < VIRUS_SIZE * 2.1) &&
+      tries < 20
+    );
+    positions.push(pos);
+    const mesh = new THREE.Mesh(geometry, material.clone());
+    mesh.position.copy(pos);
+    mesh.userData.baseScale = 1;
+    virusCells.push(mesh);
+    scene.add(mesh);
+  }
+
+  scene.userData.virusCells = virusCells;
+
+  function animateViruses(time) {
+    for (let i = 0; i < virusCells.length; i++) {
+      const mesh = virusCells[i];
+      mesh.rotation.y += 0.005;
+      mesh.rotation.x += 0.002;
+      const scale = mesh.userData.baseScale + 0.08 * Math.sin(time * 0.001 + i);
+      mesh.scale.setScalar(scale);
+    }
+  }
+  scene.userData.animateViruses = animateViruses;
 }
 
 export function createSplitSphere(playerCell) {

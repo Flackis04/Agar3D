@@ -68,7 +68,8 @@ canvas {
   box-sizing: border-box;
 }
 
-#walletPanel {
+#walletPanel,
+#accountPanel {
   width: 300px;
   margin-bottom: 18px;
   display: flex;
@@ -121,6 +122,8 @@ canvas {
 }
 
 #walletPanel input,
+#accountPanel input[type="email"],
+#accountPanel input[type="password"],
 #walletPanel select {
   min-width: 0;
   padding: 10px 12px;
@@ -130,6 +133,53 @@ canvas {
   color: white;
   outline: none;
   box-sizing: border-box;
+}
+
+.account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+}
+
+.account-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-row button,
+#authButton,
+#termsButton {
+  min-height: 34px;
+  border: 1px solid rgba(102, 170, 255, 0.45);
+  border-radius: 8px;
+  background: rgba(0, 102, 204, 0.85);
+  color: white;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.terms-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.terms-check input {
+  margin-top: 2px;
+}
+
+.account-warning {
+  color: #ff8080;
+  font-size: 13px;
 }
 
 .wallet-address {

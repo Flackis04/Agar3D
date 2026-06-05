@@ -4,15 +4,12 @@ import react from '@vitejs/plugin-react'
 export default {
   plugins: [react()],
   server: {
-    host: '0.0.0.0',
     port: 3000,
-    strictPort: true,
-    allowedHosts: true,
-    proxy: {
-      '/socket.io': {
-        target: 'http://localhost:3001',
-        ws: true
-      }
-    }
+    allowedHosts: [
+      '3613701d66c0.ngrok-free.app',
+      '3ed1d0861bcb.ngrok-free.app',
+      'a1c32d063fb7.ngrok-free.app',
+      'f52da99c4c4d.ngrok-free.app'
+    ]
   }
 }

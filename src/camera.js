@@ -21,35 +21,22 @@ function calculateDirectionVector(yaw, pitch, scale = 1) {
   );
 }
 
-export function calculateCameraDistanceTarget(playerCell, magnetActive) {
-  const playerRadius = calculateCellRadius(playerCell);
-  const baseMultiplier = magnetActive ? 28 : 22;
-  const minMultiplier = magnetActive ? 12 : 8;
-
-  const sizeOffset = Math.sqrt(playerRadius) * 2;
-  const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, minMultiplier);
-
-  return playerRadius * adjustedMultiplier;
-}
-
 function calculateCameraDistanceFromPlayer(
   playerCell,
   magnetActive,
   smoothFollowDistance,
-  zoomAmount,
   cameraLerpSpeed = 0.005
 ) {
-  const farFollowDistance = calculateCameraDistanceTarget(
-    playerCell,
-    magnetActive
-  );
   const playerRadius = calculateCellRadius(playerCell);
-  const firstPersonDistance = Math.max(0.05, playerRadius * 0.05);
-  const targetFollowDistance = THREE.MathUtils.lerp(
-    firstPersonDistance,
-    farFollowDistance,
-    zoomAmount
-  );
+  const baseMultiplier = magnetActive ? 16 : 12;
+
+  // Add offset that brings camera closer as player gets bigger
+
+  const sizeOffset = Math.sqrt(playerRadius) * 3; // Adjust multiplier to control how much closer
+  const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, 3); // Min distance of 3
+
+  const targetFollowDistance = playerRadius * adjustedMultiplier;
+
   smoothFollowDistance +=
     (targetFollowDistance - smoothFollowDistance) * cameraLerpSpeed;
   return smoothFollowDistance;
@@ -61,9 +48,7 @@ export function createCameraController(camera, playerCell, cameraLerpSpeed) {
   const devRotation = { yaw: 0, pitch: 0 };
   const devSpeed = 1;
   const followLerpSpeed = cameraLerpSpeed ?? 0.005;
-  let smoothFollowDistance = 0.05;
-  let zoomAmount = 0;
-  const zoomStep = 0.2;
+  let smoothFollowDistance = 8;
 
   function ensureCameraIsInBox(pos) {
     pos.x = Math.max(-mapSize / 2, Math.min(mapSize / 2, pos.x));
@@ -112,29 +97,20 @@ export function createCameraController(camera, playerCell, cameraLerpSpeed) {
       playerCell,
       magnetActive,
       smoothFollowDistance,
-      zoomAmount,
       followLerpSpeed
     );
 
-    const offsetDirection = calculateDirectionVector(
+    const offset = calculateDirectionVector(
       playerRotation.yaw,
       playerRotation.pitch,
-      1
-    ).normalize();
-    const offset = offsetDirection.clone().multiplyScalar(smoothFollowDistance);
+      smoothFollowDistance
+    );
 
     camera.position.copy(playerCell.position.clone().add(offset));
 
     ensureCameraIsInBox(camera.position);
 
-    const isFirstPerson = zoomAmount <= 0;
-    playerCell.visible = !isFirstPerson;
-
-    if (isFirstPerson) {
-      camera.lookAt(camera.position.clone().sub(offsetDirection));
-    } else {
-      camera.lookAt(playerCell.position);
-    }
+    camera.lookAt(playerCell.position);
 
     //checkCellDistanceFromCamera()
   }
@@ -156,7 +132,6 @@ export function createCameraController(camera, playerCell, cameraLerpSpeed) {
 
   function updateCamera(playerRotation, keys, playerSpeed, magnetActive) {
     if (devMode) {
-      if (playerCell) playerCell.visible = true;
       updateDevCamera(keys);
     } else {
       updatePlayerCamera(playerRotation, keys, playerSpeed, magnetActive);
@@ -169,25 +144,12 @@ export function createCameraController(camera, playerCell, cameraLerpSpeed) {
     devRotation.pitch = clampPitch(devRotation.pitch);
   }
 
-  function adjustZoom(deltaY) {
-    if (devMode) return;
-    zoomAmount = THREE.MathUtils.clamp(
-      zoomAmount + Math.sign(deltaY) * zoomStep,
-      0,
-      1
-    );
-  }
-
   function isDevMode() {
     return devMode;
   }
 
   function getCameraDistance() {
     return smoothFollowDistance;
-  }
-
-  function getMaxCameraDistance(magnetActive = false) {
-    return playerCell ? calculateCameraDistanceTarget(playerCell, magnetActive) : 1;
   }
 
   function getPlayerRadius() {
@@ -198,10 +160,8 @@ export function createCameraController(camera, playerCell, cameraLerpSpeed) {
     updateCamera,
     toggleDeveloperMode,
     updateDevRotation,
-    adjustZoom,
     isDevMode,
     getCameraDistance,
-    getMaxCameraDistance,
     getPlayerRadius,
   };
 }
@@ -226,6 +186,11 @@ export function handleDevModeObjectVisibility(
       pelletData._devModeRemoved = true;
     }
 
+    if (scene.userData.virusCells) {
+      for (const mesh of scene.userData.virusCells) {
+        if (scene.children.includes(mesh)) scene.remove(mesh);
+      }
+    }
   } else {
     if (typeof scene._originalFog !== "undefined")
       scene.fog = scene._originalFog;
@@ -240,6 +205,11 @@ export function handleDevModeObjectVisibility(
       )
         scene.add(pelletData.meshPowerup);
       pelletData._devModeRemoved = false;
+    }
+    if (scene.userData.virusCells) {
+      for (const mesh of scene.userData.virusCells) {
+        if (!scene.children.includes(mesh)) scene.add(mesh);
+      }
     }
   }
 }
