@@ -7,8 +7,8 @@ export const mapSize = 250;
 export const pelletCount = 500000;
 export const pelletMinSize = 0.03;
 export const pelletMaxSize = 0.04;
-export const pelletRenderDistance = 95;
-export const maxRenderedPellets = 140000;
+export const pelletRenderDistance = 55;
+export const maxRenderedPellets = 45000;
 export const minBetUsd = 5;
 export const startingMassUsd = 20;
 
@@ -250,7 +250,8 @@ export function createPelletsInstanced(scene, count, colors) {
 
   meshNormal.instanceMatrix.needsUpdate = true;
   if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
-  meshNormal.count = Math.min(count, maxRenderedPellets);
+  pelletToMeshIndex.fill(-1);
+  meshNormal.count = 0;
   dummy.position.set(0, 0, 0);
   dummy.scale.setScalar(0.0001);
   dummy.updateMatrix();
@@ -290,6 +291,7 @@ export function createPelletsInstanced(scene, count, colors) {
     maxRendered: maxRenderedPellets,
     lastVisibilityUpdate: 0,
     lastVisibilityPosition: new THREE.Vector3(Number.POSITIVE_INFINITY, 0, 0),
+    renderedPelletIndices: [],
   };
 }
 
@@ -392,13 +394,18 @@ export function updateVisiblePellets(pelletData, playerPosition, now = performan
 
   const lastPos = pelletData.lastVisibilityPosition;
   const movedEnough =
-    !Number.isFinite(lastPos?.x) || playerPosition.distanceToSquared(lastPos) > 36;
-  if (!movedEnough && now - pelletData.lastVisibilityUpdate < 140) return;
+    !Number.isFinite(lastPos?.x) || playerPosition.distanceToSquared(lastPos) > 16;
+  if (!movedEnough && now - pelletData.lastVisibilityUpdate < 80) return;
 
   pelletData.lastVisibilityUpdate = now;
   if (lastPos) lastPos.copy(playerPosition);
 
-  pelletToMeshIndex.fill(-1);
+  const renderedPelletIndices = pelletData.renderedPelletIndices || [];
+  for (let i = 0; i < renderedPelletIndices.length; i++) {
+    pelletToMeshIndex[renderedPelletIndices[i]] = -1;
+  }
+  renderedPelletIndices.length = 0;
+
   const visibleIndices = spatialGrid.getItemsInRadius(
     playerPosition.x,
     playerPosition.y,
@@ -423,9 +430,11 @@ export function updateVisiblePellets(pelletData, playerPosition, now = performan
     color.set(colors[i % colors.length]);
     mesh.setColorAt(rendered, color);
     pelletToMeshIndex[i] = rendered;
+    renderedPelletIndices.push(i);
     rendered++;
   }
 
+  pelletData.renderedPelletIndices = renderedPelletIndices;
   mesh.count = rendered;
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
