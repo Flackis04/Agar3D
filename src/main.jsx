@@ -709,10 +709,18 @@ function AppContent() {
       const payoutText = payout
         ? ` (${payout.amount.toFixed(2)} ${payout.currency} payout)`
         : "";
+      const debitedAmount =
+        typeof data.amountDebited === "number" ? data.amountDebited : amount;
+      const newBalanceText =
+        typeof data.balance === "number" ? ` Balance now ${formatMoney(data.balance)}.` : "";
       setWalletMessage(
         status === "pending"
           ? `Withdrawal pending: ${formatMoney(amount)}. Balance changes after approval.`
-          : `Withdrawal ${status}: ${formatMoney(amount)} removed from balance${payoutText}.`
+          : data.debitApplied
+          ? `Withdrawal ${status}: ${formatMoney(
+              debitedAmount
+            )} removed from balance${payoutText}.${newBalanceText}`
+          : `Withdrawal ${status}, but balance was not debited. Try refreshing.`
       );
       setWalletAmount("");
     } catch {

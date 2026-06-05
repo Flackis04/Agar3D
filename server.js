@@ -993,35 +993,53 @@ async function requestWithdrawal(req, res) {
       status: withdrawalStatus,
       providerReference,
     });
-    const balance =
-      withdrawalStatus === "pending"
-        ? centsToDollars(user.balance_cents)
-        : adjustUserBalance({
-            userId: user.id,
-            amountCents: -amountCents,
-            type: "withdrawal_accepted",
-            provider: normalizedMethod,
-            providerReference: withdrawalId,
-            notes: `Withdrawal accepted via ${normalizedMethod}.`,
-          });
-    sendJson(res, 200, {
-      balance,
-      withdrawal: {
-      id: withdrawalId,
-      amount: centsToDollars(amountCents),
+    const previousBalance = centsToDollars(user.balance_cents);
+    const debitApplied = withdrawalStatus !== "pending";
+    const amountDebited = debitApplied ? centsToDollars(amountCents) : 0;
+    const balance = debitApplied
+      ? adjustUserBalance({
+          userId: user.id,
+          amountCents: -amountCents,
+          type: "withdrawal_accepted",
+          provider: normalizedMethod,
+          providerReference: withdrawalId,
+          notes: `Withdrawal accepted via ${normalizedMethod}.`,
+        })
+      : previousBalance;
+
+    console.log("Withdrawal request handled:", {
+      withdrawalId,
+      userId: user.id,
       method: normalizedMethod,
       status: withdrawalStatus,
       providerReference,
-      payout:
-        normalizedMethod === "card"
-          ? {
-              amount: centsToDollars(convertUsdCentsToPayoutCents(amountCents)),
-              currency: stripePayoutCurrency.toUpperCase(),
-              rate: stripePayoutRate,
-            }
-          : null,
-    },
-  });
+      previousBalance,
+      amountDebited,
+      balance,
+      debitApplied,
+    });
+
+    sendJson(res, 200, {
+      balance,
+      previousBalance,
+      amountDebited,
+      debitApplied,
+      withdrawal: {
+        id: withdrawalId,
+        amount: centsToDollars(amountCents),
+        method: normalizedMethod,
+        status: withdrawalStatus,
+        providerReference,
+        payout:
+          normalizedMethod === "card"
+            ? {
+                amount: centsToDollars(convertUsdCentsToPayoutCents(amountCents)),
+                currency: stripePayoutCurrency.toUpperCase(),
+                rate: stripePayoutRate,
+              }
+            : null,
+      },
+    });
   } catch (error) {
     console.error("Withdrawal request failed:", {
       message: error?.message,
