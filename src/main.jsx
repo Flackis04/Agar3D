@@ -358,6 +358,7 @@ function AppContent() {
     CRYPTO_DEPOSIT_OPTIONS[0]?.id || ""
   );
   const [depositInstructions, setDepositInstructions] = useState(null);
+  const [cryptoTxHash, setCryptoTxHash] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [payoutDestination, setPayoutDestination] = useState("");
   const [walletMessage, setWalletMessage] = useState("");
@@ -712,6 +713,41 @@ function AppContent() {
     walletAmount,
     walletMode,
   ]);
+
+  const confirmCryptoDeposit = useCallback(async () => {
+    if (!depositInstructions?.id) {
+      setWalletMessage("Start a crypto deposit first.");
+      return;
+    }
+    const txHash = cryptoTxHash.trim();
+    if (!txHash) {
+      setWalletMessage("Paste the transaction hash after sending crypto.");
+      return;
+    }
+
+    try {
+      setWalletMessage("Verifying crypto transaction...");
+      const response = await authFetch("/api/crypto-deposit-session/confirm", {
+        method: "POST",
+        body: JSON.stringify({
+          id: depositInstructions.id,
+          txHash,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setWalletMessage(data.error || "Could not verify crypto transaction.");
+        return;
+      }
+      if (typeof data.balance === "number") saveBalance(data.balance);
+      if (data.user) setCurrentUser(data.user);
+      setCryptoTxHash("");
+      setDepositInstructions(null);
+      setWalletMessage("Crypto deposit credited to your balance.");
+    } catch {
+      setWalletMessage("Payment server is unavailable.");
+    }
+  }, [authFetch, cryptoTxHash, depositInstructions, saveBalance]);
 
   const submitAuth = useCallback(async () => {
     setAuthMessage("");
@@ -1083,6 +1119,7 @@ function AppContent() {
                             onChange={(event) => {
                               setDepositCryptoId(event.target.value);
                               setDepositInstructions(null);
+                              setCryptoTxHash("");
                             }}
                           >
                             {CRYPTO_DEPOSIT_OPTIONS.map((option) => (
@@ -1100,6 +1137,12 @@ function AppContent() {
                               {depositInstructions.asset} on {depositInstructions.chain}
                             </strong>
                             <code>{depositInstructions.address}</code>
+                            <input
+                              type="text"
+                              placeholder="Paste transaction hash after sending"
+                              value={cryptoTxHash}
+                              onChange={(event) => setCryptoTxHash(event.target.value)}
+                            />
                             <button
                               type="button"
                               onClick={async () => {
@@ -1108,6 +1151,9 @@ function AppContent() {
                               }}
                             >
                               Copy Address
+                            </button>
+                            <button type="button" onClick={confirmCryptoDeposit}>
+                              Confirm Deposit
                             </button>
                           </div>
                         )}

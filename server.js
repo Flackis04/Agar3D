@@ -16,6 +16,17 @@ const relayApiBaseUrl = process.env.RELAY_API_BASE_URL || "https://api.relay.lin
 const relayApiKey = process.env.RELAY_API_KEY || "";
 const cryptoDepositPollingEnabled =
   process.env.CRYPTO_DEPOSIT_POLLING_ENABLED !== "false";
+const ethereumRpcUrl = process.env.ETHEREUM_RPC_URL || "https://ethereum.publicnode.com";
+const solanaRpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+const btcApiBaseUrl = process.env.BTC_API_BASE_URL || "https://blockstream.info/api";
+const ethereumUsdcContract =
+  (process.env.ETHEREUM_USDC_CONTRACT || "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").toLowerCase();
+const cryptoPriceIds = {
+  BTC: "bitcoin",
+  ETH: "ethereum",
+  USDC: "usd-coin",
+  SOL: "solana",
+};
 mkdirSync(dirname(databasePath), { recursive: true });
 const db = new DatabaseSync(databasePath);
 db.exec("PRAGMA journal_mode = WAL");
@@ -85,6 +96,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && req.url === "/api/crypto-deposit-session/update") {
       await updateCryptoDepositSession(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/crypto-deposit-session/confirm") {
+      await confirmCryptoDepositSession(req, res);
       return;
     }
 
@@ -511,8 +527,166 @@ function creditCryptoDepositSession(session, providerReference, providerPayload)
   return db.prepare("SELECT * FROM crypto_deposit_sessions WHERE id = ?").get(session.id);
 }
 
+function normalizeAddress(value) {
+  return `${value || ""}`.trim().toLowerCase();
+}
+
+function hexToBigInt(value) {
+  if (!value || value === "0x") return 0n;
+  return BigInt(value);
+}
+
+function parseDecimalUnits(value, decimals) {
+  const normalized = `${value || "0"}`;
+  const [whole, fraction = ""] = normalized.split(".");
+  const paddedFraction = fraction.padEnd(decimals, "0").slice(0, decimals);
+  return BigInt(`${whole || "0"}${paddedFraction}`.replace(/^0+(?=\d)/, ""));
+}
+
+function formatUnitsToNumber(units, decimals) {
+  return Number(units) / 10 ** decimals;
+}
+
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    throw new Error(`Request failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+async function fetchCryptoUsdPrice(asset) {
+  if (asset === "USDC") return 1;
+  const id = cryptoPriceIds[asset];
+  if (!id) throw new Error(`No price source configured for ${asset}.`);
+  const prices = await fetchJson(
+    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(id)}&vs_currencies=usd`
+  );
+  const price = Number(prices?.[id]?.usd);
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error(`Could not fetch ${asset} price.`);
+  }
+  return price;
+}
+
+async function fetchEthereumRpc(method, params) {
+  const response = await fetch(ethereumRpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method,
+      params,
+    }),
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.error) {
+    throw new Error(payload.error?.message || `Ethereum RPC failed with ${response.status}`);
+  }
+  return payload.result;
+}
+
+async function verifyBtcDeposit(session, txHash) {
+  const tx = await fetchJson(`${btcApiBaseUrl}/tx/${encodeURIComponent(txHash)}`);
+  if (!tx?.status?.confirmed) {
+    throw new Error("BTC transaction is not confirmed yet.");
+  }
+  const expectedAddress = session.destination_address;
+  const sats = (tx.vout || [])
+    .filter((output) => output.scriptpubkey_address === expectedAddress)
+    .reduce((sum, output) => sum + BigInt(output.value || 0), 0n);
+  if (sats <= 0n) throw new Error("BTC transaction does not pay the configured deposit address.");
+  return {
+    assetAmount: Number(sats) / 100_000_000,
+    payload: tx,
+  };
+}
+
+async function verifyEthDeposit(session, txHash) {
+  const tx = await fetchEthereumRpc("eth_getTransactionByHash", [txHash]);
+  const receipt = await fetchEthereumRpc("eth_getTransactionReceipt", [txHash]);
+  if (!tx || !receipt) throw new Error("ETH transaction was not found.");
+  if (receipt.status !== "0x1") throw new Error("ETH transaction failed.");
+  if (normalizeAddress(tx.to) !== normalizeAddress(session.destination_address)) {
+    throw new Error("ETH transaction does not pay the configured deposit address.");
+  }
+  return {
+    assetAmount: formatUnitsToNumber(hexToBigInt(tx.value), 18),
+    payload: { tx, receipt },
+  };
+}
+
+async function verifyUsdcEthereumDeposit(session, txHash) {
+  const receipt = await fetchEthereumRpc("eth_getTransactionReceipt", [txHash]);
+  if (!receipt) throw new Error("USDC transaction was not found.");
+  if (receipt.status !== "0x1") throw new Error("USDC transaction failed.");
+
+  const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+  const expectedAddressTopic = `0x${normalizeAddress(session.destination_address).replace(/^0x/, "").padStart(64, "0")}`;
+  const matchingLog = (receipt.logs || []).find((log) => (
+    normalizeAddress(log.address) === ethereumUsdcContract &&
+    normalizeAddress(log.topics?.[0]) === transferTopic &&
+    normalizeAddress(log.topics?.[2]) === expectedAddressTopic
+  ));
+  if (!matchingLog) {
+    throw new Error("USDC transaction does not pay the configured deposit address.");
+  }
+  return {
+    assetAmount: formatUnitsToNumber(hexToBigInt(matchingLog.data), 6),
+    payload: { receipt, log: matchingLog },
+  };
+}
+
+async function verifySolDeposit(session, signature) {
+  const payload = await fetchJson(solanaRpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getTransaction",
+      params: [
+        signature,
+        {
+          encoding: "jsonParsed",
+          maxSupportedTransactionVersion: 0,
+        },
+      ],
+    }),
+  });
+  const tx = payload.result;
+  if (!tx) throw new Error("SOL transaction was not found.");
+  if (tx.meta?.err) throw new Error("SOL transaction failed.");
+  const destination = session.destination_address;
+  const transfer = (tx.transaction?.message?.instructions || []).find((instruction) => (
+    instruction.program === "system" &&
+    instruction.parsed?.type === "transfer" &&
+    instruction.parsed?.info?.destination === destination
+  ));
+  if (!transfer) {
+    throw new Error("SOL transaction does not pay the configured deposit address.");
+  }
+  return {
+    assetAmount: Number(transfer.parsed.info.lamports || 0) / 1_000_000_000,
+    payload: tx,
+  };
+}
+
+async function verifyCryptoDepositTransaction(session, txHash) {
+  const asset = `${session.asset || ""}`.toUpperCase();
+  if (asset === "BTC") return verifyBtcDeposit(session, txHash);
+  if (asset === "ETH") return verifyEthDeposit(session, txHash);
+  if (asset === "USDC") return verifyUsdcEthereumDeposit(session, txHash);
+  if (asset === "SOL") return verifySolDeposit(session, txHash);
+  throw new Error(`Unsupported crypto asset: ${asset}.`);
+}
+
 async function refreshCryptoDepositSession(session) {
   if (!session || ["credited", "cancelled", "failed"].includes(session.status)) {
+    return session;
+  }
+  if (!session.relay_request_id) {
     return session;
   }
 
@@ -720,6 +894,64 @@ async function updateCryptoDepositSession(req, res) {
 
   const updated = db.prepare("SELECT * FROM crypto_deposit_sessions WHERE id = ?").get(session.id);
   sendJson(res, 200, { depositSession: publicCryptoDepositSession(updated) });
+}
+
+async function confirmCryptoDepositSession(req, res) {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const { id, txHash } = await readJsonBody(req);
+  const normalizedTxHash = `${txHash || ""}`.trim();
+  if (!id || !normalizedTxHash) {
+    sendJson(res, 400, { error: "Deposit session and transaction hash are required." });
+    return;
+  }
+
+  const session = db.prepare(`
+    SELECT * FROM crypto_deposit_sessions
+    WHERE id = ? AND user_id = ?
+  `).get(id, user.id);
+  if (!session) {
+    sendJson(res, 404, { error: "Deposit session not found." });
+    return;
+  }
+  if (session.status === "credited") {
+    const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
+    sendJson(res, 200, {
+      depositSession: publicCryptoDepositSession(session),
+      balance: centsToDollars(updatedUser.balance_cents),
+      user: publicUser(updatedUser),
+    });
+    return;
+  }
+
+  try {
+    const verification = await verifyCryptoDepositTransaction(session, normalizedTxHash);
+    const priceUsd = await fetchCryptoUsdPrice(session.asset);
+    const receivedUsdCents = Math.floor(verification.assetAmount * priceUsd * 100);
+    if (receivedUsdCents < session.amount_cents) {
+      sendJson(res, 400, {
+        error: `Transaction value is too low. Received about ${centsToDollars(receivedUsdCents)} USD, expected ${centsToDollars(session.amount_cents)} USD.`,
+      });
+      return;
+    }
+
+    const credited = creditCryptoDepositSession(session, normalizedTxHash, {
+      txHash: normalizedTxHash,
+      assetAmount: verification.assetAmount,
+      priceUsd,
+      receivedUsd: centsToDollars(receivedUsdCents),
+      verification: verification.payload,
+    });
+    const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
+    sendJson(res, 200, {
+      depositSession: publicCryptoDepositSession(credited),
+      balance: centsToDollars(updatedUser.balance_cents),
+      user: publicUser(updatedUser),
+    });
+  } catch (error) {
+    console.error("Crypto deposit confirmation failed:", error.message);
+    sendJson(res, 400, { error: error.message || "Could not verify crypto transaction." });
+  }
 }
 
 function publicCryptoDepositSession(session) {
