@@ -24,6 +24,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && req.url === "/api/health") {
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/api/auth/register") {
       await registerUser(req, res);
       return;

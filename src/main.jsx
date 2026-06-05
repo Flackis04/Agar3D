@@ -244,6 +244,7 @@ function App() {
   const [authPassword, setAuthPassword] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
+  const [apiStatus, setApiStatus] = useState("checking");
   const [authToken, setAuthToken] = useState(
     () => localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || ""
   );
@@ -273,6 +274,14 @@ function App() {
       },
     });
   }, [authToken]);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/health`)
+      .then((response) => {
+        setApiStatus(response.ok ? "online" : "offline");
+      })
+      .catch(() => setApiStatus("offline"));
+  }, []);
 
   const refreshServerBalance = useCallback(async () => {
     if (!authToken) return null;
@@ -430,6 +439,7 @@ function App() {
 
   const submitAuth = useCallback(async () => {
     setAuthMessage("");
+    setApiStatus("checking");
     const path = authMode === "register" ? "/api/auth/register" : "/api/auth/login";
     try {
       const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -443,13 +453,16 @@ function App() {
       });
       const data = await response.json();
       if (!response.ok) {
+        setApiStatus("online");
         setAuthMessage(data.error || "Authentication failed.");
         return;
       }
+      setApiStatus("online");
       saveAuth(data.token, data.user);
       setAuthPassword("");
       setAuthMessage(authMode === "register" ? "Account created." : "Logged in.");
     } catch {
+      setApiStatus("offline");
       setAuthMessage("Account server is unavailable.");
     }
   }, [authEmail, authMode, authPassword, saveAuth, termsAccepted]);
@@ -576,196 +589,224 @@ function App() {
       {!isPlaying && (
         <div id="homeScreen">
           <div id="menuContainer">
-            <h1>Agar3D</h1>
-            <div id="accountPanel">
-              {currentUser ? (
-                <>
-                  <div className="account-row">
-                    <span>{currentUser.email}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-                        setAuthToken("");
-                        setCurrentUser(null);
-                        saveBalance(0);
-                      }}
-                    >
-                      Log out
-                    </button>
-                  </div>
-                  {!currentUser.termsAccepted && (
-                    <button
-                      type="button"
-                      id="termsButton"
-                      onClick={async () => {
-                        const response = await authFetch("/api/auth/terms", {
-                          method: "POST",
-                        });
-                        const data = await response.json();
-                        if (response.ok) {
-                          setCurrentUser(data.user);
-                          setAuthMessage("Terms accepted.");
-                        } else {
-                          setAuthMessage(data.error || "Could not accept Terms.");
-                        }
-                      }}
-                    >
-                      Accept Terms
-                    </button>
-                  )}
-                  {currentUser.frozen && (
-                    <div className="account-warning">Account frozen pending payment review.</div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="wallet-tabs" aria-label="Account actions">
-                    <button
-                      className={authMode === "login" ? "active" : ""}
-                      type="button"
-                      onClick={() => setAuthMode("login")}
-                    >
-                      Login
-                    </button>
-                    <button
-                      className={authMode === "register" ? "active" : ""}
-                      type="button"
-                      onClick={() => setAuthMode("register")}
-                    >
-                      Register
-                    </button>
-                  </div>
-                  <input
-                    type="email"
-                    placeholder="Email"
-                    value={authEmail}
-                    onChange={(event) => setAuthEmail(event.target.value)}
-                  />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    value={authPassword}
-                    onChange={(event) => setAuthPassword(event.target.value)}
-                  />
-                  {authMode === "register" && (
-                    <label className="terms-check">
-                      <input
-                        type="checkbox"
-                        checked={termsAccepted}
-                        onChange={(event) => setTermsAccepted(event.target.checked)}
-                      />
-                      <span>I accept the Terms and confirm this is not legal advice.</span>
-                    </label>
-                  )}
-                  <button type="button" id="authButton" onClick={submitAuth}>
-                    {authMode === "register" ? "Create Account" : "Log In"}
-                  </button>
-                </>
-              )}
-              {authMessage && <div className="wallet-message">{authMessage}</div>}
-            </div>
-            <div id="balanceDisplay">Balance: {formatMoney(balance)} USD</div>
-            <div id="walletPanel">
-              <div className="wallet-tabs" aria-label="Wallet actions">
-                <button
-                  className={walletMode === "deposit" ? "active" : ""}
-                  type="button"
-                  onClick={() => setWalletMode("deposit")}
-                >
-                  Deposit
-                </button>
-                <button
-                  className={walletMode === "withdraw" ? "active" : ""}
-                  type="button"
-                  onClick={() => setWalletMode("withdraw")}
-                >
-                  Withdraw
-                </button>
+            <header id="homeHeader">
+              <div>
+                <h1>Agar3D</h1>
+                <p>Real-money mass arena</p>
               </div>
-              <div className="payment-methods" aria-label="Payment methods">
-                {PAYMENT_METHODS.map((method) => (
-                  <button
-                    className={paymentMethod === method.id ? "active" : ""}
-                    key={method.id}
-                    type="button"
-                    onClick={() => setPaymentMethod(method.id)}
-                    title={method.helper}
-                  >
-                    {method.label}
-                  </button>
-                ))}
+              <div className={`api-status ${apiStatus}`}>
+                API {apiStatus === "online" ? "online" : apiStatus === "offline" ? "offline" : "checking"}
               </div>
-              <div className="wallet-row">
-                {paymentMethod === "crypto" ? (
-                  <select
-                    value={cryptoAsset}
-                    onChange={(event) => setCryptoAsset(event.target.value)}
-                  >
-                    {CRYPTO_ASSETS.map((asset) => (
-                      <option key={asset} value={asset}>
-                        {asset}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="method-chip">
-                    {
-                      PAYMENT_METHODS.find((method) => method.id === paymentMethod)
-                        ?.helper
-                    }
-                  </div>
-                )}
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="USD amount"
-                  value={walletAmount}
-                  onChange={(event) => setWalletAmount(event.target.value)}
-                />
-              </div>
-              {walletMode === "deposit" ? (
-                <div className="provider-note">
-                  Secure checkout opens with your selected method. The game balance updates after Stripe verifies payment.
-                </div>
-              ) : paymentMethod === "crypto" ? (
+            </header>
+
+            <div id="homeGrid">
+              <section className="home-panel play-panel">
+                <div className="panel-label">Play</div>
+                <div id="balanceDisplay">Balance: {formatMoney(balance)} USD</div>
                 <input
                   type="text"
-                  placeholder="Destination wallet address"
-                  value={walletAddress}
-                  onChange={(event) => setWalletAddress(event.target.value)}
+                  id="playerName"
+                  placeholder="Display name"
+                  maxLength={20}
+                  value={playerName}
+                  onChange={(event) => setPlayerName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") startGame();
+                  }}
+                  autoFocus
                 />
-              ) : (
-                <div className="provider-note">
-                  Production withdrawals need a payout provider such as Stripe Connect, PayPal Payouts, or Coinbase payouts.
+                <div id="startCost">Entry: $20 USD = 20 starting mass</div>
+                <button
+                  id="playButton"
+                  onClick={startGame}
+                  disabled={!savedMass && (!currentUser || balance < START_COST)}
+                >
+                  {currentUser ? playButtonText : "Log in to play"}
+                </button>
+              </section>
+
+              <section id="accountPanel" className="home-panel">
+                <div className="panel-label">Account</div>
+                {currentUser ? (
+                  <>
+                    <div className="account-row">
+                      <span>{currentUser.email}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+                          setAuthToken("");
+                          setCurrentUser(null);
+                          saveBalance(0);
+                        }}
+                      >
+                        Log out
+                      </button>
+                    </div>
+                    {!currentUser.termsAccepted && (
+                      <button
+                        type="button"
+                        id="termsButton"
+                        onClick={async () => {
+                          const response = await authFetch("/api/auth/terms", {
+                            method: "POST",
+                          });
+                          const data = await response.json();
+                          if (response.ok) {
+                            setCurrentUser(data.user);
+                            setAuthMessage("Terms accepted.");
+                          } else {
+                            setAuthMessage(data.error || "Could not accept Terms.");
+                          }
+                        }}
+                      >
+                        Accept Terms
+                      </button>
+                    )}
+                    {currentUser.frozen && (
+                      <div className="account-warning">Account frozen pending payment review.</div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="wallet-tabs" aria-label="Account actions">
+                      <button
+                        className={authMode === "login" ? "active" : ""}
+                        type="button"
+                        onClick={() => setAuthMode("login")}
+                      >
+                        Login
+                      </button>
+                      <button
+                        className={authMode === "register" ? "active" : ""}
+                        type="button"
+                        onClick={() => setAuthMode("register")}
+                      >
+                        Register
+                      </button>
+                    </div>
+                    <input
+                      type="email"
+                      placeholder="Email"
+                      value={authEmail}
+                      onChange={(event) => setAuthEmail(event.target.value)}
+                    />
+                    <input
+                      type="password"
+                      placeholder="Password"
+                      value={authPassword}
+                      onChange={(event) => setAuthPassword(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") submitAuth();
+                      }}
+                    />
+                    {authMode === "register" && (
+                      <label className="terms-check">
+                        <input
+                          type="checkbox"
+                          checked={termsAccepted}
+                          onChange={(event) => setTermsAccepted(event.target.checked)}
+                        />
+                        <span>
+                          I accept the <a href="/terms.html" target="_blank" rel="noreferrer">Terms</a>.
+                        </span>
+                      </label>
+                    )}
+                    <button
+                      type="button"
+                      id="authButton"
+                      onClick={submitAuth}
+                      disabled={apiStatus === "offline"}
+                    >
+                      {authMode === "register" ? "Create Account" : "Log In"}
+                    </button>
+                  </>
+                )}
+                {authMessage && <div className="wallet-message">{authMessage}</div>}
+              </section>
+
+              <section id="walletPanel" className="home-panel">
+                <div className="panel-label">Wallet</div>
+                <div className="wallet-tabs" aria-label="Wallet actions">
+                  <button
+                    className={walletMode === "deposit" ? "active" : ""}
+                    type="button"
+                    onClick={() => setWalletMode("deposit")}
+                  >
+                    Deposit
+                  </button>
+                  <button
+                    className={walletMode === "withdraw" ? "active" : ""}
+                    type="button"
+                    onClick={() => setWalletMode("withdraw")}
+                  >
+                    Withdraw
+                  </button>
                 </div>
-              )}
-              <button type="button" id="walletButton" onClick={submitWalletTransfer}>
-                {walletMode === "deposit" ? "Credit Deposit" : "Send Withdrawal"}
-              </button>
-              {walletMessage && <div className="wallet-message">{walletMessage}</div>}
+                <div className="payment-methods" aria-label="Payment methods">
+                  {PAYMENT_METHODS.map((method) => (
+                    <button
+                      className={paymentMethod === method.id ? "active" : ""}
+                      key={method.id}
+                      type="button"
+                      onClick={() => setPaymentMethod(method.id)}
+                      title={method.helper}
+                    >
+                      {method.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="wallet-row">
+                  {paymentMethod === "crypto" ? (
+                    <select
+                      value={cryptoAsset}
+                      onChange={(event) => setCryptoAsset(event.target.value)}
+                    >
+                      {CRYPTO_ASSETS.map((asset) => (
+                        <option key={asset} value={asset}>
+                          {asset}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="method-chip">
+                      {
+                        PAYMENT_METHODS.find((method) => method.id === paymentMethod)
+                          ?.helper
+                      }
+                    </div>
+                  )}
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="USD amount"
+                    value={walletAmount}
+                    onChange={(event) => setWalletAmount(event.target.value)}
+                  />
+                </div>
+                {walletMode === "deposit" ? (
+                  <div className="provider-note">
+                    Stripe Checkout opens after account login and Terms acceptance.
+                  </div>
+                ) : paymentMethod === "crypto" ? (
+                  <input
+                    type="text"
+                    placeholder="Destination wallet address"
+                    value={walletAddress}
+                    onChange={(event) => setWalletAddress(event.target.value)}
+                  />
+                ) : (
+                  <div className="provider-note">
+                    Withdrawals are disabled until payout and legal approval are configured.
+                  </div>
+                )}
+                <button type="button" id="walletButton" onClick={submitWalletTransfer}>
+                  {walletMode === "deposit" ? "Deposit Funds" : "Request Withdrawal"}
+                </button>
+                {walletMessage && <div className="wallet-message">{walletMessage}</div>}
+              </section>
             </div>
-            <input
-              type="text"
-              id="playerName"
-              placeholder="Enter your name"
-              maxLength={20}
-              value={playerName}
-              onChange={(event) => setPlayerName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") startGame();
-              }}
-              autoFocus
-            />
-            <div id="startCost">Start cost: $20 USD = 20 starting mass</div>
-            <button
-              id="playButton"
-              onClick={startGame}
-              disabled={!savedMass && balance < START_COST}
-            >
-              {playButtonText}
-            </button>
           </div>
         </div>
       )}
