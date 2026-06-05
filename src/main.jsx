@@ -361,7 +361,6 @@ function AppContent() {
   const [depositInstructions, setDepositInstructions] = useState(null);
   const [cryptoTxHash, setCryptoTxHash] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
-  const [payoutDestination, setPayoutDestination] = useState("");
   const [walletMessage, setWalletMessage] = useState("");
   const [roundResult, setRoundResult] = useState(null);
   const [authMode, setAuthMode] = useState("login");
@@ -682,11 +681,6 @@ function AppContent() {
       setWalletMessage("Enter the crypto wallet address to receive funds.");
       return;
     }
-    if (walletMode === "withdraw" && activePaymentMethod === "card" && !payoutDestination.trim()) {
-      setWalletMessage("Enter the Mastercard payout destination.");
-      return;
-    }
-
     try {
       setWalletMessage("Submitting withdrawal...");
       const response = await authFetch("/api/request-withdrawal", {
@@ -695,12 +689,17 @@ function AppContent() {
           amountUsd: amount,
           method: activePaymentMethod === "crypto" ? "crypto" : "card",
           destination:
-            activePaymentMethod === "crypto" ? walletAddress.trim() : payoutDestination.trim(),
+            activePaymentMethod === "crypto" ? walletAddress.trim() : "stripe-connect",
           cryptoAsset,
         }),
       });
       const data = await response.json();
       if (!response.ok) {
+        if (data.onboardingUrl) {
+          setWalletMessage("Opening Stripe payout setup...");
+          window.location.href = data.onboardingUrl;
+          return;
+        }
         setWalletMessage(data.error || "Withdrawal failed.");
         return;
       }
@@ -717,7 +716,6 @@ function AppContent() {
     currentUser,
     depositCryptoId,
     paymentMethod,
-    payoutDestination,
     saveBalance,
     walletAddress,
     walletAmount,
@@ -1239,7 +1237,7 @@ function AppContent() {
                           ))}
                         </select>
                       ) : (
-                        <div className="method-chip">Mastercard/card payout request</div>
+                        <div className="method-chip">Stripe Express payout</div>
                       )}
                       <input
                         type="number"
@@ -1258,12 +1256,10 @@ function AppContent() {
                         onChange={(event) => setWalletAddress(event.target.value)}
                       />
                     ) : (
-                      <input
-                        type="text"
-                        placeholder="Mastercard payout destination"
-                        value={payoutDestination}
-                        onChange={(event) => setPayoutDestination(event.target.value)}
-                      />
+                      <div className="provider-note">
+                        Stripe will collect the player&apos;s bank or eligible debit
+                        card details during payout setup.
+                      </div>
                     )}
                     <button
                       type="button"

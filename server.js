@@ -89,6 +89,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && req.url === "/api/stripe-connect/onboard") {
+      await createStripeConnectOnboarding(req, res);
+      return;
+    }
+
+    if (req.method === "GET" && req.url?.startsWith("/api/stripe-connect/status")) {
+      await sendStripeConnectStatus(req, res);
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/api/crypto-deposit-session") {
       await createCryptoDepositSession(req, res);
       return;
@@ -156,6 +166,7 @@ db.exec(`
     salt TEXT NOT NULL,
     balance_cents INTEGER NOT NULL DEFAULT 0,
     frozen INTEGER NOT NULL DEFAULT 0,
+    stripe_account_id TEXT,
     terms_accepted_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -202,6 +213,7 @@ db.exec(`
     method TEXT NOT NULL,
     destination TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
+    provider_reference TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -223,6 +235,15 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `);
+
+function ensureColumn(tableName, columnName, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  if (columns.some((column) => column.name === columnName)) return;
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+}
+
+ensureColumn("users", "stripe_account_id", "TEXT");
+ensureColumn("withdrawals", "provider_reference", "TEXT");
 
 function setCorsHeaders(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -295,6 +316,7 @@ function publicUser(user) {
     email: user.email,
     balance: centsToDollars(user.balance_cents),
     frozen: Boolean(user.frozen),
+    stripeConnected: Boolean(user.stripe_account_id),
     termsAccepted: Boolean(user.terms_accepted_at),
   };
 }
@@ -344,6 +366,87 @@ function getCheckoutReturnUrl(value) {
   } catch {
     return clientUrl;
   }
+}
+
+function getClientOrigin(value = clientUrl) {
+  return getCheckoutReturnUrl(value);
+}
+
+async function getOrCreateStripeConnectedAccount(user) {
+  if (!stripe) return null;
+  if (user.stripe_account_id) {
+    return stripe.accounts.retrieve(user.stripe_account_id);
+  }
+  const account = await stripe.accounts.create({
+    type: "express",
+    email: user.email,
+    capabilities: {
+      transfers: { requested: true },
+    },
+    metadata: {
+      agar3d_user_id: user.id,
+    },
+  });
+  db.prepare("UPDATE users SET stripe_account_id = ? WHERE id = ?").run(
+    account.id,
+    user.id
+  );
+  return account;
+}
+
+async function createStripeConnectOnboardingLink(user, returnUrl = clientUrl) {
+  const account = await getOrCreateStripeConnectedAccount(user);
+  if (!account) return null;
+  const origin = getClientOrigin(returnUrl);
+  return stripe.accountLinks.create({
+    account: account.id,
+    refresh_url: `${origin}/?stripe-connect=refresh`,
+    return_url: `${origin}/?stripe-connect=return`,
+    type: "account_onboarding",
+  });
+}
+
+function stripeAccountCanReceiveWithdrawal(account) {
+  return Boolean(account?.details_submitted && account?.payouts_enabled);
+}
+
+async function createStripeConnectOnboarding(req, res) {
+  const user = requireUser(req, res);
+  if (!user) return;
+  if (!stripe) {
+    sendJson(res, 503, { error: "Stripe is not configured." });
+    return;
+  }
+  const { returnUrl } = await readJsonBody(req);
+  const account = await getOrCreateStripeConnectedAccount(user);
+  const accountLink = await createStripeConnectOnboardingLink(user, returnUrl);
+  sendJson(res, 200, {
+    url: accountLink.url,
+    account: {
+      id: account.id,
+      detailsSubmitted: Boolean(account.details_submitted),
+      payoutsEnabled: Boolean(account.payouts_enabled),
+    },
+  });
+}
+
+async function sendStripeConnectStatus(req, res) {
+  const user = requireUser(req, res);
+  if (!user) return;
+  if (!stripe) {
+    sendJson(res, 503, { error: "Stripe is not configured." });
+    return;
+  }
+  const account = await getOrCreateStripeConnectedAccount(user);
+  sendJson(res, 200, {
+    account: {
+      id: account.id,
+      detailsSubmitted: Boolean(account.details_submitted),
+      payoutsEnabled: Boolean(account.payouts_enabled),
+      chargesEnabled: Boolean(account.charges_enabled),
+      requirements: account.requirements || null,
+    },
+  });
 }
 
 function setUserFrozen(userId, frozen, note) {
@@ -718,13 +821,15 @@ function createWithdrawalRequest({
   amountCents,
   method,
   destination = null,
+  status = "pending",
+  providerReference = null,
 }) {
   const id = crypto.randomUUID();
   db.prepare(`
     INSERT INTO withdrawals
-      (id, user_id, amount_cents, method, destination, status)
-    VALUES (?, ?, ?, ?, ?, 'pending')
-  `).run(id, userId, amountCents, method, destination);
+      (id, user_id, amount_cents, method, destination, status, provider_reference)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, userId, amountCents, method, destination, status, providerReference);
   return id;
 }
 
@@ -775,11 +880,47 @@ async function requestWithdrawal(req, res) {
     return;
   }
 
+  let providerReference = null;
+  let withdrawalStatus = "pending";
+  if (normalizedMethod === "card") {
+    if (!stripe) {
+      sendJson(res, 503, { error: "Stripe is not configured." });
+      return;
+    }
+    const account = await getOrCreateStripeConnectedAccount(user);
+    if (!stripeAccountCanReceiveWithdrawal(account)) {
+      const accountLink = await createStripeConnectOnboardingLink(user, clientUrl);
+      sendJson(res, 409, {
+        error: "Complete Stripe payout onboarding before withdrawing.",
+        onboardingUrl: accountLink.url,
+        account: {
+          id: account.id,
+          detailsSubmitted: Boolean(account.details_submitted),
+          payoutsEnabled: Boolean(account.payouts_enabled),
+        },
+      });
+      return;
+    }
+    const transfer = await stripe.transfers.create({
+      amount: amountCents,
+      currency: "usd",
+      destination: account.id,
+      metadata: {
+        agar3d_user_id: user.id,
+        withdrawal_method: "card",
+      },
+    });
+    providerReference = transfer.id;
+    withdrawalStatus = "processing";
+  }
+
   const withdrawalId = createWithdrawalRequest({
     userId: user.id,
     amountCents,
     method: normalizedMethod,
     destination: payoutDestination,
+    status: withdrawalStatus,
+    providerReference,
   });
   const balance = adjustUserBalance({
     userId: user.id,
@@ -795,7 +936,8 @@ async function requestWithdrawal(req, res) {
       id: withdrawalId,
       amount: centsToDollars(amountCents),
       method: normalizedMethod,
-      status: "pending",
+      status: withdrawalStatus,
+      providerReference,
     },
   });
 }
