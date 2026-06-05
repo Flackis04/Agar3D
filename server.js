@@ -649,7 +649,7 @@ async function createCryptoDepositSession(req, res) {
     sendJson(res, 400, { error: "Enter a valid deposit amount." });
     return;
   }
-  if (!destinationAddress || !destinationChain || !destinationCurrency) {
+  if (!destinationAddress || !destinationChain) {
     sendJson(res, 400, { error: "Crypto deposit destination is not configured." });
     return;
   }
@@ -673,7 +673,7 @@ async function createCryptoDepositSession(req, res) {
     `${asset}`.toUpperCase(),
     `${destinationAddress}`,
     `${destinationChain}`,
-    `${destinationCurrency}`
+    `${destinationCurrency || asset}`
   );
 
   sendJson(res, 201, {
@@ -854,33 +854,40 @@ async function createCheckoutSession(req, res) {
 
   const checkoutReturnUrl = getCheckoutReturnUrl(returnUrl);
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    success_url: `${checkoutReturnUrl}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${checkoutReturnUrl}?payment=cancelled`,
-    ...(paymentMethod === "card"
-      ? { payment_method_types: ["card"] }
-      : { automatic_payment_methods: { enabled: true } }),
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: Math.round(normalizedAmount * 100),
-          product_data: {
-            name: "Agar3D USD balance",
-            description: "Funds usable as in-game mass.",
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      success_url: `${checkoutReturnUrl}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${checkoutReturnUrl}?payment=cancelled`,
+      ...(paymentMethod === "card"
+        ? { payment_method_types: ["card"] }
+        : { automatic_payment_methods: { enabled: true } }),
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: Math.round(normalizedAmount * 100),
+            product_data: {
+              name: "Agar3D USD balance",
+              description: "Funds usable as in-game mass.",
+            },
           },
         },
+      ],
+      metadata: {
+        userId: user.id,
+        amountUsd: `${normalizedAmount}`,
       },
-    ],
-    metadata: {
-      userId: user.id,
-      amountUsd: `${normalizedAmount}`,
-    },
-  });
+    });
 
-  sendJson(res, 200, { url: session.url });
+    sendJson(res, 200, { url: session.url });
+  } catch (error) {
+    console.error("Stripe checkout session failed:", error);
+    sendJson(res, 502, {
+      error: error?.message || "Stripe could not create a checkout session.",
+    });
+  }
 }
 
 function creditStripeCheckoutSession(session) {

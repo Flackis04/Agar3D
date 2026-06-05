@@ -589,7 +589,7 @@ function AppContent() {
               asset: selectedCrypto.asset,
               destinationAddress: selectedCrypto.address,
               destinationChain: selectedCrypto.chain,
-              destinationCurrency: selectedCrypto.currency,
+              destinationCurrency: selectedCrypto.currency || selectedCrypto.asset,
             }),
           });
           const sessionData = await sessionResponse.json();
