@@ -1093,7 +1093,12 @@ function AppContent() {
                   <button
                     className={walletMode === "withdraw" ? "active" : ""}
                     type="button"
-                    onClick={() => setWalletMode("withdraw")}
+                    onClick={() => {
+                      setWalletMode("withdraw");
+                      setPaymentMethod((method) =>
+                        method === "crypto" ? "crypto" : "card"
+                      );
+                    }}
                   >
                     Withdraw
                   </button>
@@ -1199,6 +1204,13 @@ function AppContent() {
                   </>
                 ) : (
                   <>
+                    <div className="deposit-hero">
+                      <strong>Withdraw balance</strong>
+                      <span>
+                        Withdrawals subtract from your game balance immediately and
+                        create a pending payout request for review.
+                      </span>
+                    </div>
                     <div className="payment-methods" aria-label="Withdrawal method">
                       {PAYMENT_METHODS.filter((method) =>
                         ["card", "crypto"].includes(method.id)
@@ -1241,7 +1253,7 @@ function AppContent() {
                     {paymentMethod === "crypto" ? (
                       <input
                         type="text"
-                        placeholder="Destination wallet address"
+                        placeholder={`${cryptoAsset} destination wallet address`}
                         value={walletAddress}
                         onChange={(event) => setWalletAddress(event.target.value)}
                       />
@@ -1260,6 +1272,11 @@ function AppContent() {
                     >
                       Request Withdrawal
                     </button>
+                    <div className="provider-note">
+                      Crypto withdrawals are enabled as payout requests. Automatic
+                      wallet sending still requires a connected payout provider or
+                      operator approval from the withdrawals table.
+                    </div>
                   </>
                 )}
                 {walletMessage && <div className="wallet-message">{walletMessage}</div>}
