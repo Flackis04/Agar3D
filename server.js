@@ -1,7 +1,43 @@
+import "dotenv/config";
 import { Server } from "socket.io";
 import http from "http";
+import Stripe from "stripe";
 
-const server = http.createServer();
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
+const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+const playerBalances = new Map();
+const processedStripeEvents = new Set();
+
+const server = http.createServer(async (req, res) => {
+  try {
+    if (req.method === "OPTIONS") {
+      sendJson(res, 204);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/create-checkout-session") {
+      await createCheckoutSession(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/stripe-webhook") {
+      await handleStripeWebhook(req, res);
+      return;
+    }
+
+    if (req.method === "GET" && req.url?.startsWith("/api/balance")) {
+      sendPlayerBalance(req, res);
+      return;
+    }
+
+    sendJson(res, 404, { error: "Not found" });
+  } catch (error) {
+    console.error(error);
+    sendJson(res, 500, { error: "Server error" });
+  }
+});
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -16,7 +52,7 @@ const io = new Server(server, {
 
 const WORLD_SIZE = 250;
 const HALF_WORLD = WORLD_SIZE / 2;
-const PLAYER_BASE_RADIUS = 0.75;
+const STARTING_MASS_USD = 20;
 const BASE_SPEED = 10; // units per second
 const SPEED_FALLOFF = 0.15;
 const PELLET_COUNT = 75000;
@@ -68,6 +104,160 @@ const UPGRADE_DEFS = {
 const pelletVolume = (4 / 3) * Math.PI * Math.pow(PELLET_MIN_RADIUS, 3);
 const bulletVolume = (4 / 3) * Math.PI * Math.pow(BULLET_RADIUS, 3);
 
+function setCorsHeaders(res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Stripe-Signature");
+}
+
+function sendJson(res, statusCode, payload = {}) {
+  setCorsHeaders(res);
+  res.writeHead(statusCode, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(payload));
+}
+
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+async function readJsonBody(req) {
+  const rawBody = await readRawBody(req);
+  if (!rawBody.length) return {};
+  return JSON.parse(rawBody.toString("utf8"));
+}
+
+function normalizeMoneyAmount(amount) {
+  const normalized = Math.round(Number(amount) * 100) / 100;
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : null;
+}
+
+function getPlayerId(value) {
+  const id = `${value || ""}`.trim();
+  return id || null;
+}
+
+function getCheckoutReturnUrl(value) {
+  try {
+    const url = new URL(value || clientUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return clientUrl;
+    }
+    return url.origin;
+  } catch {
+    return clientUrl;
+  }
+}
+
+function getStoredBalance(playerId) {
+  return playerBalances.get(playerId) || 0;
+}
+
+function creditPlayerBalance(playerId, amountUsd) {
+  const nextBalance = Math.round((getStoredBalance(playerId) + amountUsd) * 100) / 100;
+  playerBalances.set(playerId, nextBalance);
+  io.emit("balance-updated", { playerId, balance: nextBalance });
+  return nextBalance;
+}
+
+async function createCheckoutSession(req, res) {
+  if (!stripe) {
+    sendJson(res, 503, { error: "Stripe is not configured." });
+    return;
+  }
+
+  const {
+    amountUsd,
+    playerId,
+    paymentMethod = "auto",
+    returnUrl,
+  } = await readJsonBody(req);
+  const normalizedAmount = normalizeMoneyAmount(amountUsd);
+  const normalizedPlayerId = getPlayerId(playerId);
+  if (!normalizedAmount || !normalizedPlayerId) {
+    sendJson(res, 400, { error: "amountUsd and playerId are required." });
+    return;
+  }
+
+  const checkoutReturnUrl = getCheckoutReturnUrl(returnUrl);
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    success_url: `${checkoutReturnUrl}?payment=success`,
+    cancel_url: `${checkoutReturnUrl}?payment=cancelled`,
+    payment_method_types: paymentMethod === "card" ? ["card"] : undefined,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: Math.round(normalizedAmount * 100),
+          product_data: {
+            name: "Agar3D USD balance",
+            description: "Funds usable as in-game mass.",
+          },
+        },
+      },
+    ],
+    metadata: {
+      playerId: normalizedPlayerId,
+      amountUsd: `${normalizedAmount}`,
+    },
+  });
+
+  sendJson(res, 200, { url: session.url });
+}
+
+async function handleStripeWebhook(req, res) {
+  if (!stripe || !stripeWebhookSecret) {
+    sendJson(res, 503, { error: "Stripe webhook is not configured." });
+    return;
+  }
+
+  const rawBody = await readRawBody(req);
+  const signature = req.headers["stripe-signature"];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(rawBody, signature, stripeWebhookSecret);
+  } catch (error) {
+    sendJson(res, 400, { error: `Webhook signature failed: ${error.message}` });
+    return;
+  }
+
+  if (processedStripeEvents.has(event.id)) {
+    sendJson(res, 200, { received: true, duplicate: true });
+    return;
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    if (session.payment_status === "paid") {
+      const playerId = getPlayerId(session.metadata?.playerId);
+      const amountUsd = normalizeMoneyAmount(session.metadata?.amountUsd);
+      if (playerId && amountUsd) {
+        creditPlayerBalance(playerId, amountUsd);
+      }
+    }
+  }
+
+  processedStripeEvents.add(event.id);
+  sendJson(res, 200, { received: true });
+}
+
+function sendPlayerBalance(req, res) {
+  const url = new URL(req.url, "http://localhost");
+  const playerId = getPlayerId(url.searchParams.get("playerId"));
+  if (!playerId) {
+    sendJson(res, 400, { error: "playerId is required." });
+    return;
+  }
+  sendJson(res, 200, { playerId, balance: getStoredBalance(playerId) });
+}
+
 function radiusToMass(radius) {
   return volumeFromRadius(radius) / pelletVolume;
 }
@@ -76,6 +266,8 @@ function massToRadius(mass) {
   const volume = mass * pelletVolume;
   return Math.cbrt((3 * volume) / (4 * Math.PI));
 }
+
+const PLAYER_BASE_RADIUS = massToRadius(STARTING_MASS_USD);
 
 function volumeFromRadius(radius) {
   return (4 / 3) * Math.PI * Math.pow(radius, 3);
@@ -425,7 +617,7 @@ function emitUpgradeState(player) {
 }
 
 function createPlayerState({ id, name, isBot = false, position = null }) {
-  const mass = radiusToMass(PLAYER_BASE_RADIUS);
+  const mass = STARTING_MASS_USD;
   const player = {
     id,
     name,
@@ -1351,11 +1543,12 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(3001, "0.0.0.0", () => {
-  console.log("Multiplayer server running on port 3001");
+const port = Number(process.env.PORT) || 3001;
+server.listen(port, "0.0.0.0", () => {
+  console.log(`Multiplayer server running on port ${port}`);
   console.log("Server is accessible on:");
-  console.log("  - localhost:3001");
-  console.log("  - <your-local-ip>:3001");
+  console.log(`  - localhost:${port}`);
+  console.log(`  - <your-local-ip>:${port}`);
   console.log(
     "\nTo find your local IP, run: ip addr show (Linux) or ipconfig (Windows)"
   );

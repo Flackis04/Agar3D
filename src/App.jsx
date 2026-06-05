@@ -1,11 +1,50 @@
 import { Canvas } from "@react-three/fiber";
 import React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { calculateCellMass } from "./utils/playerUtils.js";
 import { pelletMinSize } from "./objects.js";
 import { otherPlayers, socket } from "./multiplayer.js";
 import { GameScene } from "./GameScene.jsx";
+
+const START_COST = 20;
+const DEFAULT_BALANCE = 0;
+const BALANCE_STORAGE_KEY = "agar3dBalance";
+const PLAYER_ID_STORAGE_KEY = "agar3dPlayerId";
+const DEFAULT_API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
+const CRYPTO_ASSETS = ["USDC", "USDT", "ETH", "BTC"];
+const PAYMENT_METHODS = [
+  { id: "card", label: "Card", helper: "Visa, Mastercard, Amex" },
+  { id: "wallet", label: "Wallet", helper: "Apple Pay, Google Pay" },
+  { id: "bank", label: "Bank", helper: "ACH, SEPA, local bank" },
+  { id: "paypal", label: "PayPal", helper: "PayPal balance or linked card" },
+  { id: "crypto", label: "Crypto", helper: "Stablecoins or crypto wallet" },
+];
+
+function formatMoney(value) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function getInitialBalance() {
+  const balance = Number.parseFloat(
+    localStorage.getItem(BALANCE_STORAGE_KEY) ?? `${DEFAULT_BALANCE}`
+  );
+  return Number.isNaN(balance) ? DEFAULT_BALANCE : balance;
+}
+
+function getPlayerId() {
+  const savedId = localStorage.getItem(PLAYER_ID_STORAGE_KEY);
+  if (savedId) return savedId;
+  const nextId =
+    crypto.randomUUID?.() || `player-${Date.now()}-${Math.random()}`;
+  localStorage.setItem(PLAYER_ID_STORAGE_KEY, nextId);
+  return nextId;
+}
 
 function useTimedTick(enabled, callback, intervalMs = 250) {
   useEffect(() => {
@@ -291,12 +330,96 @@ export function App() {
   const [savedMass, setSavedMass] = useState(null);
   const [isSafeToSave, setIsSafeToSave] = useState(false);
   const [sessionKey, setSessionKey] = useState(0);
+  const [balance, setBalance] = useState(getInitialBalance);
+  const [walletMode, setWalletMode] = useState("deposit");
+  const [walletAmount, setWalletAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0].id);
+  const [cryptoAsset, setCryptoAsset] = useState(CRYPTO_ASSETS[0]);
+  const [walletAddress, setWalletAddress] = useState("");
+  const [walletMessage, setWalletMessage] = useState("");
+  const playerId = useMemo(getPlayerId, []);
   const gameState = useRef(null);
   const isPlaying = screen === "playing";
   const gameIsMounted = screen === "playing" || screen === "paused";
   const handleGameReady = useCallback((state) => {
     gameState.current = state;
   }, []);
+
+  const saveBalance = useCallback((nextBalance) => {
+    const normalizedBalance = Math.max(0, Math.round(nextBalance * 100) / 100);
+    localStorage.setItem(BALANCE_STORAGE_KEY, `${normalizedBalance}`);
+    setBalance(normalizedBalance);
+  }, []);
+
+  const refreshServerBalance = useCallback(async () => {
+    const response = await fetch(
+      `${API_BASE_URL}/api/balance?playerId=${encodeURIComponent(playerId)}`
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (typeof data.balance === "number") {
+      saveBalance(data.balance);
+      return data.balance;
+    }
+    return null;
+  }, [playerId, saveBalance]);
+
+  useEffect(() => {
+    refreshServerBalance().catch(() => {});
+  }, [refreshServerBalance]);
+
+  useEffect(() => {
+    const onBalanceUpdated = ({ playerId: updatedPlayerId, balance: nextBalance }) => {
+      if (updatedPlayerId === playerId && typeof nextBalance === "number") {
+        saveBalance(nextBalance);
+      }
+    };
+    socket.on("balance-updated", onBalanceUpdated);
+    return () => socket.off("balance-updated", onBalanceUpdated);
+  }, [playerId, saveBalance]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paymentStatus = params.get("payment");
+    if (paymentStatus === "cancelled") {
+      setWalletMessage("Payment was cancelled.");
+      window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
+
+    if (paymentStatus !== "success") return;
+
+    let cancelled = false;
+    let attempts = 0;
+    const previousBalance = balance;
+    setWalletMessage("Payment successful. Updating balance...");
+
+    const pollBalance = async () => {
+      attempts += 1;
+      const nextBalance = await refreshServerBalance();
+      if (cancelled) return;
+
+      if (typeof nextBalance === "number" && nextBalance > previousBalance) {
+        setWalletMessage("Payment added to your balance.");
+        window.history.replaceState({}, "", window.location.pathname);
+        return;
+      }
+
+      if (attempts < 10) {
+        window.setTimeout(pollBalance, 1000);
+      } else {
+        setWalletMessage("Payment succeeded. Waiting for Stripe confirmation...");
+      }
+    };
+
+    pollBalance().catch(() => {
+      if (!cancelled) setWalletMessage("Payment succeeded. Balance refresh failed.");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [balance, refreshServerBalance]);
 
   const checkEnemyProximity = useCallback(() => {
     const state = gameState.current;
@@ -359,7 +482,79 @@ export function App() {
     };
   }, [screen]);
 
+  const submitWalletTransfer = useCallback(async () => {
+    const amount = Number.parseFloat(walletAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setWalletMessage("Enter a USD amount greater than $0.");
+      return;
+    }
+
+    if (walletMode === "deposit") {
+      setWalletMessage("Opening secure checkout...");
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/create-checkout-session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amountUsd: amount,
+            playerId,
+            paymentMethod,
+            returnUrl: window.location.origin,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          setWalletMessage(data.error || "Could not start checkout.");
+          return;
+        }
+        window.location.href = data.url;
+      } catch {
+        setWalletMessage("Payment server is unavailable.");
+      }
+      return;
+    }
+
+    if (paymentMethod === "crypto" && !walletAddress.trim()) {
+      setWalletMessage("Enter the crypto wallet address to receive funds.");
+      return;
+    }
+
+    if (amount > balance) {
+      setWalletMessage("Insufficient USD balance for that withdrawal.");
+      return;
+    }
+
+    saveBalance(balance - amount);
+    setWalletAmount("");
+    const methodLabel =
+      PAYMENT_METHODS.find((method) => method.id === paymentMethod)?.label ||
+      "payment method";
+    setWalletMessage(
+      `Withdrawal requested for ${formatMoney(amount)} via ${methodLabel}${
+        paymentMethod === "crypto" ? ` (${cryptoAsset})` : ""
+      }.`
+    );
+  }, [
+    balance,
+    cryptoAsset,
+    paymentMethod,
+    playerId,
+    saveBalance,
+    walletAddress,
+    walletAmount,
+    walletMode,
+  ]);
+
   function startGame() {
+    if (!savedMass && balance < START_COST) {
+      window.alert("You need $20 USD to start a game.");
+      return;
+    }
+
+    if (!savedMass) {
+      saveBalance(balance - START_COST);
+    }
+
     // Changing sessionKey forces GameScene to mount fresh, which creates a
     // new match instead of reusing old Three.js objects.
     gameState.current = null;
@@ -406,6 +601,87 @@ export function App() {
         <div id="homeScreen">
           <div id="menuContainer">
             <h1>Agar3D</h1>
+            <div id="balanceDisplay">Balance: {formatMoney(balance)} USD</div>
+            <div id="walletPanel">
+              <div className="wallet-tabs" aria-label="Wallet actions">
+                <button
+                  className={walletMode === "deposit" ? "active" : ""}
+                  type="button"
+                  onClick={() => setWalletMode("deposit")}
+                >
+                  Deposit
+                </button>
+                <button
+                  className={walletMode === "withdraw" ? "active" : ""}
+                  type="button"
+                  onClick={() => setWalletMode("withdraw")}
+                >
+                  Withdraw
+                </button>
+              </div>
+              <div className="payment-methods" aria-label="Payment methods">
+                {PAYMENT_METHODS.map((method) => (
+                  <button
+                    className={paymentMethod === method.id ? "active" : ""}
+                    key={method.id}
+                    type="button"
+                    onClick={() => setPaymentMethod(method.id)}
+                    title={method.helper}
+                  >
+                    {method.label}
+                  </button>
+                ))}
+              </div>
+              <div className="wallet-row">
+                {paymentMethod === "crypto" ? (
+                  <select
+                    value={cryptoAsset}
+                    onChange={(event) => setCryptoAsset(event.target.value)}
+                  >
+                    {CRYPTO_ASSETS.map((asset) => (
+                      <option key={asset} value={asset}>
+                        {asset}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="method-chip">
+                    {
+                      PAYMENT_METHODS.find((method) => method.id === paymentMethod)
+                        ?.helper
+                    }
+                  </div>
+                )}
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="USD amount"
+                  value={walletAmount}
+                  onChange={(event) => setWalletAmount(event.target.value)}
+                />
+              </div>
+              {walletMode === "deposit" ? (
+                <div className="provider-note">
+                  Secure checkout opens with your selected method. The game balance updates after Stripe verifies payment.
+                </div>
+              ) : paymentMethod === "crypto" ? (
+                <input
+                  type="text"
+                  placeholder="Destination wallet address"
+                  value={walletAddress}
+                  onChange={(event) => setWalletAddress(event.target.value)}
+                />
+              ) : (
+                <div className="provider-note">
+                  Production withdrawals need a payout provider such as Stripe Connect, PayPal Payouts, or Coinbase payouts.
+                </div>
+              )}
+              <button type="button" id="walletButton" onClick={submitWalletTransfer}>
+                {walletMode === "deposit" ? "Credit Deposit" : "Send Withdrawal"}
+              </button>
+              {walletMessage && <div className="wallet-message">{walletMessage}</div>}
+            </div>
             <input
               type="text"
               id="playerName"
@@ -418,8 +694,13 @@ export function App() {
               }}
               autoFocus
             />
-            <button id="playButton" onClick={startGame}>
-              {savedMass ? "Resume" : "Play"}
+            <div id="startCost">Start cost: $20 USD = 20 starting mass</div>
+            <button
+              id="playButton"
+              onClick={startGame}
+              disabled={!savedMass && balance < START_COST}
+            >
+              {savedMass ? "Resume" : balance < START_COST ? "Need $20" : "Play - $20"}
             </button>
           </div>
         </div>

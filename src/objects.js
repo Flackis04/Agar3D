@@ -1,4 +1,4 @@
-import { checkEatCondition } from "./utils/playerUtils.js";
+import { checkEatCondition, convertMassToRadius } from "./utils/playerUtils.js";
 import * as THREE from "three";
 import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { SpatialGrid } from "./utils/spatialGrid.js";
@@ -6,6 +6,7 @@ import { SpatialGrid } from "./utils/spatialGrid.js";
 export const mapSize = 250;
 export const pelletMinSize = 0.3;
 export const pelletMaxSize = 0.55;
+export const startingMassUsd = 20;
 const powerUpInterval = 24;
 const pelletClusterCount = 96;
 const pelletClusterChance = 0.28;
@@ -50,7 +51,9 @@ function randomPelletPosition(radius, clusterCenters) {
 }
 
 export function createPlayerCell(isBot, scene, camera) {
-  const playerStartingRadius = isBot ? Math.random() * 5.75 : 0.75;
+  const playerStartingRadius = isBot
+    ? Math.random() * 5.75
+    : convertMassToRadius(startingMassUsd, pelletMinSize);
   const playerDefaultOpacity = 0.65;
   const playerCellColor = isBot ? 0xff3333 : 0x00aaff;
 

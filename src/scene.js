@@ -34,7 +34,7 @@ export function updateBorderFog(scene) {
 export function updateFogDistance(scene, cameraDistance, playerRadius) {
   if (!scene.fog) return;
 
-  const targetFogFar = cameraDistance * 2 + playerRadius * 2;
+  const targetFogFar = cameraDistance * 2.35 + playerRadius * 2.5;
 
   // If we're currently animating, continue the animation
   if (fogTransition.isAnimating) {

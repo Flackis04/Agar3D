@@ -4,8 +4,19 @@ body {
   background: black;
   font-family: "Arial", sans-serif;
 }
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
 canvas {
   display: block;
+}
+
+.game-canvas {
+  width: 100vw;
+  height: 100vh;
 }
 
 #homeScreen {
@@ -37,10 +48,129 @@ canvas {
 #menuContainer h1 {
   color: #66aaff;
   font-size: 72px;
-  margin: 0 0 40px 0;
+  margin: 0 0 24px 0;
   text-shadow: 0 0 20px rgba(102, 170, 255, 0.5);
   font-weight: bold;
   letter-spacing: 4px;
+}
+
+#balanceDisplay {
+  width: 300px;
+  color: #00e676;
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid rgba(0, 230, 118, 0.35);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  text-shadow: 0 0 12px rgba(0, 230, 118, 0.35);
+  box-sizing: border-box;
+}
+
+#walletPanel {
+  width: 300px;
+  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: white;
+}
+
+.wallet-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.wallet-tabs button,
+.payment-methods button,
+#walletButton {
+  min-height: 36px;
+  border: 1px solid rgba(102, 170, 255, 0.45);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.wallet-tabs button.active,
+.payment-methods button.active,
+#walletButton {
+  background: rgba(0, 102, 204, 0.85);
+  color: white;
+  border-color: #66aaff;
+}
+
+.payment-methods {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.payment-methods button {
+  min-height: 32px;
+  font-size: 12px;
+}
+
+.wallet-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 1fr) 1fr;
+  gap: 8px;
+}
+
+#walletPanel input,
+#walletPanel select {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(102, 170, 255, 0.45);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.65);
+  color: white;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.wallet-address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 9px 12px;
+  border: 1px solid rgba(0, 230, 118, 0.28);
+  border-radius: 8px;
+  background: rgba(0, 230, 118, 0.08);
+  color: #9dffcb;
+  font-size: 12px;
+  font-family: Consolas, "Courier New", monospace;
+}
+
+.method-chip,
+.provider-note {
+  padding: 10px 12px;
+  border: 1px solid rgba(102, 170, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.75);
+  box-sizing: border-box;
+}
+
+.method-chip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.provider-note {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.wallet-message {
+  min-height: 18px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
 }
 
 #playerName {
@@ -66,6 +196,14 @@ canvas {
   color: rgba(255, 255, 255, 0.5);
 }
 
+#startCost {
+  width: 300px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 15px;
+  margin: -8px 0 12px;
+  text-align: center;
+}
+
 #playButton {
   width: 300px;
   padding: 15px 40px;
@@ -85,6 +223,21 @@ canvas {
   background: linear-gradient(135deg, #0088ff 0%, #00aaff 100%);
   box-shadow: 0 0 30px rgba(102, 170, 255, 0.6);
   transform: scale(1.05);
+}
+
+#playButton:disabled {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(80, 80, 80, 0.65);
+  color: rgba(255, 255, 255, 0.45);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+#playButton:disabled:hover {
+  background: rgba(80, 80, 80, 0.65);
+  box-shadow: none;
+  transform: none;
 }
 
 #playButton:active {
@@ -201,4 +354,51 @@ canvas {
   z-index: 1000;
   text-align: center;
   font-family: inherit;
+}
+
+#mass-counter span {
+  display: inline-block;
+  transition: transform 0.15s cubic-bezier(0.4, 1.4, 0.6, 1);
+}
+
+#mass-counter span.bump {
+  transform: scale(1.18);
+}
+
+#leaderboard {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  min-width: 200px;
+  padding: 15px;
+  color: #fff;
+  background-color: rgba(0, 0, 0, 0.6);
+  border-radius: 8px;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  z-index: 1000;
+  backdrop-filter: blur(5px);
+}
+
+.leaderboard-title {
+  font-weight: bold;
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+
+.leaderboard-row {
+  margin: 5px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+}
+
+.leaderboard-row.is-player {
+  color: #00e676;
+}
+
+.leaderboard-separator {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
 }
