@@ -361,6 +361,9 @@ function registerPelletHandlers() {
     console.log("Received pellet state from server");
     for (let i = 0; i < state.active.length; i++) {
       pelletDataRef.active[i] = state.active[i];
+      if (Array.isArray(state.sizes) && typeof state.sizes[i] === "number") {
+        pelletDataRef.sizes[i] = state.sizes[i];
+      }
       pelletDataRef.positions[i].set(
         state.positions[i].x,
         state.positions[i].y,

@@ -542,9 +542,9 @@ function AppContent() {
         setSavedMass(null);
         setRoundResult({
           title: "Round ended",
-          detail: "You hit a bomb. No money was cashed in.",
+          detail: `You hit a bomb and lost your ${formatMoney(activeStartingMass)} entry.`,
         });
-        setWalletMessage("You hit a bomb. Round ended.");
+        setWalletMessage(`You hit a bomb. Entry lost: ${formatMoney(activeStartingMass)}.`);
         return;
       }
       frameId = requestAnimationFrame(watchDeath);
@@ -553,7 +553,7 @@ function AppContent() {
     return () => {
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [gameState, isPlaying]);
+  }, [activeStartingMass, gameState, isPlaying]);
 
   const submitWalletTransfer = useCallback(async (methodOverride) => {
     const activePaymentMethod =

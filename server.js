@@ -140,6 +140,7 @@ const SPEED_FALLOFF = 0.15;
 const PELLET_COUNT = 100000;
 const PELLET_MIN_RADIUS = 0.03;
 const PELLET_MAX_RADIUS = 0.04;
+const PELLET_EAT_PADDING = PELLET_MAX_RADIUS * 1.5;
 const PELLET_GRID_SIZE = 4;
 const POWERUP_RATIO = 0.15;
 const TICK_RATE = 20;
@@ -1411,7 +1412,7 @@ function removePelletFromGrid(pellet) {
 }
 
 function getNearbyPelletIndices(position, radius) {
-  const searchRadius = radius + PELLET_MAX_RADIUS;
+  const searchRadius = radius + PELLET_MAX_RADIUS + PELLET_EAT_PADDING;
   const minX = Math.floor((position.x + HALF_WORLD - searchRadius) / PELLET_GRID_SIZE);
   const maxX = Math.floor((position.x + HALF_WORLD + searchRadius) / PELLET_GRID_SIZE);
   const minY = Math.floor((position.y + HALF_WORLD - searchRadius) / PELLET_GRID_SIZE);
@@ -1436,6 +1437,7 @@ function getNearbyPelletIndices(position, radius) {
 function serializePelletState(pellets) {
   return {
     positions: pellets.map((pellet) => pellet.position),
+    sizes: pellets.map((pellet) => pellet.size),
     active: pellets.map((pellet) => pellet.active),
     powerUps: pellets.map((pellet) => pellet.isPowerUp),
   };
@@ -1525,7 +1527,7 @@ function handlePelletCollisions(player) {
     const dx = player.position.x - pellet.position.x;
     const dy = player.position.y - pellet.position.y;
     const dz = player.position.z - pellet.position.z;
-    const eatRadius = player.radius + pellet.size;
+    const eatRadius = player.radius + pellet.size + PELLET_EAT_PADDING;
     if (dx * dx + dy * dy + dz * dz <= eatRadius * eatRadius) {
       pellet.active = false;
       removePelletFromGrid(pellet);
