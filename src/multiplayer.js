@@ -336,7 +336,7 @@ function updatePelletInstance(index) {
   const mesh = pelletDataRef.mesh;
   if (!mesh) return;
   const meshIndex = pelletDataRef.pelletToMeshIndex[index];
-  if (meshIndex === undefined) return;
+  if (meshIndex === undefined || meshIndex < 0 || meshIndex >= mesh.count) return;
   const dummy = pelletDataRef.dummy;
   if (pelletDataRef.active[index]) {
     dummy.position.copy(pelletDataRef.positions[index]);
@@ -371,8 +371,8 @@ function registerPelletHandlers() {
         state.positions[i].y,
         state.positions[i].z
       );
-      updatePelletInstance(i);
     }
+    pelletDataRef.lastVisibilityUpdate = 0;
   });
 
   socket.on("pellet-eaten", (data) => {
@@ -396,6 +396,7 @@ function registerPelletHandlers() {
     }
     pelletDataRef.active[data.index] = true;
     updatePelletInstance(data.index);
+    pelletDataRef.lastVisibilityUpdate = 0;
   });
 }
 

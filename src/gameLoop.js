@@ -2,6 +2,7 @@ import { updateFogDistance } from "./scene.js";
 import { handleDevModeObjectVisibility } from "./camera.js";
 import { sendPlayerInput, socket, updateNetworkedPlayers } from "./multiplayer.js";
 import { updatePlayerGrowth } from "./utils/playerUtils.js";
+import { updateVisiblePellets } from "./objects.js";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
@@ -91,6 +92,11 @@ export function createAnimationLoop(
       );
     }
     updateFog();
+    updateVisiblePellets(
+      gameState.pelletData,
+      gameState.playerCell.position,
+      now
+    );
 
     controls.updateCamera(
       gameState.pelletData && gameState.playerCell.pelletMagnetToggle

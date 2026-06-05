@@ -62,6 +62,7 @@ function canEatCell(predatorRadius, preyRadius) {
 }
 
 function hideInstanceAt(mesh, index, dummy) {
+  if (index < 0) return;
   dummy.position.set(0, 0, 0);
   dummy.rotation.set(0, 0, 0);
   dummy.scale.setScalar(0.0001);
@@ -70,6 +71,7 @@ function hideInstanceAt(mesh, index, dummy) {
 }
 
 function updateInstanceFromDummy(mesh, index, dummy, position, size) {
+  if (index < 0) return;
   dummy.position.copy(position);
   dummy.scale.setScalar(size);
   dummy.updateMatrix();
@@ -87,16 +89,19 @@ function respawnPelletAt(
     pelletToMeshIndex,
     powerUps,
     positions,
+    colors,
   }
 ) {
   const meshIndex = pelletToMeshIndex[i];
   const color = new THREE.Color();
   const isPowerUp = powerUps && powerUps[i];
 
-  if (isPowerUp && meshPowerup) {
-    meshPowerup.getColorAt(meshIndex, color);
-  } else if (mesh) {
+  if (meshIndex >= 0 && mesh) {
     mesh.getColorAt(meshIndex, color);
+  } else if (colors) {
+    color.set(colors[i % colors.length]);
+  } else {
+    color.set(0xffffff);
   }
 
   const newPos = respawnPellet({
@@ -146,9 +151,7 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
     cell.pelletMagnetToggle = toggleRef.value;
   }
 
-  if (isPowerUp && meshPowerup) {
-    hideInstanceAt(meshPowerup, meshIndex, dummy);
-  } else if (mesh) {
+  if (mesh) {
     hideInstanceAt(mesh, meshIndex, dummy);
   }
 
@@ -163,6 +166,7 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
     pelletToMeshIndex,
     powerUps,
     positions,
+    colors: pelletData.colors,
   });
 
   if (pelletData.spatialGrid) {

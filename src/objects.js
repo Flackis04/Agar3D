@@ -7,6 +7,8 @@ export const mapSize = 250;
 export const pelletCount = 500000;
 export const pelletMinSize = 0.03;
 export const pelletMaxSize = 0.04;
+export const pelletRenderDistance = 95;
+export const maxRenderedPellets = 140000;
 export const minBetUsd = 5;
 export const startingMassUsd = 20;
 
@@ -248,6 +250,7 @@ export function createPelletsInstanced(scene, count, colors) {
 
   meshNormal.instanceMatrix.needsUpdate = true;
   if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
+  meshNormal.count = Math.min(count, maxRenderedPellets);
   dummy.position.set(0, 0, 0);
   dummy.scale.setScalar(0.0001);
   dummy.updateMatrix();
@@ -282,6 +285,11 @@ export function createPelletsInstanced(scene, count, colors) {
     pelletToMeshIndex,
     minRadius: pelletMinSize,
     spatialGrid,
+    colors,
+    renderDistance: pelletRenderDistance,
+    maxRendered: maxRenderedPellets,
+    lastVisibilityUpdate: 0,
+    lastVisibilityPosition: new THREE.Vector3(Number.POSITIVE_INFINITY, 0, 0),
   };
 }
 
@@ -326,10 +334,12 @@ export function respawnPellet({
   dummy.scale.setScalar(initialScale);
   dummy.updateMatrix();
 
-  meshNormal.setMatrixAt(normalIdx, dummy.matrix);
-  meshNormal.setColorAt(normalIdx, color);
-  meshNormal.instanceMatrix.needsUpdate = true;
-  if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
+  if (normalIdx >= 0) {
+    meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+    meshNormal.setColorAt(normalIdx, color);
+    meshNormal.instanceMatrix.needsUpdate = true;
+    if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
+  }
   pelletToMeshIndex[i] = normalIdx;
 
   if (!isInitialSpawn) {
@@ -349,8 +359,10 @@ export function respawnPellet({
       dummy.scale.setScalar(currentScale);
       dummy.updateMatrix();
 
-      meshNormal.setMatrixAt(normalIdx, dummy.matrix);
-      meshNormal.instanceMatrix.needsUpdate = true;
+      if (normalIdx >= 0) {
+        meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+        meshNormal.instanceMatrix.needsUpdate = true;
+      }
 
       if (progress < 1) {
         requestAnimationFrame(animateGrowth);
@@ -361,6 +373,62 @@ export function respawnPellet({
   }
 
   return position;
+}
+
+export function updateVisiblePellets(pelletData, playerPosition, now = performance.now()) {
+  if (!pelletData?.mesh || !pelletData?.spatialGrid || !playerPosition) return;
+  const {
+    mesh,
+    positions,
+    sizes,
+    active,
+    dummy,
+    pelletToMeshIndex,
+    spatialGrid,
+    colors,
+    renderDistance = pelletRenderDistance,
+    maxRendered = maxRenderedPellets,
+  } = pelletData;
+
+  const lastPos = pelletData.lastVisibilityPosition;
+  const movedEnough =
+    !Number.isFinite(lastPos?.x) || playerPosition.distanceToSquared(lastPos) > 36;
+  if (!movedEnough && now - pelletData.lastVisibilityUpdate < 140) return;
+
+  pelletData.lastVisibilityUpdate = now;
+  if (lastPos) lastPos.copy(playerPosition);
+
+  pelletToMeshIndex.fill(-1);
+  const visibleIndices = spatialGrid.getItemsInRadius(
+    playerPosition.x,
+    playerPosition.y,
+    playerPosition.z,
+    renderDistance
+  );
+
+  let rendered = 0;
+  const renderDistanceSq = renderDistance * renderDistance;
+  const color = new THREE.Color();
+  for (let n = 0; n < visibleIndices.length && rendered < maxRendered; n++) {
+    const i = visibleIndices[n];
+    if (!active[i]) continue;
+    const position = positions[i];
+    if (position.distanceToSquared(playerPosition) > renderDistanceSq) continue;
+
+    dummy.position.copy(position);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.setScalar(sizes[i]);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(rendered, dummy.matrix);
+    color.set(colors[i % colors.length]);
+    mesh.setColorAt(rendered, color);
+    pelletToMeshIndex[i] = rendered;
+    rendered++;
+  }
+
+  mesh.count = rendered;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 }
 
 export function createViruses(scene) {
