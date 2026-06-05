@@ -30,6 +30,7 @@ export function setupControls(canvas, cameraController) {
   canvas.addEventListener('click', async () => {
     try {
       await canvas.requestPointerLock();
+      window.isPaused = false;
     } catch (err) {
       if (err.name !== 'SecurityError') console.error(err);
     }
@@ -51,8 +52,10 @@ export function setupControls(canvas, cameraController) {
 
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement === canvas) {
+      window.isPaused = false;
       document.addEventListener('mousemove', onMouseMove);
     } else {
+      window.isPaused = true;
       document.removeEventListener('mousemove', onMouseMove);
     }
   });

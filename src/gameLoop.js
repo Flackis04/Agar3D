@@ -96,9 +96,6 @@ export function createAnimationLoop(
       gameState.pelletData && gameState.playerCell.pelletMagnetToggle
     );
 
-    if (scene.userData.animateViruses)
-      scene.userData.animateViruses(performance.now());
-
     stats.begin();
     if (renderer) renderer.render(scene, camera);
     stats.end();

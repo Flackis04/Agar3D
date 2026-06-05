@@ -2,7 +2,6 @@ import {
   createMapBox,
   createPelletsInstanced,
   createPlayerCell,
-  createViruses,
   createMagnetSphere,
   createCellSpatialGrid,
   pelletCount,
@@ -20,8 +19,6 @@ export function initializeGame(
   startingMass = 20,
   gameTicket = null
 ) {
-  createViruses(scene);
-
   const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(
     false,
     scene,

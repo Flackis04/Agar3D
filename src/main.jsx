@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { PrivyProvider, useDepositAddress, usePrivy } from "@privy-io/react-auth";
 import Stats from "three/addons/libs/stats.module.js";
 import { setupControls } from "./controls.js";
 import { createCameraController } from "./camera.js";
@@ -16,9 +17,16 @@ const BALANCE_STORAGE_KEY = "agar3dBalance";
 const AUTH_TOKEN_STORAGE_KEY = "agar3dAuthToken";
 const DEFAULT_API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:3001`;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
+const PRIVY_APP_ID = import.meta.env.VITE_PRIVY_APP_ID || "";
+const PRIVY_CLIENT_ID = import.meta.env.VITE_PRIVY_CLIENT_ID || undefined;
+const PRIVY_DEPOSIT_CHAIN = import.meta.env.VITE_PRIVY_DEPOSIT_CHAIN || "eip155:8453";
+const PRIVY_DEPOSIT_CURRENCY =
+  import.meta.env.VITE_PRIVY_DEPOSIT_CURRENCY ||
+  "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const PRIVY_DEPOSIT_ADDRESS = import.meta.env.VITE_PRIVY_DEPOSIT_ADDRESS || "";
 const LOCAL_HOSTS = ["localhost", "127.0.0.1", "::1"];
 const IS_LOCAL_DEV = LOCAL_HOSTS.includes(window.location.hostname);
-const CRYPTO_ASSETS = ["USDC", "USDT", "ETH", "BTC"];
+const CRYPTO_ASSETS = ["USDC", "USDT", "BTC", "ETH", "SOL", "BNB", "LTC", "XRP", "DOGE", "TRX"];
 const PAYMENT_METHODS = [
   { id: "card", label: "Card", helper: "Visa, Mastercard, Amex" },
   { id: "wallet", label: "Wallet", helper: "Apple Pay, Google Pay" },
@@ -269,18 +277,18 @@ function GameActions({ gameState, isPlaying, onCashIn }) {
   );
 }
 
-function App() {
+function AppContent() {
+  const { authenticated, login, ready: privyReady } = usePrivy();
+  const { createDepositAddress } = useDepositAddress();
   const [balance, setBalance] = useState(getInitialBalance);
   const [gameState, setGameState] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isEscMenuOpen, setIsEscMenuOpen] = useState(false);
   const [playerName, setPlayerName] = useState("");
   const [activePlayerName, setActivePlayerName] = useState("Player");
   const [betAmount, setBetAmount] = useState(`${startingMassUsd}`);
   const [activeStartingMass, setActiveStartingMass] = useState(startingMassUsd);
   const [activeGameTicket, setActiveGameTicket] = useState(null);
   const [savedMass, setSavedMass] = useState(null);
-  const [saveIsSafe, setSaveIsSafe] = useState(false);
   const [walletMode, setWalletMode] = useState("deposit");
   const [walletAmount, setWalletAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0].id);
@@ -445,7 +453,6 @@ function App() {
       if (typeof nextBalance === "number") saveBalance(nextBalance);
       setWalletMessage(`Cashed in ${formatMoney(amount)}.`);
       setIsPlaying(false);
-      setIsEscMenuOpen(false);
       setGameState(null);
       setSavedMass(null);
     };
@@ -459,7 +466,6 @@ function App() {
     const watchDeath = () => {
       if (gameState.playerCell?.userData?.isEaten) {
         setIsPlaying(false);
-        setIsEscMenuOpen(false);
         setGameState(null);
         setSavedMass(null);
         setWalletMessage("You hit a bomb. Round ended.");
@@ -494,6 +500,32 @@ function App() {
     }
 
     if (walletMode === "deposit") {
+      if (paymentMethod === "crypto") {
+        if (!PRIVY_APP_ID) {
+          setWalletMessage("Set VITE_PRIVY_APP_ID before using Privy deposits.");
+          return;
+        }
+        if (!PRIVY_DEPOSIT_ADDRESS) {
+          setWalletMessage("Set VITE_PRIVY_DEPOSIT_ADDRESS to your receiving wallet.");
+          return;
+        }
+        try {
+          setWalletMessage("Opening Privy crypto deposit...");
+          if (privyReady && !authenticated) {
+            await login();
+          }
+          await createDepositAddress({
+            destinationAddress: PRIVY_DEPOSIT_ADDRESS,
+            destinationChain: PRIVY_DEPOSIT_CHAIN,
+            destinationCurrency: PRIVY_DEPOSIT_CURRENCY,
+          });
+          setWalletMessage("Privy deposit completed. Balance credit requires confirmation handling.");
+        } catch (error) {
+          setWalletMessage(error?.message || "Privy deposit was cancelled or failed.");
+        }
+        return;
+      }
+
       setWalletMessage("Opening secure checkout...");
       try {
         const response = await authFetch("/api/create-checkout-session", {
@@ -551,10 +583,14 @@ function App() {
   }, [
     authFetch,
     balance,
+    authenticated,
+    createDepositAddress,
     cryptoAsset,
     currentUser,
+    login,
     paymentMethod,
     payoutDestination,
+    privyReady,
     saveBalance,
     walletAddress,
     walletAmount,
@@ -591,51 +627,6 @@ function App() {
     }
   }, [authEmail, authMode, authPassword, saveAuth, termsAccepted]);
 
-  const checkEnemyProximity = useCallback(() => {
-    if (!gameState) return false;
-    const safeDistance = 50;
-    const playerPos = gameState.playerCell.position;
-
-    for (const botCell of gameState.botCells) {
-      if (botCell.userData.isEaten) continue;
-      if (playerPos.distanceTo(botCell.position) < safeDistance) return false;
-    }
-
-    return true;
-  }, [gameState]);
-
-  useEffect(() => {
-    if (!isEscMenuOpen) return;
-    let frameId = null;
-    const update = () => {
-      setSaveIsSafe(checkEnemyProximity());
-      frameId = requestAnimationFrame(update);
-    };
-    update();
-    return () => cancelAnimationFrame(frameId);
-  }, [checkEnemyProximity, isEscMenuOpen]);
-
-  useEffect(() => {
-    const onPointerLockChange = () => {
-      if (!document.pointerLockElement && gameState && !isEscMenuOpen) {
-        setIsEscMenuOpen(true);
-      }
-    };
-    document.addEventListener("pointerlockchange", onPointerLockChange);
-    return () => document.removeEventListener("pointerlockchange", onPointerLockChange);
-  }, [gameState, isEscMenuOpen]);
-
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.key === "Escape" && gameState && isEscMenuOpen) {
-        event.preventDefault();
-        setIsEscMenuOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [gameState, isEscMenuOpen]);
-
   const startGame = useCallback(async () => {
     if (!savedMass && !betIsValid) {
       alert("Minimum bet is $5 USD.");
@@ -647,7 +638,7 @@ function App() {
       setActiveStartingMass(selectedBet);
       setActiveGameTicket(null);
       setGameState(null);
-      setIsEscMenuOpen(false);
+      window.isPaused = false;
       setIsPlaying(true);
       if (savedMass) setSavedMass(null);
       return;
@@ -689,7 +680,7 @@ function App() {
     setActivePlayerName(playerName.trim() || "Player");
     setActiveStartingMass(savedMass || selectedBet);
     setGameState(null);
-    setIsEscMenuOpen(false);
+    window.isPaused = false;
     setIsPlaying(true);
     if (savedMass) setSavedMass(null);
   }, [
@@ -702,22 +693,6 @@ function App() {
     savedMass,
     selectedBet,
   ]);
-
-  const saveProgress = useCallback(() => {
-    if (!saveIsSafe) {
-      alert("Cannot save! Enemies are too close. Get at least 50 units away.");
-      return;
-    }
-
-    if (gameState?.playerCell?.geometry) {
-      setSavedMass(calculateCellMass(gameState.playerCell, pelletMinSize));
-    }
-
-    setIsEscMenuOpen(false);
-    setIsPlaying(false);
-    setGameState(null);
-    alert("Progress saved successfully!");
-  }, [gameState, saveIsSafe]);
 
   const playButtonText = savedMass
     ? "Resume"
@@ -736,7 +711,6 @@ function App() {
       saveBalance(balance + localMass);
       setWalletMessage(`Cashed in ${formatMoney(localMass)} locally.`);
       setIsPlaying(false);
-      setIsEscMenuOpen(false);
       setGameState(null);
       setSavedMass(null);
       return;
@@ -989,9 +963,17 @@ function App() {
                   />
                 </div>
                 {walletMode === "deposit" ? (
-                  <div className="provider-note">
-                    Stripe Checkout opens after account login and Terms acceptance.
-                  </div>
+                  paymentMethod === "crypto" ? (
+                    <div className="wallet-address">
+                      {PRIVY_DEPOSIT_ADDRESS
+                        ? `Privy -> ${PRIVY_DEPOSIT_CHAIN} / ${cryptoAsset}`
+                        : "Configure VITE_PRIVY_DEPOSIT_ADDRESS"}
+                    </div>
+                  ) : (
+                    <div className="provider-note">
+                      Stripe Checkout opens after account login and Terms acceptance.
+                    </div>
+                  )
                 ) : paymentMethod === "crypto" ? (
                   <input
                     type="text"
@@ -1017,25 +999,6 @@ function App() {
         </div>
       )}
 
-      {isEscMenuOpen && (
-        <div id="escMenu">
-          <div id="escMenuContainer">
-            <h2>Paused</h2>
-            <button
-              id="saveProgressButton"
-              className={saveIsSafe ? "safe" : ""}
-              onClick={saveProgress}
-            >
-              Save Progress
-            </button>
-            <button id="resumeButton" onClick={() => setIsEscMenuOpen(false)}>
-              Resume
-            </button>
-          </div>
-        </div>
-      )}
-
-      <MassCounter gameState={gameState} isPlaying={isPlaying} />
       <GameActions gameState={gameState} isPlaying={isPlaying} onCashIn={cashIn} />
       <Leaderboard
         gameState={gameState}
@@ -1043,6 +1006,25 @@ function App() {
         isPlaying={isPlaying}
       />
     </>
+  );
+}
+
+function App() {
+  return (
+    <PrivyProvider
+      appId={PRIVY_APP_ID || "missing-privy-app-id"}
+      clientId={PRIVY_CLIENT_ID}
+      config={{
+        loginMethods: ["email", "wallet"],
+        embeddedWallets: {
+          ethereum: {
+            createOnLogin: "users-without-wallets",
+          },
+        },
+      }}
+    >
+      <AppContent />
+    </PrivyProvider>
   );
 }
 
