@@ -6,11 +6,11 @@ import { setupControls } from "./controls.js";
 import { createCameraController } from "./camera.js";
 import { initializeGame } from "./gameInit.js";
 import { createAnimationLoop } from "./gameLoop.js";
-import { pelletMinSize } from "./objects.js";
+import { minBetUsd, pelletMinSize, startingMassUsd } from "./objects.js";
 import { calculateCellMass } from "./utils/playerUtils.js";
-import { otherPlayers, socket } from "./multiplayer.js";
+import { otherPlayers, requestCashIn, socket } from "./multiplayer.js";
 
-const START_COST = 20;
+const MIN_BET_USD = minBetUsd;
 const DEFAULT_BALANCE = 0;
 const BALANCE_STORAGE_KEY = "agar3dBalance";
 const AUTH_TOKEN_STORAGE_KEY = "agar3dAuthToken";
@@ -42,7 +42,7 @@ function formatMoney(value) {
   }).format(value);
 }
 
-function GameScene({ playerName, onGameReady }) {
+function GameScene({ playerName, startingMass, gameTicket, onGameReady }) {
   const { scene, camera, gl } = useThree();
   const loopRef = useRef(null);
   const initializedRef = useRef(false);
@@ -82,7 +82,9 @@ function GameScene({ playerName, onGameReady }) {
         );
         onGameReady(gameState);
       },
-      playerName
+      playerName,
+      startingMass,
+      gameTicket
     );
 
     return () => {
@@ -90,7 +92,15 @@ function GameScene({ playerName, onGameReady }) {
         statsRef.current.dom.parentNode.removeChild(statsRef.current.dom);
       }
     };
-  }, [camera, gl.domElement, onGameReady, playerName, scene]);
+  }, [
+    camera,
+    gameTicket,
+    gl.domElement,
+    onGameReady,
+    playerName,
+    scene,
+    startingMass,
+  ]);
 
   useFrame((_, delta) => {
     loopRef.current?.tick(delta);
@@ -226,6 +236,39 @@ function Leaderboard({ gameState, playerName, isPlaying }) {
   );
 }
 
+function GameActions({ gameState, isPlaying, onCashIn }) {
+  const [mass, setMass] = useState(null);
+
+  useEffect(() => {
+    if (!isPlaying || !gameState?.playerCell || gameState.playerCell.userData.isEaten) {
+      setMass(null);
+      return;
+    }
+
+    let frameId = null;
+    const update = () => {
+      if (!gameState.playerCell || gameState.playerCell.userData.isEaten) {
+        setMass(null);
+      } else {
+        setMass(calculateCellMass(gameState.playerCell, pelletMinSize));
+      }
+      frameId = requestAnimationFrame(update);
+    };
+    update();
+    return () => cancelAnimationFrame(frameId);
+  }, [gameState, isPlaying]);
+
+  if (mass === null) return null;
+
+  return (
+    <div id="gameActions">
+      <button type="button" id="cashInButton" onClick={onCashIn}>
+        Cash In {formatMoney(mass)}
+      </button>
+    </div>
+  );
+}
+
 function App() {
   const [balance, setBalance] = useState(getInitialBalance);
   const [gameState, setGameState] = useState(null);
@@ -233,6 +276,9 @@ function App() {
   const [isEscMenuOpen, setIsEscMenuOpen] = useState(false);
   const [playerName, setPlayerName] = useState("");
   const [activePlayerName, setActivePlayerName] = useState("Player");
+  const [betAmount, setBetAmount] = useState(`${startingMassUsd}`);
+  const [activeStartingMass, setActiveStartingMass] = useState(startingMassUsd);
+  const [activeGameTicket, setActiveGameTicket] = useState(null);
   const [savedMass, setSavedMass] = useState(null);
   const [saveIsSafe, setSaveIsSafe] = useState(false);
   const [walletMode, setWalletMode] = useState("deposit");
@@ -240,6 +286,7 @@ function App() {
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0].id);
   const [cryptoAsset, setCryptoAsset] = useState(CRYPTO_ASSETS[0]);
   const [walletAddress, setWalletAddress] = useState("");
+  const [payoutDestination, setPayoutDestination] = useState("");
   const [walletMessage, setWalletMessage] = useState("");
   const [authMode, setAuthMode] = useState("login");
   const [authEmail, setAuthEmail] = useState("");
@@ -252,6 +299,11 @@ function App() {
   );
   const [currentUser, setCurrentUser] = useState(null);
   const gameKey = useMemo(() => `${activePlayerName}-${Number(isPlaying)}`, [activePlayerName, isPlaying]);
+  const parsedBetAmount = Number.parseFloat(betAmount);
+  const selectedBet = Number.isFinite(parsedBetAmount)
+    ? Math.round(parsedBetAmount * 100) / 100
+    : 0;
+  const betIsValid = selectedBet >= MIN_BET_USD;
 
   const saveBalance = useCallback((nextBalance) => {
     const normalizedBalance = Math.max(0, Math.round(nextBalance * 100) / 100);
@@ -384,6 +436,43 @@ function App() {
     return () => socket.off("balance-updated", onBalanceUpdated);
   }, [currentUser?.id, saveBalance]);
 
+  useEffect(() => {
+    const onCashInResult = ({ ok, balance: nextBalance, amount, error }) => {
+      if (!ok) {
+        setWalletMessage(error || "Cash-in failed.");
+        return;
+      }
+      if (typeof nextBalance === "number") saveBalance(nextBalance);
+      setWalletMessage(`Cashed in ${formatMoney(amount)}.`);
+      setIsPlaying(false);
+      setIsEscMenuOpen(false);
+      setGameState(null);
+      setSavedMass(null);
+    };
+    socket.on("cash-in-result", onCashInResult);
+    return () => socket.off("cash-in-result", onCashInResult);
+  }, [saveBalance]);
+
+  useEffect(() => {
+    if (!isPlaying || !gameState?.playerCell) return;
+    let frameId = null;
+    const watchDeath = () => {
+      if (gameState.playerCell?.userData?.isEaten) {
+        setIsPlaying(false);
+        setIsEscMenuOpen(false);
+        setGameState(null);
+        setSavedMass(null);
+        setWalletMessage("You hit a bomb. Round ended.");
+        return;
+      }
+      frameId = requestAnimationFrame(watchDeath);
+    };
+    watchDeath();
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+    };
+  }, [gameState, isPlaying]);
+
   const submitWalletTransfer = useCallback(async () => {
     if (!currentUser) {
       setWalletMessage("Create an account or log in before depositing.");
@@ -427,29 +516,45 @@ function App() {
       return;
     }
 
-    if (
-      walletMode === "withdraw" &&
-      paymentMethod === "crypto" &&
-      !walletAddress.trim()
-    ) {
+    if (walletMode === "withdraw" && paymentMethod === "crypto" && !walletAddress.trim()) {
       setWalletMessage("Enter the crypto wallet address to receive funds.");
       return;
     }
+    if (walletMode === "withdraw" && paymentMethod === "card" && !payoutDestination.trim()) {
+      setWalletMessage("Enter the Mastercard payout destination.");
+      return;
+    }
 
-    const methodLabel =
-      PAYMENT_METHODS.find((method) => method.id === paymentMethod)?.label ||
-      "payment method";
-    setWalletMessage(
-      `Withdrawals require payout-provider and legal approval before launch. Requested ${formatMoney(amount)} via ${methodLabel}${
-        paymentMethod === "crypto" ? ` (${cryptoAsset})` : ""
-      }.`
-    );
+    try {
+      setWalletMessage("Submitting withdrawal...");
+      const response = await authFetch("/api/request-withdrawal", {
+        method: "POST",
+        body: JSON.stringify({
+          amountUsd: amount,
+          method: paymentMethod === "crypto" ? "crypto" : "card",
+          destination:
+            paymentMethod === "crypto" ? walletAddress.trim() : payoutDestination.trim(),
+          cryptoAsset,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setWalletMessage(data.error || "Withdrawal failed.");
+        return;
+      }
+      if (typeof data.balance === "number") saveBalance(data.balance);
+      setWalletMessage(`Withdrawal ${data.withdrawal?.status || "pending"}: ${formatMoney(amount)}.`);
+      setWalletAmount("");
+    } catch {
+      setWalletMessage("Payment server is unavailable.");
+    }
   }, [
     authFetch,
     balance,
     cryptoAsset,
     currentUser,
     paymentMethod,
+    payoutDestination,
     saveBalance,
     walletAddress,
     walletAmount,
@@ -532,8 +637,15 @@ function App() {
   }, [gameState, isEscMenuOpen]);
 
   const startGame = useCallback(async () => {
+    if (!savedMass && !betIsValid) {
+      alert("Minimum bet is $5 USD.");
+      return;
+    }
+
     if (IS_LOCAL_DEV) {
       setActivePlayerName(playerName.trim() || "Player");
+      setActiveStartingMass(selectedBet);
+      setActiveGameTicket(null);
       setGameState(null);
       setIsEscMenuOpen(false);
       setIsPlaying(true);
@@ -553,27 +665,43 @@ function App() {
       alert("Accept the Terms before playing.");
       return;
     }
-    if (!savedMass && balance < START_COST) {
-      alert("You need $20 USD to start a game.");
+    if (!savedMass && balance < selectedBet) {
+      alert(`You need ${formatMoney(selectedBet)} USD to start this game.`);
       return;
     }
 
     if (!savedMass) {
-      const response = await authFetch("/api/start-game", { method: "POST" });
+      const response = await authFetch("/api/start-game", {
+        method: "POST",
+        body: JSON.stringify({ betUsd: selectedBet }),
+      });
       const data = await response.json();
       if (!response.ok) {
         alert(data.error || "Could not start paid game.");
         return;
       }
       if (typeof data.balance === "number") saveBalance(data.balance);
+      if (data.gameTicket) setActiveGameTicket(data.gameTicket);
+    } else {
+      setActiveGameTicket(null);
     }
 
     setActivePlayerName(playerName.trim() || "Player");
+    setActiveStartingMass(savedMass || selectedBet);
     setGameState(null);
     setIsEscMenuOpen(false);
     setIsPlaying(true);
     if (savedMass) setSavedMass(null);
-  }, [authFetch, balance, currentUser, playerName, saveBalance, savedMass]);
+  }, [
+    authFetch,
+    balance,
+    betIsValid,
+    currentUser,
+    playerName,
+    saveBalance,
+    savedMass,
+    selectedBet,
+  ]);
 
   const saveProgress = useCallback(() => {
     if (!saveIsSafe) {
@@ -595,9 +723,30 @@ function App() {
     ? "Resume"
     : IS_LOCAL_DEV
       ? "Play Local"
-    : balance < START_COST
-      ? "Need $20"
-      : "Play - $20";
+    : !betIsValid
+      ? "Minimum $5"
+    : balance < selectedBet
+      ? `Need ${formatMoney(selectedBet)}`
+      : `Play - ${formatMoney(selectedBet)}`;
+
+  const cashIn = useCallback(() => {
+    if (!gameState?.playerCell) return;
+    if (IS_LOCAL_DEV) {
+      const localMass = calculateCellMass(gameState.playerCell, pelletMinSize);
+      saveBalance(balance + localMass);
+      setWalletMessage(`Cashed in ${formatMoney(localMass)} locally.`);
+      setIsPlaying(false);
+      setIsEscMenuOpen(false);
+      setGameState(null);
+      setSavedMass(null);
+      return;
+    }
+    requestCashIn();
+  }, [balance, gameState, saveBalance]);
+  const visiblePaymentMethods =
+    walletMode === "withdraw"
+      ? PAYMENT_METHODS.filter((method) => ["card", "crypto"].includes(method.id))
+      : PAYMENT_METHODS;
 
   return (
     <>
@@ -612,7 +761,12 @@ function App() {
           <fog attach="fog" args={["#050010", 0, 100]} />
           <ambientLight intensity={0.7} />
           <directionalLight position={[100, 200, 100]} intensity={1} />
-          <GameScene playerName={activePlayerName} onGameReady={setGameState} />
+          <GameScene
+            playerName={activePlayerName}
+            startingMass={activeStartingMass}
+            gameTicket={activeGameTicket}
+            onGameReady={setGameState}
+          />
         </Canvas>
       )}
 
@@ -645,11 +799,30 @@ function App() {
                   }}
                   autoFocus
                 />
-                <div id="startCost">Entry: $20 USD = 20 starting mass</div>
+                <input
+                  type="number"
+                  id="betAmount"
+                  min={MIN_BET_USD}
+                  step="0.01"
+                  placeholder="Bet size USD"
+                  value={betAmount}
+                  onChange={(event) => setBetAmount(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") startGame();
+                  }}
+                />
+                <div id="startCost">
+                  Entry: {formatMoney(Math.max(selectedBet, 0))} USD ={" "}
+                  {Math.max(selectedBet, 0).toFixed(2)} starting mass
+                </div>
                 <button
                   id="playButton"
                   onClick={startGame}
-                  disabled={!IS_LOCAL_DEV && !savedMass && (!currentUser || balance < START_COST)}
+                  disabled={
+                    !savedMass &&
+                    (!betIsValid ||
+                      (!IS_LOCAL_DEV && (!currentUser || balance < selectedBet)))
+                  }
                 >
                   {IS_LOCAL_DEV || currentUser ? playButtonText : "Log in to play"}
                 </button>
@@ -774,7 +947,7 @@ function App() {
                   </button>
                 </div>
                 <div className="payment-methods" aria-label="Payment methods">
-                  {PAYMENT_METHODS.map((method) => (
+                  {visiblePaymentMethods.map((method) => (
                     <button
                       className={paymentMethod === method.id ? "active" : ""}
                       key={method.id}
@@ -827,9 +1000,12 @@ function App() {
                     onChange={(event) => setWalletAddress(event.target.value)}
                   />
                 ) : (
-                  <div className="provider-note">
-                    Withdrawals are disabled until payout and legal approval are configured.
-                  </div>
+                  <input
+                    type="text"
+                    placeholder="Mastercard payout destination"
+                    value={payoutDestination}
+                    onChange={(event) => setPayoutDestination(event.target.value)}
+                  />
                 )}
                 <button type="button" id="walletButton" onClick={submitWalletTransfer}>
                   {walletMode === "deposit" ? "Deposit Funds" : "Request Withdrawal"}
@@ -860,6 +1036,7 @@ function App() {
       )}
 
       <MassCounter gameState={gameState} isPlaying={isPlaying} />
+      <GameActions gameState={gameState} isPlaying={isPlaying} onCashIn={cashIn} />
       <Leaderboard
         gameState={gameState}
         playerName={activePlayerName}

@@ -256,6 +256,10 @@ export function initNetworking(scene, playerCell) {
     upsertOtherPlayer(player);
   });
 
+  socket.on("join-rejected", ({ error }) => {
+    console.error("Join rejected:", error);
+  });
+
   socket.on("player-left", (id) => {
     if (otherPlayers[id]) {
       if (otherPlayers[id].mesh && localScene) {
@@ -264,6 +268,21 @@ export function initNetworking(scene, playerCell) {
       delete otherPlayers[id];
       console.log("Player left:", id);
     }
+  });
+
+  socket.on("player-killed", ({ id }) => {
+    if (id === socket.id && localPlayerCell) {
+      localPlayerCell.userData.isEaten = true;
+      localPlayerCell.visible = false;
+      return;
+    }
+    const entry = otherPlayers[id];
+    if (entry?.mesh && localScene) {
+      localScene.remove(entry.mesh);
+      entry.mesh.geometry.dispose();
+      entry.mesh.material.dispose();
+    }
+    delete otherPlayers[id];
   });
 
   socket.on("powerup-activated", () => {
@@ -290,6 +309,10 @@ export function sendPlayerInput({ forward, rotation }) {
   });
 }
 
+export function requestCashIn() {
+  socket.emit("cash-in");
+}
+
 function updatePositionDisplay(mainSphere) {
   const positionElement = document.getElementById("position");
   if (positionElement) {
@@ -301,8 +324,8 @@ function updatePositionDisplay(mainSphere) {
   }
 }
 
-export function emitJoin(playerName) {
-  socket.emit("join", { name: playerName });
+export function emitJoin(playerName, startingMass, gameTicket) {
+  socket.emit("join", { name: playerName, startingMass, gameTicket });
 }
 
 let pelletDataRef = null;

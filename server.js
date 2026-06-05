@@ -69,8 +69,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && req.url === "/api/request-withdrawal") {
+      await requestWithdrawal(req, res);
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/api/start-game") {
-      startPaidGame(req, res);
+      await startPaidGame(req, res);
       return;
     }
 
@@ -93,12 +98,13 @@ const io = new Server(server, {
 
 const WORLD_SIZE = 250;
 const HALF_WORLD = WORLD_SIZE / 2;
-const STARTING_MASS_USD = 20;
+const DEFAULT_STARTING_MASS_USD = 20;
+const MIN_BET_USD = 5;
 const BASE_SPEED = 10; // units per second
 const SPEED_FALLOFF = 0.15;
-const PELLET_COUNT = 25000;
-const PELLET_MIN_RADIUS = 0.3;
-const PELLET_MAX_RADIUS = 0.55;
+const PELLET_COUNT = 50000;
+const PELLET_MIN_RADIUS = 0.03;
+const PELLET_MAX_RADIUS = 0.04;
 const PELLET_GRID_SIZE = 4;
 const POWERUP_RATIO = 0.15;
 const TICK_RATE = 20;
@@ -149,6 +155,17 @@ db.exec(`
     amount_cents INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
     reason TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS withdrawals (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount_cents INTEGER NOT NULL,
+    method TEXT NOT NULL,
+    destination TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -337,6 +354,83 @@ function adjustUserBalance({
   const balance = centsToDollars(nextBalanceCents);
   io.emit("balance-updated", { userId, balance });
   return balance;
+}
+
+function createWithdrawalRequest({
+  userId,
+  amountCents,
+  method,
+  destination = null,
+}) {
+  const id = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO withdrawals
+      (id, user_id, amount_cents, method, destination, status)
+    VALUES (?, ?, ?, ?, ?, 'pending')
+  `).run(id, userId, amountCents, method, destination);
+  return id;
+}
+
+async function requestWithdrawal(req, res) {
+  const user = requireUser(req, res);
+  if (!user) return;
+  if (user.frozen) {
+    sendJson(res, 403, { error: "Account is frozen pending payment review." });
+    return;
+  }
+  if (!user.terms_accepted_at) {
+    sendJson(res, 403, { error: "Terms must be accepted before withdrawing." });
+    return;
+  }
+
+  const { amountUsd, method, destination, cryptoAsset } = await readJsonBody(req);
+  const amountCents = dollarsToCents(amountUsd);
+  if (!amountCents) {
+    sendJson(res, 400, { error: "Enter a valid withdrawal amount." });
+    return;
+  }
+  if (amountCents > user.balance_cents) {
+    sendJson(res, 402, { error: "Insufficient balance." });
+    return;
+  }
+
+  const normalizedMethod = `${method || ""}`.toLowerCase();
+  if (!["card", "crypto"].includes(normalizedMethod)) {
+    sendJson(res, 400, { error: "Choose Mastercard/card or crypto withdrawal." });
+    return;
+  }
+  const payoutDestination =
+    normalizedMethod === "crypto"
+      ? `${cryptoAsset || "CRYPTO"}:${destination || ""}`.trim()
+      : `${destination || "card payout method on file"}`;
+  if (normalizedMethod === "crypto" && !destination) {
+    sendJson(res, 400, { error: "Enter a crypto wallet address." });
+    return;
+  }
+
+  const withdrawalId = createWithdrawalRequest({
+    userId: user.id,
+    amountCents,
+    method: normalizedMethod,
+    destination: payoutDestination,
+  });
+  const balance = adjustUserBalance({
+    userId: user.id,
+    amountCents: -amountCents,
+    type: "withdrawal_requested",
+    provider: normalizedMethod,
+    providerReference: withdrawalId,
+    notes: `Withdrawal requested via ${normalizedMethod}.`,
+  });
+  sendJson(res, 200, {
+    balance,
+    withdrawal: {
+      id: withdrawalId,
+      amount: centsToDollars(amountCents),
+      method: normalizedMethod,
+      status: "pending",
+    },
+  });
 }
 
 async function registerUser(req, res) {
@@ -628,7 +722,12 @@ function sendPlayerBalance(req, res) {
   sendJson(res, 200, { user: publicUser(user), balance: centsToDollars(user.balance_cents) });
 }
 
-function startPaidGame(req, res) {
+function normalizeBetUsd(value) {
+  const normalized = Math.round(Number(value) * 100) / 100;
+  return Number.isFinite(normalized) ? normalized : DEFAULT_STARTING_MASS_USD;
+}
+
+async function startPaidGame(req, res) {
   const user = requireUser(req, res);
   if (!user) return;
   if (user.frozen) {
@@ -640,7 +739,14 @@ function startPaidGame(req, res) {
     return;
   }
 
-  const startCostCents = STARTING_MASS_USD * 100;
+  const { betUsd } = await readJsonBody(req);
+  const startingMass = normalizeBetUsd(betUsd);
+  if (startingMass < MIN_BET_USD) {
+    sendJson(res, 400, { error: "Minimum bet is $5 USD." });
+    return;
+  }
+
+  const startCostCents = Math.round(startingMass * 100);
   if (user.balance_cents < startCostCents) {
     sendJson(res, 402, { error: "Insufficient balance." });
     return;
@@ -650,13 +756,18 @@ function startPaidGame(req, res) {
     userId: user.id,
     amountCents: -startCostCents,
     type: "game_entry",
-    notes: "Game entry converted to starting mass.",
+    notes: `Game entry converted to ${startingMass} starting mass.`,
   });
-  sendJson(res, 200, { balance, startingMass: STARTING_MASS_USD });
+  const gameTicket = createGameTicket({ userId: user.id, startingMass });
+  sendJson(res, 200, { balance, startingMass, gameTicket });
+}
+
+function volumeFromRadius(radius) {
+  return (4 / 3) * Math.PI * Math.pow(radius, 3);
 }
 
 function radiusToMass(radius) {
-  const volume = (4 / 3) * Math.PI * Math.pow(radius, 3);
+  const volume = volumeFromRadius(radius);
   return volume / pelletVolume;
 }
 
@@ -665,7 +776,11 @@ function massToRadius(mass) {
   return Math.cbrt((3 * volume) / (4 * Math.PI));
 }
 
-const PLAYER_BASE_RADIUS = massToRadius(STARTING_MASS_USD);
+function pelletMassFromRadius(radius) {
+  return volumeFromRadius(radius) / pelletVolume;
+}
+
+const PLAYER_BASE_RADIUS = massToRadius(DEFAULT_STARTING_MASS_USD);
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -689,11 +804,13 @@ function createPellet(index) {
   const size = randomBetween(PELLET_MIN_RADIUS, PELLET_MAX_RADIUS);
   const position = randomPosition(size);
   const isPowerUp = Math.random() < POWERUP_RATIO;
+  const bombRoll = Math.random();
   return {
     index,
     position,
     size,
     isPowerUp,
+    bombRoll,
     active: true,
   };
 }
@@ -783,6 +900,7 @@ pellets.forEach(addPelletToGrid);
 const pelletState = serializePelletState(pellets);
 
 const players = new Map();
+const gameTickets = new Map();
 let lastTick = Date.now();
 
 function getPlayerSpeed(mass) {
@@ -790,11 +908,35 @@ function getPlayerSpeed(mass) {
   return BASE_SPEED / slowFactor;
 }
 
+function createGameTicket({ userId, startingMass }) {
+  const ticket = crypto.randomUUID();
+  gameTickets.set(ticket, {
+    userId,
+    startingMass,
+    expiresAt: Date.now() + 60_000,
+  });
+  return ticket;
+}
+
+function consumeGameTicket(ticket) {
+  if (!ticket || !gameTickets.has(ticket)) return null;
+  const gameTicket = gameTickets.get(ticket);
+  gameTickets.delete(ticket);
+  if (gameTicket.expiresAt < Date.now()) return null;
+  return gameTicket;
+}
+
+function isLocalSocket(socket) {
+  const origin = socket.handshake.headers.origin || "";
+  return origin.includes("localhost") || origin.includes("127.0.0.1");
+}
+
 function respawnPellet(pellet) {
   removePelletFromGrid(pellet);
   pellet.position = randomPosition(pellet.size);
   addPelletToGrid(pellet);
   pellet.active = true;
+  pellet.bombRoll = Math.random();
   pelletState.positions[pellet.index] = pellet.position;
   pelletState.active[pellet.index] = true;
   pelletState.powerUps[pellet.index] = pellet.isPowerUp;
@@ -813,11 +955,23 @@ function handlePelletCollisions(player) {
     const dx = player.position.x - pellet.position.x;
     const dy = player.position.y - pellet.position.y;
     const dz = player.position.z - pellet.position.z;
-    if (dx * dx + dy * dy + dz * dz <= player.radius * player.radius) {
+    const eatRadius = player.radius + pellet.size;
+    if (dx * dx + dy * dy + dz * dz <= eatRadius * eatRadius) {
       pellet.active = false;
       removePelletFromGrid(pellet);
       pelletState.active[pellet.index] = false;
-      const gainedMass = Math.pow(pellet.size / PELLET_MIN_RADIUS, 3);
+      const gainedMass = pelletMassFromRadius(pellet.size);
+      const bombChance = Math.min(
+        1,
+        gainedMass / Math.max(1, player.startingMass || DEFAULT_STARTING_MASS_USD)
+      );
+      if (pellet.bombRoll < bombChance) {
+        players.delete(player.id);
+        io.emit("pellet-eaten", { index: pellet.index });
+        io.emit("player-killed", { id: player.id });
+        setTimeout(() => respawnPellet(pellet), 2500);
+        return;
+      }
       player.mass += gainedMass;
       player.radius = massToRadius(player.mass);
       player.speed = getPlayerSpeed(player.mass);
@@ -845,10 +999,35 @@ function handlePlayerCollisions(player) {
     player.mass += other.mass * 0.9;
     player.radius = massToRadius(player.mass);
     player.speed = getPlayerSpeed(player.mass);
-    other.mass = STARTING_MASS_USD;
+    other.mass = DEFAULT_STARTING_MASS_USD;
+    other.startingMass = DEFAULT_STARTING_MASS_USD;
     other.radius = PLAYER_BASE_RADIUS;
     other.speed = getPlayerSpeed(other.mass);
     other.position = randomPosition(other.radius);
+  });
+}
+
+function cashInPlayer(socket, player) {
+  if (!player?.userId) {
+    socket.emit("cash-in-result", {
+      ok: false,
+      error: "Cash-in requires a paid account session.",
+    });
+    return;
+  }
+  const amountCents = Math.max(0, Math.round(player.mass * 100));
+  const balance = adjustUserBalance({
+    userId: player.userId,
+    amountCents,
+    type: "game_cash_in",
+    notes: `Cashed in ${player.mass.toFixed(2)} mass.`,
+  });
+  players.delete(player.id);
+  io.emit("player-left", player.id);
+  socket.emit("cash-in-result", {
+    ok: true,
+    balance,
+    amount: centsToDollars(amountCents),
   });
 }
 
@@ -897,15 +1076,28 @@ io.on("connection", (socket) => {
   console.log(`✅ Client connected: ${socket.id}`);
   console.log(`Total clients: ${io.engine.clientsCount}`);
 
-  socket.on("join", ({ name }) => {
-    const spawnPosition = randomPosition(PLAYER_BASE_RADIUS);
-    const mass = STARTING_MASS_USD;
+  socket.on("join", ({ name, startingMass, gameTicket }) => {
+    const localSocket = isLocalSocket(socket);
+    const ticket = consumeGameTicket(gameTicket);
+    if (!localSocket && !ticket) {
+      socket.emit("join-rejected", { error: "Paid game ticket is required." });
+      return;
+    }
+    const requestedMass = normalizeBetUsd(ticket?.startingMass ?? startingMass);
+    const mass =
+      requestedMass >= MIN_BET_USD
+        ? requestedMass
+        : DEFAULT_STARTING_MASS_USD;
+    const playerRadius = massToRadius(mass);
+    const spawnPosition = randomPosition(playerRadius);
     const player = {
       id: socket.id,
+      userId: ticket?.userId || null,
       name: name || "Player",
       position: spawnPosition,
-      radius: PLAYER_BASE_RADIUS,
+      radius: playerRadius,
       mass,
+      startingMass: mass,
       speed: getPlayerSpeed(mass),
       input: { forward: false, rotation: { yaw: 0, pitch: 0 } },
     };
@@ -946,6 +1138,18 @@ io.on("connection", (socket) => {
 
   socket.on("request-pellet-state", () => {
     socket.emit("pellet-state", pelletState);
+  });
+
+  socket.on("cash-in", () => {
+    const player = players.get(socket.id);
+    if (!player) {
+      socket.emit("cash-in-result", {
+        ok: false,
+        error: "No active player to cash in.",
+      });
+      return;
+    }
+    cashInPlayer(socket, player);
   });
 
   socket.on("ping", () => {

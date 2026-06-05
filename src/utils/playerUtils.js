@@ -34,6 +34,22 @@ function volumeFromRadius(r) {
   return (4 / 3) * Math.PI * Math.pow(r, 3);
 }
 
+function isBombPellet(i, pelletData, cell, pelletRadius) {
+  const bombRoll = pelletData.bombRolls?.[i];
+  if (typeof bombRoll !== "number") return false;
+  const startingMass = Math.max(1, Number(cell.userData?.startingMass) || 20);
+  const pelletMass =
+    volumeFromRadius(pelletRadius) /
+    volumeFromRadius(pelletData.minRadius || 0.15);
+  const bombChance = Math.min(1, pelletMass / startingMass);
+  return bombRoll < bombChance;
+}
+
+function killCell(cell) {
+  cell.userData.isEaten = true;
+  cell.visible = false;
+}
+
 export function convertMassToRadius(mass, pelletMinSizeValue = 1) {
   const pelletVolume = volumeFromRadius(pelletMinSizeValue);
   const cellVolume = mass * pelletVolume;
@@ -114,12 +130,18 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
   } = pelletData;
 
   active[i] = false;
-  eatenSizes.push(sizes[i]);
 
   const isPowerUp = powerUps && powerUps[i];
   const meshIndex = pelletToMeshIndex[i];
 
-  if (isPowerUp && !toggleRef.value) {
+  const bombHit = isBombPellet(i, pelletData, cell, sizes[i]);
+  if (bombHit) {
+    killCell(cell);
+  } else {
+    eatenSizes.push(sizes[i]);
+  }
+
+  if (!bombHit && isPowerUp && !toggleRef.value) {
     toggleRef.value = togglePelletMagnet(cell, pelletData, toggleRef.value);
     cell.pelletMagnetToggle = toggleRef.value;
   }
@@ -156,6 +178,10 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
   }
 
   active[i] = true;
+  if (pelletData.bombRolls) {
+    pelletData.bombRolls[i] = Math.random();
+  }
+  return bombHit ? "bomb" : "pellet";
 }
 
 export function checkEatCondition(cell, pelletData, onEatCallback) {
@@ -188,14 +214,16 @@ export function checkEatCondition(cell, pelletData, onEatCallback) {
     : Array.from({ length: positions.length }, (_, i) => i);
 
   for (let idx = 0; idx < nearbyIndices.length; idx++) {
+    if (cell.userData?.isEaten) break;
     const i = nearbyIndices[idx];
     if (!active[i]) continue;
     const distance = cellPosition.distanceTo(positions[i]);
-    if (distance <= cellRadius) {
+    if (distance <= cellRadius + sizes[i]) {
       if (!cell.isBot) {
       }
       eatenCount++;
-      processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef);
+      const result = processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef);
+      if (result === "bomb") break;
     }
   }
 
@@ -436,8 +464,7 @@ export function updatePlayerFade(
 function applyGrowthFromPellets(
   playerCell,
   totalEatenSizes,
-  pelletBaseRadius,
-  deltaTime = 1 / 60
+  pelletBaseRadius
 ) {
   if (!totalEatenSizes || totalEatenSizes.length === 0) return;
 
@@ -451,7 +478,7 @@ function applyGrowthFromPellets(
     pelletsVolume += volumeFromRadius(pelletRadius);
   }
 
-  const newVolume = playerCellVolume + pelletsVolume * (deltaTime * 60);
+  const newVolume = playerCellVolume + pelletsVolume;
   const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
   const scale = newRadius / playerCell.geometry.parameters.radius;
   playerCell.scale.setScalar(scale);

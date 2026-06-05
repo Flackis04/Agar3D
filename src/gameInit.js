@@ -12,13 +12,21 @@ import { initNetworking, emitJoin, setupPelletSync } from "./multiplayer.js";
 import { updateFogDistance, updateBorderFog } from "./scene.js";
 import { calculateCellMass } from "./utils/playerUtils.js";
 
-export function initializeGame(scene, camera, onReady, playerName = "Player") {
+export function initializeGame(
+  scene,
+  camera,
+  onReady,
+  playerName = "Player",
+  startingMass = 20,
+  gameTicket = null
+) {
   createViruses(scene);
 
   const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(
     false,
     scene,
-    camera
+    camera,
+    startingMass
   );
 
   const playerRadius =
@@ -46,7 +54,7 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
   scene.add(magnetSphere);
 
   initNetworking(scene, playerCell);
-  emitJoin(playerName);
+  emitJoin(playerName, startingMass, gameTicket);
 
   const cells = [];
   let lastSplitTime = null;

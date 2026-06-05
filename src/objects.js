@@ -4,15 +4,21 @@ import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js"
 import { SpatialGrid } from "./utils/spatialGrid.js";
 
 export const mapSize = 250;
-export const pelletCount = 25000;
-export const pelletMinSize = 0.3;
-export const pelletMaxSize = 0.55;
+export const pelletCount = 50000;
+export const pelletMinSize = 0.03;
+export const pelletMaxSize = 0.04;
+export const minBetUsd = 5;
 export const startingMassUsd = 20;
 
-export function createPlayerCell(isBot, scene, camera) {
+export function createPlayerCell(
+  isBot,
+  scene,
+  camera,
+  startingMass = startingMassUsd
+) {
   const playerStartingRadius = isBot
     ? Math.random() * 5.75
-    : convertMassToRadius(startingMassUsd, pelletMinSize);
+    : convertMassToRadius(startingMass, pelletMinSize);
   const playerDefaultOpacity = 0.65;
   const playerCellColor = isBot ? 0xff3333 : 0x00aaff;
 
@@ -39,6 +45,7 @@ export function createPlayerCell(isBot, scene, camera) {
   cell.userData.isBot = isBot;
   cell.userData.defaultOpacity = playerDefaultOpacity;
   cell.userData.isEaten = false;
+  cell.userData.startingMass = startingMass;
   scene.add(cell);
 
   return { cell, playerDefaultOpacity };
@@ -189,6 +196,7 @@ export function createPelletsInstanced(scene, count, colors) {
   const sizes = [];
   const active = new Array(count).fill(true);
   const powerUps = new Array(count);
+  const bombRolls = new Array(count);
   const pelletToMeshIndex = new Array(count);
 
   let powerupCount = 0;
@@ -198,6 +206,7 @@ export function createPelletsInstanced(scene, count, colors) {
     const isPowerUp =
       color.getHex() === 0xff0000 && Math.floor(Math.random() * 3) === 0;
     powerUps[i] = isPowerUp;
+    bombRolls[i] = Math.random();
     if (isPowerUp) powerupCount++;
     else normalCount++;
   }
@@ -277,7 +286,9 @@ export function createPelletsInstanced(scene, count, colors) {
     radius: geometry.parameters.radius,
     dummy,
     powerUps,
+    bombRolls,
     pelletToMeshIndex,
+    minRadius: pelletMinSize,
     spatialGrid,
   };
 }

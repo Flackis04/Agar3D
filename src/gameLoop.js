@@ -1,6 +1,13 @@
 import { updateFogDistance } from "./scene.js";
 import { handleDevModeObjectVisibility } from "./camera.js";
-import { sendPlayerInput, updateNetworkedPlayers } from "./multiplayer.js";
+import { sendPlayerInput, socket, updateNetworkedPlayers } from "./multiplayer.js";
+import { updatePlayerGrowth } from "./utils/playerUtils.js";
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function shouldRunLocalPelletGrowth() {
+  return LOCAL_HOSTS.has(window.location.hostname) && !socket.connected;
+}
 
 export function createAnimationLoop(
   renderer,
@@ -70,6 +77,19 @@ export function createAnimationLoop(
 
     sendInput();
     updateNetworkedPlayers(delta);
+    if (shouldRunLocalPelletGrowth()) {
+      updatePlayerGrowth(
+        false,
+        gameState.playerCell,
+        gameState.pelletData,
+        scene,
+        gameState.playerCell.magnetSphere,
+        gameState.playerCell.position,
+        gameState.cells || [],
+        null,
+        null
+      );
+    }
     updateFog();
 
     controls.updateCamera(
