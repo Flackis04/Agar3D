@@ -410,6 +410,12 @@ function stripeAccountCanReceiveWithdrawal(account) {
   return Boolean(account?.details_submitted && account?.payouts_enabled);
 }
 
+function findStripeBalanceAmount(balanceRows, currency) {
+  return balanceRows
+    .filter((row) => row.currency === currency)
+    .reduce((total, row) => total + Number(row.amount || 0), 0);
+}
+
 async function createStripeConnectOnboarding(req, res) {
   const user = requireUser(req, res);
   if (!user) return;
@@ -899,6 +905,27 @@ async function requestWithdrawal(req, res) {
             detailsSubmitted: Boolean(account.details_submitted),
             payoutsEnabled: Boolean(account.payouts_enabled),
           },
+        });
+        return;
+      }
+      const stripeBalance = await stripe.balance.retrieve();
+      const availableUsdCents = findStripeBalanceAmount(
+        stripeBalance.available || [],
+        "usd"
+      );
+      const pendingUsdCents = findStripeBalanceAmount(
+        stripeBalance.pending || [],
+        "usd"
+      );
+      if (availableUsdCents < amountCents) {
+        sendJson(res, 402, {
+          error: `Insufficient available Stripe USD balance. Available: ${centsToDollars(
+            availableUsdCents
+          )} USD. Pending: ${centsToDollars(
+            pendingUsdCents
+          )} USD. Make a completed USD test deposit or wait for funds to become available.`,
+          availableStripeBalance: centsToDollars(availableUsdCents),
+          pendingStripeBalance: centsToDollars(pendingUsdCents),
         });
         return;
       }
