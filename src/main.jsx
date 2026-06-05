@@ -704,7 +704,12 @@ function AppContent() {
         return;
       }
       if (typeof data.balance === "number") saveBalance(data.balance);
-      setWalletMessage(`Withdrawal ${data.withdrawal?.status || "pending"}: ${formatMoney(amount)}.`);
+      const status = data.withdrawal?.status || "pending";
+      setWalletMessage(
+        status === "pending"
+          ? `Withdrawal pending: ${formatMoney(amount)}. Balance changes after approval.`
+          : `Withdrawal ${status}: ${formatMoney(amount)} removed from balance.`
+      );
       setWalletAmount("");
     } catch {
       setWalletMessage("Payment server is unavailable.");

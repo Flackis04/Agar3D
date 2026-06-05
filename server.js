@@ -922,14 +922,17 @@ async function requestWithdrawal(req, res) {
     status: withdrawalStatus,
     providerReference,
   });
-  const balance = adjustUserBalance({
-    userId: user.id,
-    amountCents: -amountCents,
-    type: "withdrawal_requested",
-    provider: normalizedMethod,
-    providerReference: withdrawalId,
-    notes: `Withdrawal requested via ${normalizedMethod}.`,
-  });
+  const balance =
+    withdrawalStatus === "pending"
+      ? centsToDollars(user.balance_cents)
+      : adjustUserBalance({
+          userId: user.id,
+          amountCents: -amountCents,
+          type: "withdrawal_accepted",
+          provider: normalizedMethod,
+          providerReference: withdrawalId,
+          notes: `Withdrawal accepted via ${normalizedMethod}.`,
+        });
   sendJson(res, 200, {
     balance,
     withdrawal: {
