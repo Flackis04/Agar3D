@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { PrivyProvider, useFundWallet, usePrivy } from "@privy-io/react-auth";
+import QRCode from "qrcode";
 import Stats from "three/addons/libs/stats.module.js";
 import { setupControls } from "./controls.js";
 import { createCameraController } from "./camera.js";
@@ -30,6 +31,10 @@ const PRIVY_DEPOSIT_CHAIN_NAME =
 const PRIVY_DEPOSIT_CHAIN_ID = Number(
   PRIVY_DEPOSIT_CHAIN.replace("eip155:", "")
 ) || 8453;
+const PRIVY_DEPOSIT_DECIMALS = Number(
+  import.meta.env.VITE_PRIVY_DEPOSIT_DECIMALS || "6"
+) || 6;
+const CRYPTO_QR_MODE = import.meta.env.VITE_CRYPTO_QR_MODE || "metamask";
 const LOCAL_HOSTS = ["localhost", "127.0.0.1", "::1"];
 const IS_LOCAL_DEV = LOCAL_HOSTS.includes(window.location.hostname);
 const CRYPTO_ASSETS = ["USDC", "USDT", "BTC", "ETH", "SOL", "BNB", "LTC", "XRP", "DOGE", "TRX"];
@@ -78,6 +83,76 @@ function getRelayRequestIdFromPrivyResult(result) {
 
 function getTransactionHashFromPrivyResult(result) {
   return result?.transactionHash || result?.hash || null;
+}
+
+function amountToTokenUnits(amount, decimals) {
+  const normalizedAmount = Math.max(0, Math.round(amount * 100) / 100);
+  const [whole, fraction = ""] = `${normalizedAmount.toFixed(2)}`.split(".");
+  return `${whole}${fraction.padEnd(decimals, "0").slice(0, decimals)}`.replace(/^0+(?=\d)/, "");
+}
+
+function getCryptoPaymentUri(amount) {
+  const tokenAmount = amountToTokenUnits(amount, PRIVY_DEPOSIT_DECIMALS);
+  const isUsdc =
+    PRIVY_DEPOSIT_ASSET.toUpperCase() === "USDC" &&
+    PRIVY_DEPOSIT_CURRENCY.startsWith("0x");
+  const eip681Uri = isUsdc
+    ? `ethereum:${PRIVY_DEPOSIT_CURRENCY}@${PRIVY_DEPOSIT_CHAIN_ID}/transfer?address=${PRIVY_DEPOSIT_ADDRESS}&uint256=${tokenAmount}`
+    : `ethereum:${PRIVY_DEPOSIT_ADDRESS}@${PRIVY_DEPOSIT_CHAIN_ID}`;
+
+  if (CRYPTO_QR_MODE === "metamask") {
+    const sendPath = isUsdc
+      ? `send/${PRIVY_DEPOSIT_CURRENCY}@${PRIVY_DEPOSIT_CHAIN_ID}/transfer?address=${PRIVY_DEPOSIT_ADDRESS}&uint256=${tokenAmount}`
+      : `send/${PRIVY_DEPOSIT_ADDRESS}@${PRIVY_DEPOSIT_CHAIN_ID}`;
+    return `https://metamask.app.link/${sendPath}`;
+  }
+
+  return eip681Uri;
+}
+
+function CryptoReceiveModal({ deposit, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  if (!deposit) return null;
+
+  const copyAddress = async () => {
+    await navigator.clipboard.writeText(deposit.address);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  };
+
+  return (
+    <div className="receive-backdrop" role="dialog" aria-modal="true">
+      <div className="receive-modal">
+        <button className="receive-close" type="button" onClick={onClose}>
+          x
+        </button>
+        <h2>{`Receive ${formatMoney(deposit.amount)} ${deposit.asset}`}</h2>
+        <p>{`Scan this code or copy your wallet address to send funds on ${deposit.chainName}.`}</p>
+        <div className="receive-qr">
+          <img src={deposit.qrDataUrl} alt="Deposit QR code" />
+        </div>
+        <div className="receive-warning">
+          Only send {deposit.asset} on {deposit.chainName}.
+        </div>
+        <div className="receive-uri">
+          Wallet scan target: {deposit.scanLabel}
+        </div>
+        <a className="receive-wallet-link" href={deposit.paymentUri}>
+          Open in MetaMask
+        </a>
+        <div className="receive-address">
+          <div>
+            <span>Your wallet</span>
+            <strong>{`${deposit.address.slice(0, 6)}...${deposit.address.slice(-6)}`}</strong>
+          </div>
+          <button type="button" onClick={copyAddress}>
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function GameScene({ playerName, startingMass, gameTicket, onGameReady }) {
@@ -326,6 +401,7 @@ function AppContent() {
   const [walletAddress, setWalletAddress] = useState("");
   const [payoutDestination, setPayoutDestination] = useState("");
   const [walletMessage, setWalletMessage] = useState("");
+  const [receiveDeposit, setReceiveDeposit] = useState(null);
   const [authMode, setAuthMode] = useState("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -355,6 +431,34 @@ function AppContent() {
     setCurrentUser(user);
     if (typeof user?.balance === "number") saveBalance(user.balance);
   }, [saveBalance]);
+
+  const openReceiveQr = useCallback(async (amount) => {
+    const paymentUri = getCryptoPaymentUri(amount);
+    const qrDataUrl = await QRCode.toDataURL(paymentUri, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      scale: 8,
+      color: {
+        dark: "#000000",
+        light: "#ffffff",
+      },
+    });
+
+    setReceiveDeposit({
+      address: PRIVY_DEPOSIT_ADDRESS,
+      amount,
+      asset: PRIVY_DEPOSIT_ASSET,
+      chainName: PRIVY_DEPOSIT_CHAIN_NAME,
+      paymentUri,
+      qrDataUrl,
+      scanLabel:
+        CRYPTO_QR_MODE === "metamask"
+          ? "MetaMask mobile link"
+          : PRIVY_DEPOSIT_ASSET.toUpperCase() === "USDC"
+            ? `${PRIVY_DEPOSIT_ASSET} token transfer`
+            : "wallet address",
+    });
+  }, []);
 
   const authFetch = useCallback(async (path, options = {}) => {
     return fetch(`${API_BASE_URL}${path}`, {
@@ -558,9 +662,6 @@ function AppContent() {
           }
           const depositSessionId = sessionData.depositSession.id;
 
-          if (privyReady && !authenticated) {
-            await login();
-          }
           const privyResult = await fundWallet({
             address: PRIVY_DEPOSIT_ADDRESS,
             options: {
@@ -578,8 +679,10 @@ function AppContent() {
                   default: { http: ["https://mainnet.base.org"] },
                 },
               },
-              defaultFundingMethod: "manual",
               uiConfig: {
+                landing: {
+                  title: "Add funds to your Agar3D wallet",
+                },
                 receiveFundsTitle: `Receive ${formatMoney(amount)} ${PRIVY_DEPOSIT_ASSET}`,
                 receiveFundsSubtitle:
                   "Scan this code or copy the wallet address to deposit funds.",
@@ -623,6 +726,11 @@ function AppContent() {
           }
           setWalletMessage("Crypto deposit pending. Balance will update after confirmation.");
         } catch (error) {
+          if (/wallet funding is not enabled/i.test(error?.message || "")) {
+            await openReceiveQr(amount);
+            setWalletMessage("Receive QR opened directly. Balance updates after confirmation.");
+            return;
+          }
           setWalletMessage(error?.message || "Privy deposit was cancelled or failed.");
         }
         return;
@@ -689,6 +797,7 @@ function AppContent() {
     cryptoAsset,
     currentUser,
     login,
+    openReceiveQr,
     paymentMethod,
     payoutDestination,
     privyReady,
@@ -1112,6 +1221,10 @@ function AppContent() {
         playerName={activePlayerName}
         isPlaying={isPlaying}
       />
+      <CryptoReceiveModal
+        deposit={receiveDeposit}
+        onClose={() => setReceiveDeposit(null)}
+      />
     </>
   );
 }
@@ -1119,7 +1232,7 @@ function AppContent() {
 function App() {
   return (
     <PrivyProvider
-      appId={PRIVY_APP_ID || "missing-privy-app-id"}
+      appId={PRIVY_APP_ID}
       clientId={PRIVY_CLIENT_ID}
       config={{
         loginMethods: ["email", "wallet"],
