@@ -4,11 +4,9 @@ import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js"
 import { SpatialGrid } from "./utils/spatialGrid.js";
 
 export const mapSize = 250;
-export const pelletCount = 500000;
+export const pelletCount = 100000;
 export const pelletMinSize = 0.03;
 export const pelletMaxSize = 0.04;
-export const pelletRenderDistance = 55;
-export const maxRenderedPellets = 45000;
 export const minBetUsd = 5;
 export const startingMassUsd = 20;
 
@@ -250,8 +248,6 @@ export function createPelletsInstanced(scene, count, colors) {
 
   meshNormal.instanceMatrix.needsUpdate = true;
   if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
-  pelletToMeshIndex.fill(-1);
-  meshNormal.count = 0;
   dummy.position.set(0, 0, 0);
   dummy.scale.setScalar(0.0001);
   dummy.updateMatrix();
@@ -259,7 +255,7 @@ export function createPelletsInstanced(scene, count, colors) {
   meshPowerup.instanceMatrix.needsUpdate = true;
   if (meshPowerup.instanceColor) meshPowerup.instanceColor.needsUpdate = true;
 
-  meshNormal.frustumCulled = false;
+  meshNormal.frustumCulled = true;
   meshPowerup.frustumCulled = true;
 
   scene.add(meshNormal);
@@ -286,12 +282,6 @@ export function createPelletsInstanced(scene, count, colors) {
     pelletToMeshIndex,
     minRadius: pelletMinSize,
     spatialGrid,
-    colors,
-    renderDistance: pelletRenderDistance,
-    maxRendered: maxRenderedPellets,
-    lastVisibilityUpdate: 0,
-    lastVisibilityPosition: new THREE.Vector3(Number.POSITIVE_INFINITY, 0, 0),
-    renderedPelletIndices: [],
   };
 }
 
@@ -336,12 +326,10 @@ export function respawnPellet({
   dummy.scale.setScalar(initialScale);
   dummy.updateMatrix();
 
-  if (normalIdx >= 0) {
-    meshNormal.setMatrixAt(normalIdx, dummy.matrix);
-    meshNormal.setColorAt(normalIdx, color);
-    meshNormal.instanceMatrix.needsUpdate = true;
-    if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
-  }
+  meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+  meshNormal.setColorAt(normalIdx, color);
+  meshNormal.instanceMatrix.needsUpdate = true;
+  if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
   pelletToMeshIndex[i] = normalIdx;
 
   if (!isInitialSpawn) {
@@ -361,10 +349,8 @@ export function respawnPellet({
       dummy.scale.setScalar(currentScale);
       dummy.updateMatrix();
 
-      if (normalIdx >= 0) {
-        meshNormal.setMatrixAt(normalIdx, dummy.matrix);
-        meshNormal.instanceMatrix.needsUpdate = true;
-      }
+      meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+      meshNormal.instanceMatrix.needsUpdate = true;
 
       if (progress < 1) {
         requestAnimationFrame(animateGrowth);
@@ -375,69 +361,6 @@ export function respawnPellet({
   }
 
   return position;
-}
-
-export function updateVisiblePellets(pelletData, playerPosition, now = performance.now()) {
-  if (!pelletData?.mesh || !pelletData?.spatialGrid || !playerPosition) return;
-  const {
-    mesh,
-    positions,
-    sizes,
-    active,
-    dummy,
-    pelletToMeshIndex,
-    spatialGrid,
-    colors,
-    renderDistance = pelletRenderDistance,
-    maxRendered = maxRenderedPellets,
-  } = pelletData;
-
-  const lastPos = pelletData.lastVisibilityPosition;
-  const movedEnough =
-    !Number.isFinite(lastPos?.x) || playerPosition.distanceToSquared(lastPos) > 16;
-  if (!movedEnough && now - pelletData.lastVisibilityUpdate < 80) return;
-
-  pelletData.lastVisibilityUpdate = now;
-  if (lastPos) lastPos.copy(playerPosition);
-
-  const renderedPelletIndices = pelletData.renderedPelletIndices || [];
-  for (let i = 0; i < renderedPelletIndices.length; i++) {
-    pelletToMeshIndex[renderedPelletIndices[i]] = -1;
-  }
-  renderedPelletIndices.length = 0;
-
-  const visibleIndices = spatialGrid.getItemsInRadius(
-    playerPosition.x,
-    playerPosition.y,
-    playerPosition.z,
-    renderDistance
-  );
-
-  let rendered = 0;
-  const renderDistanceSq = renderDistance * renderDistance;
-  const color = new THREE.Color();
-  for (let n = 0; n < visibleIndices.length && rendered < maxRendered; n++) {
-    const i = visibleIndices[n];
-    if (!active[i]) continue;
-    const position = positions[i];
-    if (position.distanceToSquared(playerPosition) > renderDistanceSq) continue;
-
-    dummy.position.copy(position);
-    dummy.rotation.set(0, 0, 0);
-    dummy.scale.setScalar(sizes[i]);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(rendered, dummy.matrix);
-    color.set(colors[i % colors.length]);
-    mesh.setColorAt(rendered, color);
-    pelletToMeshIndex[i] = rendered;
-    renderedPelletIndices.push(i);
-    rendered++;
-  }
-
-  pelletData.renderedPelletIndices = renderedPelletIndices;
-  mesh.count = rendered;
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 }
 
 export function createViruses(scene) {

@@ -17,7 +17,7 @@ let fogTransition = {
   duration: 500, // 0.5 seconds
 };
 
-export const DEFAULT_VIEW_DISTANCE = 130;
+export const DEFAULT_VIEW_DISTANCE = 45;
 
 export function updateBorderFog(scene) {
   // Find the border (Points mesh) and update its fog uniforms
