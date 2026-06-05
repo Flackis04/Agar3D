@@ -858,8 +858,9 @@ async function createCheckoutSession(req, res) {
     mode: "payment",
     success_url: `${checkoutReturnUrl}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${checkoutReturnUrl}?payment=cancelled`,
-    payment_method_types:
-      paymentMethod === "card" ? ["card"] : undefined,
+    ...(paymentMethod === "card"
+      ? { payment_method_types: ["card"] }
+      : { automatic_payment_methods: { enabled: true } }),
     line_items: [
       {
         quantity: 1,

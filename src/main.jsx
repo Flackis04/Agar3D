@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { PrivyProvider, useFundWallet, usePrivy } from "@privy-io/react-auth";
-import QRCode from "qrcode";
+import { PrivyProvider } from "@privy-io/react-auth";
 import Stats from "three/addons/libs/stats.module.js";
 import { setupControls } from "./controls.js";
 import { createCameraController } from "./camera.js";
@@ -34,7 +33,6 @@ const PRIVY_DEPOSIT_CHAIN_ID = Number(
 const PRIVY_DEPOSIT_DECIMALS = Number(
   import.meta.env.VITE_PRIVY_DEPOSIT_DECIMALS || "6"
 ) || 6;
-const CRYPTO_QR_MODE = import.meta.env.VITE_CRYPTO_QR_MODE || "metamask";
 const LOCAL_HOSTS = ["localhost", "127.0.0.1", "::1"];
 const IS_LOCAL_DEV = LOCAL_HOSTS.includes(window.location.hostname);
 const CRYPTO_ASSETS = ["USDC", "USDT", "BTC", "ETH", "SOL", "BNB", "LTC", "XRP", "DOGE", "TRX"];
@@ -45,6 +43,60 @@ const PAYMENT_METHODS = [
   { id: "paypal", label: "PayPal", helper: "PayPal balance or linked card" },
   { id: "crypto", label: "Crypto", helper: "Stablecoins or crypto wallet" },
 ];
+const QUICK_DEPOSIT_AMOUNTS = [5, 10, 20, 50];
+
+function parseCryptoDepositOptions() {
+  const rawOptions = import.meta.env.VITE_CRYPTO_DEPOSIT_OPTIONS || "";
+  if (rawOptions.trim()) {
+    try {
+      const parsed = JSON.parse(rawOptions);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((option) => ({
+            id: option.id || `${option.asset || "crypto"}-${option.chain || "chain"}`,
+            asset: option.asset || "Crypto",
+            chain: option.chain || option.chainName || "Network",
+            address: option.address || "",
+            currency: option.currency || option.contract || "",
+            decimals: Number(option.decimals || 8),
+          }))
+          .filter((option) => option.address);
+      }
+    } catch {
+      return rawOptions
+        .split(",")
+        .map((item) => {
+          const [asset = "Crypto", chain = "Network", address = ""] = item
+            .split("|")
+            .map((part) => part.trim());
+          return {
+            id: `${asset}-${chain}`,
+            asset,
+            chain,
+            address,
+            currency: "",
+            decimals: asset.toUpperCase().includes("USD") ? 6 : 8,
+          };
+        })
+        .filter((option) => option.address);
+    }
+  }
+
+  return PRIVY_DEPOSIT_ADDRESS
+    ? [
+        {
+          id: `${PRIVY_DEPOSIT_ASSET}-${PRIVY_DEPOSIT_CHAIN_NAME}`,
+          asset: PRIVY_DEPOSIT_ASSET,
+          chain: PRIVY_DEPOSIT_CHAIN_NAME,
+          address: PRIVY_DEPOSIT_ADDRESS,
+          currency: PRIVY_DEPOSIT_CURRENCY,
+          decimals: PRIVY_DEPOSIT_DECIMALS,
+        },
+      ]
+    : [];
+}
+
+const CRYPTO_DEPOSIT_OPTIONS = parseCryptoDepositOptions();
 
 function getInitialBalance() {
   const balance = Number.parseFloat(
@@ -59,100 +111,6 @@ function formatMoney(value) {
     currency: "USD",
     maximumFractionDigits: 2,
   }).format(value);
-}
-
-function getDepositAddressFromPrivyResult(result) {
-  return (
-    result?.depositAddress ||
-    result?.address ||
-    result?.data?.depositAddress ||
-    result?.quote?.depositAddress ||
-    null
-  );
-}
-
-function getRelayRequestIdFromPrivyResult(result) {
-  return (
-    result?.requestId ||
-    result?.relayRequestId ||
-    result?.data?.requestId ||
-    result?.quote?.requestId ||
-    null
-  );
-}
-
-function getTransactionHashFromPrivyResult(result) {
-  return result?.transactionHash || result?.hash || null;
-}
-
-function amountToTokenUnits(amount, decimals) {
-  const normalizedAmount = Math.max(0, Math.round(amount * 100) / 100);
-  const [whole, fraction = ""] = `${normalizedAmount.toFixed(2)}`.split(".");
-  return `${whole}${fraction.padEnd(decimals, "0").slice(0, decimals)}`.replace(/^0+(?=\d)/, "");
-}
-
-function getCryptoPaymentUri(amount) {
-  const tokenAmount = amountToTokenUnits(amount, PRIVY_DEPOSIT_DECIMALS);
-  const isUsdc =
-    PRIVY_DEPOSIT_ASSET.toUpperCase() === "USDC" &&
-    PRIVY_DEPOSIT_CURRENCY.startsWith("0x");
-  const eip681Uri = isUsdc
-    ? `ethereum:${PRIVY_DEPOSIT_CURRENCY}@${PRIVY_DEPOSIT_CHAIN_ID}/transfer?address=${PRIVY_DEPOSIT_ADDRESS}&uint256=${tokenAmount}`
-    : `ethereum:${PRIVY_DEPOSIT_ADDRESS}@${PRIVY_DEPOSIT_CHAIN_ID}`;
-
-  if (CRYPTO_QR_MODE === "metamask") {
-    const sendPath = isUsdc
-      ? `send/${PRIVY_DEPOSIT_CURRENCY}@${PRIVY_DEPOSIT_CHAIN_ID}/transfer?address=${PRIVY_DEPOSIT_ADDRESS}&uint256=${tokenAmount}`
-      : `send/${PRIVY_DEPOSIT_ADDRESS}@${PRIVY_DEPOSIT_CHAIN_ID}`;
-    return `https://metamask.app.link/${sendPath}`;
-  }
-
-  return eip681Uri;
-}
-
-function CryptoReceiveModal({ deposit, onClose }) {
-  const [copied, setCopied] = useState(false);
-
-  if (!deposit) return null;
-
-  const copyAddress = async () => {
-    await navigator.clipboard.writeText(deposit.address);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
-  };
-
-  return (
-    <div className="receive-backdrop" role="dialog" aria-modal="true">
-      <div className="receive-modal">
-        <button className="receive-close" type="button" onClick={onClose}>
-          x
-        </button>
-        <h2>{`Receive ${formatMoney(deposit.amount)} ${deposit.asset}`}</h2>
-        <p>{`Scan this code or copy your wallet address to send funds on ${deposit.chainName}.`}</p>
-        <div className="receive-qr">
-          <img src={deposit.qrDataUrl} alt="Deposit QR code" />
-        </div>
-        <div className="receive-warning">
-          Only send {deposit.asset} on {deposit.chainName}.
-        </div>
-        <div className="receive-uri">
-          Wallet scan target: {deposit.scanLabel}
-        </div>
-        <a className="receive-wallet-link" href={deposit.paymentUri}>
-          Open in MetaMask
-        </a>
-        <div className="receive-address">
-          <div>
-            <span>Your wallet</span>
-            <strong>{`${deposit.address.slice(0, 6)}...${deposit.address.slice(-6)}`}</strong>
-          </div>
-          <button type="button" onClick={copyAddress}>
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function GameScene({ playerName, startingMass, gameTicket, onGameReady }) {
@@ -383,8 +341,6 @@ function GameActions({ gameState, isPlaying, onCashIn }) {
 }
 
 function AppContent() {
-  const { authenticated, login, ready: privyReady } = usePrivy();
-  const { fundWallet } = useFundWallet();
   const [balance, setBalance] = useState(getInitialBalance);
   const [gameState, setGameState] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -398,10 +354,13 @@ function AppContent() {
   const [walletAmount, setWalletAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0].id);
   const [cryptoAsset, setCryptoAsset] = useState(CRYPTO_ASSETS[0]);
+  const [depositCryptoId, setDepositCryptoId] = useState(
+    CRYPTO_DEPOSIT_OPTIONS[0]?.id || ""
+  );
+  const [depositInstructions, setDepositInstructions] = useState(null);
   const [walletAddress, setWalletAddress] = useState("");
   const [payoutDestination, setPayoutDestination] = useState("");
   const [walletMessage, setWalletMessage] = useState("");
-  const [receiveDeposit, setReceiveDeposit] = useState(null);
   const [authMode, setAuthMode] = useState("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -431,34 +390,6 @@ function AppContent() {
     setCurrentUser(user);
     if (typeof user?.balance === "number") saveBalance(user.balance);
   }, [saveBalance]);
-
-  const openReceiveQr = useCallback(async (amount) => {
-    const paymentUri = getCryptoPaymentUri(amount);
-    const qrDataUrl = await QRCode.toDataURL(paymentUri, {
-      errorCorrectionLevel: "M",
-      margin: 1,
-      scale: 8,
-      color: {
-        dark: "#000000",
-        light: "#ffffff",
-      },
-    });
-
-    setReceiveDeposit({
-      address: PRIVY_DEPOSIT_ADDRESS,
-      amount,
-      asset: PRIVY_DEPOSIT_ASSET,
-      chainName: PRIVY_DEPOSIT_CHAIN_NAME,
-      paymentUri,
-      qrDataUrl,
-      scanLabel:
-        CRYPTO_QR_MODE === "metamask"
-          ? "MetaMask mobile link"
-          : PRIVY_DEPOSIT_ASSET.toUpperCase() === "USDC"
-            ? `${PRIVY_DEPOSIT_ASSET} token transfer`
-            : "wallet address",
-    });
-  }, []);
 
   const authFetch = useCallback(async (path, options = {}) => {
     return fetch(`${API_BASE_URL}${path}`, {
@@ -613,7 +544,10 @@ function AppContent() {
     };
   }, [gameState, isPlaying]);
 
-  const submitWalletTransfer = useCallback(async () => {
+  const submitWalletTransfer = useCallback(async (methodOverride) => {
+    const activePaymentMethod =
+      typeof methodOverride === "string" ? methodOverride : paymentMethod;
+
     if (!currentUser) {
       setWalletMessage("Create an account or log in before depositing.");
       return;
@@ -632,27 +566,30 @@ function AppContent() {
       setWalletMessage("Enter a USD amount greater than $0.");
       return;
     }
+    if (walletMode === "deposit" && amount < MIN_BET_USD) {
+      setWalletMessage(`Minimum deposit is ${formatMoney(MIN_BET_USD)}.`);
+      return;
+    }
 
     if (walletMode === "deposit") {
-      if (paymentMethod === "crypto") {
-        if (!PRIVY_APP_ID) {
-          setWalletMessage("Set VITE_PRIVY_APP_ID before using Privy deposits.");
-          return;
-        }
-        if (!PRIVY_DEPOSIT_ADDRESS) {
-          setWalletMessage("Set VITE_PRIVY_DEPOSIT_ADDRESS to your receiving wallet.");
+      if (activePaymentMethod === "crypto") {
+        const selectedCrypto = CRYPTO_DEPOSIT_OPTIONS.find(
+          (option) => option.id === depositCryptoId
+        );
+        if (!selectedCrypto) {
+          setWalletMessage("Add at least one crypto deposit address in VITE_CRYPTO_DEPOSIT_OPTIONS.");
           return;
         }
         try {
-          setWalletMessage("Opening Privy crypto deposit...");
+          setWalletMessage("Preparing crypto deposit address...");
           const sessionResponse = await authFetch("/api/crypto-deposit-session", {
             method: "POST",
             body: JSON.stringify({
               amountUsd: amount,
-              asset: PRIVY_DEPOSIT_ASSET,
-              destinationAddress: PRIVY_DEPOSIT_ADDRESS,
-              destinationChain: PRIVY_DEPOSIT_CHAIN,
-              destinationCurrency: PRIVY_DEPOSIT_CURRENCY,
+              asset: selectedCrypto.asset,
+              destinationAddress: selectedCrypto.address,
+              destinationChain: selectedCrypto.chain,
+              destinationCurrency: selectedCrypto.currency,
             }),
           });
           const sessionData = await sessionResponse.json();
@@ -660,52 +597,29 @@ function AppContent() {
             setWalletMessage(sessionData.error || "Could not create crypto deposit session.");
             return;
           }
+
           const depositSessionId = sessionData.depositSession.id;
-
-          const privyResult = await fundWallet({
-            address: PRIVY_DEPOSIT_ADDRESS,
-            options: {
-              amount: `${amount}`,
-              asset: PRIVY_DEPOSIT_ASSET,
-              chain: {
-                id: PRIVY_DEPOSIT_CHAIN_ID,
-                name: PRIVY_DEPOSIT_CHAIN_NAME,
-                nativeCurrency: {
-                  name: "Ether",
-                  symbol: "ETH",
-                  decimals: 18,
-                },
-                rpcUrls: {
-                  default: { http: ["https://mainnet.base.org"] },
-                },
-              },
-              uiConfig: {
-                landing: {
-                  title: "Add funds to your Agar3D wallet",
-                },
-                receiveFundsTitle: `Receive ${formatMoney(amount)} ${PRIVY_DEPOSIT_ASSET}`,
-                receiveFundsSubtitle:
-                  "Scan this code or copy the wallet address to deposit funds.",
-              },
-            },
-          });
-
-          const depositAddress =
-            getDepositAddressFromPrivyResult(privyResult) || PRIVY_DEPOSIT_ADDRESS;
-          const relayRequestId =
-            getRelayRequestIdFromPrivyResult(privyResult) ||
-            getTransactionHashFromPrivyResult(privyResult);
           await authFetch("/api/crypto-deposit-session/update", {
             method: "POST",
             body: JSON.stringify({
               id: depositSessionId,
-              depositAddress,
-              relayRequestId,
-              providerPayload: privyResult,
+              depositAddress: selectedCrypto.address,
+              providerPayload: {
+                asset: selectedCrypto.asset,
+                chain: selectedCrypto.chain,
+                address: selectedCrypto.address,
+              },
             }),
           });
 
-          setWalletMessage("Crypto deposit pending confirmation...");
+          setDepositInstructions({
+            id: depositSessionId,
+            amount,
+            ...selectedCrypto,
+          });
+          setWalletMessage(
+            `Send ${formatMoney(amount)} of ${selectedCrypto.asset} on ${selectedCrypto.chain}. Balance updates after confirmation.`
+          );
           for (let attempt = 0; attempt < 20; attempt++) {
             await new Promise((resolve) => window.setTimeout(resolve, 3000));
             const statusResponse = await authFetch(
@@ -726,12 +640,7 @@ function AppContent() {
           }
           setWalletMessage("Crypto deposit pending. Balance will update after confirmation.");
         } catch (error) {
-          if (/wallet funding is not enabled/i.test(error?.message || "")) {
-            await openReceiveQr(amount);
-            setWalletMessage("Receive QR opened directly. Balance updates after confirmation.");
-            return;
-          }
-          setWalletMessage(error?.message || "Privy deposit was cancelled or failed.");
+          setWalletMessage(error?.message || "Could not start crypto deposit.");
         }
         return;
       }
@@ -742,7 +651,7 @@ function AppContent() {
           method: "POST",
           body: JSON.stringify({
             amountUsd: amount,
-            paymentMethod,
+            paymentMethod: "auto",
             returnUrl: window.location.origin,
           }),
         });
@@ -758,11 +667,11 @@ function AppContent() {
       return;
     }
 
-    if (walletMode === "withdraw" && paymentMethod === "crypto" && !walletAddress.trim()) {
+    if (walletMode === "withdraw" && activePaymentMethod === "crypto" && !walletAddress.trim()) {
       setWalletMessage("Enter the crypto wallet address to receive funds.");
       return;
     }
-    if (walletMode === "withdraw" && paymentMethod === "card" && !payoutDestination.trim()) {
+    if (walletMode === "withdraw" && activePaymentMethod === "card" && !payoutDestination.trim()) {
       setWalletMessage("Enter the Mastercard payout destination.");
       return;
     }
@@ -773,9 +682,9 @@ function AppContent() {
         method: "POST",
         body: JSON.stringify({
           amountUsd: amount,
-          method: paymentMethod === "crypto" ? "crypto" : "card",
+          method: activePaymentMethod === "crypto" ? "crypto" : "card",
           destination:
-            paymentMethod === "crypto" ? walletAddress.trim() : payoutDestination.trim(),
+            activePaymentMethod === "crypto" ? walletAddress.trim() : payoutDestination.trim(),
           cryptoAsset,
         }),
       });
@@ -793,14 +702,11 @@ function AppContent() {
   }, [
     authFetch,
     balance,
-    authenticated,
     cryptoAsset,
     currentUser,
-    login,
-    openReceiveQr,
+    depositCryptoId,
     paymentMethod,
     payoutDestination,
-    privyReady,
     saveBalance,
     walletAddress,
     walletAmount,
@@ -927,10 +833,6 @@ function AppContent() {
     }
     requestCashIn();
   }, [balance, gameState, saveBalance]);
-  const visiblePaymentMethods =
-    walletMode === "withdraw"
-      ? PAYMENT_METHODS.filter((method) => ["card", "crypto"].includes(method.id))
-      : PAYMENT_METHODS;
 
   return (
     <>
@@ -1130,84 +1032,157 @@ function AppContent() {
                     Withdraw
                   </button>
                 </div>
-                <div className="payment-methods" aria-label="Payment methods">
-                  {visiblePaymentMethods.map((method) => (
-                    <button
-                      className={paymentMethod === method.id ? "active" : ""}
-                      key={method.id}
-                      type="button"
-                      onClick={() => setPaymentMethod(method.id)}
-                      title={method.helper}
-                    >
-                      {method.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="wallet-row">
-                  {paymentMethod === "crypto" ? (
-                    walletMode === "deposit" ? (
-                      <div className="method-chip">
-                        {`${PRIVY_DEPOSIT_CHAIN_NAME} / ${PRIVY_DEPOSIT_ASSET}`}
-                      </div>
-                    ) : (
-                      <select
-                        value={cryptoAsset}
-                        onChange={(event) => setCryptoAsset(event.target.value)}
-                      >
-                        {CRYPTO_ASSETS.map((asset) => (
-                          <option key={asset} value={asset}>
-                            {asset}
-                          </option>
-                        ))}
-                      </select>
-                    )
-                  ) : (
-                    <div className="method-chip">
-                      {
-                        PAYMENT_METHODS.find((method) => method.id === paymentMethod)
-                          ?.helper
-                      }
-                    </div>
-                  )}
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="USD amount"
-                    value={walletAmount}
-                    onChange={(event) => setWalletAmount(event.target.value)}
-                  />
-                </div>
                 {walletMode === "deposit" ? (
-                  paymentMethod === "crypto" ? (
-                    <div className="wallet-address">
-                      {PRIVY_DEPOSIT_ADDRESS
-                        ? `Privy QR receive -> ${PRIVY_DEPOSIT_CHAIN_NAME} / ${PRIVY_DEPOSIT_ASSET}`
-                        : "Configure VITE_PRIVY_DEPOSIT_ADDRESS"}
+                  <>
+                    <div className="deposit-hero">
+                      <strong>Add money</strong>
+                      <span>Card, Apple Pay, Google Pay, bank, and PayPal where available.</span>
                     </div>
-                  ) : (
+                    <div className="quick-amounts" aria-label="Quick deposit amounts">
+                      {QUICK_DEPOSIT_AMOUNTS.map((amount) => (
+                        <button
+                          className={Number.parseFloat(walletAmount) === amount ? "active" : ""}
+                          key={amount}
+                          type="button"
+                          onClick={() => setWalletAmount(`${amount}`)}
+                        >
+                          {formatMoney(amount)}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="number"
+                      min="5"
+                      step="0.01"
+                      placeholder="Amount in USD"
+                      value={walletAmount}
+                      onChange={(event) => setWalletAmount(event.target.value)}
+                    />
                     <div className="provider-note">
-                      Stripe Checkout opens after account login and Terms acceptance.
+                      Secure checkout opens in Stripe. Your balance updates after payment confirmation.
                     </div>
-                  )
-                ) : paymentMethod === "crypto" ? (
-                  <input
-                    type="text"
-                    placeholder="Destination wallet address"
-                    value={walletAddress}
-                    onChange={(event) => setWalletAddress(event.target.value)}
-                  />
+                    <button
+                      type="button"
+                      id="walletButton"
+                      onClick={() => submitWalletTransfer("auto")}
+                    >
+                      Continue to Checkout
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-wallet-button"
+                      onClick={() => submitWalletTransfer("crypto")}
+                    >
+                      Deposit with crypto instead
+                    </button>
+                    {CRYPTO_DEPOSIT_OPTIONS.length > 0 ? (
+                      <>
+                        <div className="wallet-row crypto-deposit-row">
+                          <select
+                            value={depositCryptoId}
+                            onChange={(event) => {
+                              setDepositCryptoId(event.target.value);
+                              setDepositInstructions(null);
+                            }}
+                          >
+                            {CRYPTO_DEPOSIT_OPTIONS.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.asset} on {option.chain}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="method-chip">Choose crypto</div>
+                        </div>
+                        {depositInstructions && (
+                          <div className="crypto-instructions">
+                            <span>Send only</span>
+                            <strong>
+                              {depositInstructions.asset} on {depositInstructions.chain}
+                            </strong>
+                            <code>{depositInstructions.address}</code>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await navigator.clipboard.writeText(depositInstructions.address);
+                                setWalletMessage("Deposit address copied.");
+                              }}
+                            >
+                              Copy Address
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="wallet-address">
+                        Add crypto addresses in VITE_CRYPTO_DEPOSIT_OPTIONS to enable crypto deposits.
+                      </div>
+                    )}
+                  </>
                 ) : (
-                  <input
-                    type="text"
-                    placeholder="Mastercard payout destination"
-                    value={payoutDestination}
-                    onChange={(event) => setPayoutDestination(event.target.value)}
-                  />
+                  <>
+                    <div className="payment-methods" aria-label="Withdrawal method">
+                      {PAYMENT_METHODS.filter((method) =>
+                        ["card", "crypto"].includes(method.id)
+                      ).map((method) => (
+                        <button
+                          className={paymentMethod === method.id ? "active" : ""}
+                          key={method.id}
+                          type="button"
+                          onClick={() => setPaymentMethod(method.id)}
+                          title={method.helper}
+                        >
+                          {method.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="wallet-row">
+                      {paymentMethod === "crypto" ? (
+                        <select
+                          value={cryptoAsset}
+                          onChange={(event) => setCryptoAsset(event.target.value)}
+                        >
+                          {CRYPTO_ASSETS.map((asset) => (
+                            <option key={asset} value={asset}>
+                              {asset}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="method-chip">Mastercard/card payout request</div>
+                      )}
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="USD amount"
+                        value={walletAmount}
+                        onChange={(event) => setWalletAmount(event.target.value)}
+                      />
+                    </div>
+                    {paymentMethod === "crypto" ? (
+                      <input
+                        type="text"
+                        placeholder="Destination wallet address"
+                        value={walletAddress}
+                        onChange={(event) => setWalletAddress(event.target.value)}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        placeholder="Mastercard payout destination"
+                        value={payoutDestination}
+                        onChange={(event) => setPayoutDestination(event.target.value)}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      id="walletButton"
+                      onClick={submitWalletTransfer}
+                    >
+                      Request Withdrawal
+                    </button>
+                  </>
                 )}
-                <button type="button" id="walletButton" onClick={submitWalletTransfer}>
-                  {walletMode === "deposit" ? "Deposit Funds" : "Request Withdrawal"}
-                </button>
                 {walletMessage && <div className="wallet-message">{walletMessage}</div>}
               </section>
             </div>
@@ -1220,10 +1195,6 @@ function AppContent() {
         gameState={gameState}
         playerName={activePlayerName}
         isPlaying={isPlaying}
-      />
-      <CryptoReceiveModal
-        deposit={receiveDeposit}
-        onClose={() => setReceiveDeposit(null)}
       />
     </>
   );

@@ -179,6 +179,58 @@ canvas {
   font-size: 12px;
 }
 
+.deposit-hero {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid rgba(0, 230, 118, 0.22);
+  border-radius: 8px;
+  background: rgba(0, 230, 118, 0.08);
+  text-align: left;
+}
+
+.deposit-hero strong {
+  color: #ffffff;
+  font-size: 18px;
+}
+
+.deposit-hero span {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.quick-amounts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.quick-amounts button,
+.secondary-wallet-button {
+  min-height: 36px;
+  border: 1px solid rgba(102, 170, 255, 0.45);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.quick-amounts button.active {
+  border-color: rgba(0, 230, 118, 0.65);
+  background: rgba(0, 230, 118, 0.16);
+  color: #ffffff;
+}
+
+.secondary-wallet-button {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.secondary-wallet-button:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+}
+
 .wallet-row {
   display: grid;
   grid-template-columns: minmax(92px, 1fr) 1fr;
@@ -491,131 +543,48 @@ canvas {
   border-top: 1px solid rgba(255, 255, 255, 0.3);
 }
 
-.receive-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 3000;
+.crypto-deposit-row {
+  margin-top: 12px;
+}
+
+.crypto-instructions {
   display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(0, 0, 0, 0.62);
-  backdrop-filter: blur(8px);
-}
-
-.receive-modal {
-  position: relative;
-  width: min(390px, 100%);
-  padding: 34px 24px 28px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 22px;
-  background: #1d1d1b;
-  color: #f7f7f7;
-  text-align: center;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
-}
-
-.receive-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.8);
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-}
-
-.receive-modal h2 {
-  margin: 0 0 10px;
-  font-size: 19px;
-}
-
-.receive-modal p {
-  max-width: 310px;
-  margin: 0 auto 18px;
-  color: rgba(255, 255, 255, 0.86);
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.receive-qr {
-  display: inline-grid;
-  place-items: center;
-  padding: 10px;
-  border-radius: 12px;
-  background: #ffffff;
-}
-
-.receive-qr img {
-  display: block;
-  width: 210px;
-  height: 210px;
-}
-
-.receive-warning {
-  margin: 18px 0 14px;
-  padding: 13px 14px;
-  border-radius: 7px;
-  background: #fff1d9;
-  color: #5c4320;
-  font-size: 13px;
-}
-
-.receive-uri {
-  margin: -4px 0 14px;
-  color: rgba(255, 255, 255, 0.58);
-  font-size: 12px;
-}
-
-.receive-wallet-link {
-  display: block;
-  margin: 0 0 14px;
-  padding: 12px 14px;
-  border-radius: 9px;
-  background: #f6851b;
-  color: #15120e;
-  text-decoration: none;
-  font-weight: 800;
-}
-
-.receive-wallet-link:hover {
-  background: #ffa23a;
-}
-
-.receive-address {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 10px;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 13px;
+  border: 1px solid rgba(0, 230, 118, 0.35);
+  border-radius: 8px;
+  background: rgba(0, 230, 118, 0.07);
   text-align: left;
 }
 
-.receive-address span {
-  display: block;
-  margin-bottom: 4px;
-  color: rgba(255, 255, 255, 0.55);
+.crypto-instructions span {
+  color: rgba(255, 255, 255, 0.62);
   font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
-.receive-address strong {
+.crypto-instructions strong {
   color: #f7f7f7;
   font-size: 14px;
 }
 
-.receive-address button {
-  min-width: 68px;
-  padding: 9px 12px;
+.crypto-instructions code {
+  overflow-wrap: anywhere;
+  padding: 10px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.32);
+  color: #8bd8ff;
+  font-size: 12px;
+}
+
+.crypto-instructions button {
+  padding: 11px 14px;
   border: 0;
   border-radius: 7px;
-  background: rgba(126, 118, 255, 0.24);
+  background: #0d63b4;
   color: #fff;
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 800;
 }
