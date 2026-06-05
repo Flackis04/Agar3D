@@ -333,6 +333,7 @@ function GameActions({ gameState, isPlaying, onCashIn }) {
 
   return (
     <div id="gameActions">
+      <div id="cashInHint">Leave the arena and add this to your balance</div>
       <button type="button" id="cashInButton" onClick={onCashIn}>
         Cash In {formatMoney(mass)}
       </button>
@@ -362,6 +363,7 @@ function AppContent() {
   const [walletAddress, setWalletAddress] = useState("");
   const [payoutDestination, setPayoutDestination] = useState("");
   const [walletMessage, setWalletMessage] = useState("");
+  const [roundResult, setRoundResult] = useState(null);
   const [authMode, setAuthMode] = useState("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -517,6 +519,10 @@ function AppContent() {
         return;
       }
       if (typeof nextBalance === "number") saveBalance(nextBalance);
+      setRoundResult({
+        title: "Cash in complete",
+        detail: `${formatMoney(amount)} was added to your balance.`,
+      });
       setWalletMessage(`Cashed in ${formatMoney(amount)}.`);
       setIsPlaying(false);
       setGameState(null);
@@ -534,6 +540,10 @@ function AppContent() {
         setIsPlaying(false);
         setGameState(null);
         setSavedMass(null);
+        setRoundResult({
+          title: "Round ended",
+          detail: "You hit a bomb. No money was cashed in.",
+        });
         setWalletMessage("You hit a bomb. Round ended.");
         return;
       }
@@ -790,6 +800,7 @@ function AppContent() {
       setActiveStartingMass(selectedBet);
       setActiveGameTicket(null);
       setGameState(null);
+      setRoundResult(null);
       window.isPaused = false;
       setIsPlaying(true);
       if (savedMass) setSavedMass(null);
@@ -832,6 +843,7 @@ function AppContent() {
     setActivePlayerName(playerName.trim() || "Player");
     setActiveStartingMass(savedMass || selectedBet);
     setGameState(null);
+    setRoundResult(null);
     window.isPaused = false;
     setIsPlaying(true);
     if (savedMass) setSavedMass(null);
@@ -861,6 +873,10 @@ function AppContent() {
     if (IS_LOCAL_DEV) {
       const localMass = calculateCellMass(gameState.playerCell, pelletMinSize);
       saveBalance(balance + localMass);
+      setRoundResult({
+        title: "Cash in complete",
+        detail: `${formatMoney(localMass)} was added to your local balance.`,
+      });
       setWalletMessage(`Cashed in ${formatMoney(localMass)} locally.`);
       setIsPlaying(false);
       setGameState(null);
@@ -908,7 +924,16 @@ function AppContent() {
             <div id="homeGrid">
               <section className="home-panel play-panel">
                 <div className="panel-label">Play</div>
+                {roundResult && (
+                  <div className="round-result">
+                    <strong>{roundResult.title}</strong>
+                    <span>{roundResult.detail}</span>
+                  </div>
+                )}
                 <div id="balanceDisplay">Balance: {formatMoney(balance)} USD</div>
+                <div className="play-summary">
+                  Pick a stake, enter the arena with that much mass, then cash in before you lose it.
+                </div>
                 <input
                   type="text"
                   id="playerName"
@@ -937,6 +962,11 @@ function AppContent() {
                   Entry: {formatMoney(Math.max(selectedBet, 0))} USD ={" "}
                   {Math.max(selectedBet, 0).toFixed(2)} starting mass
                 </div>
+                {!IS_LOCAL_DEV && currentUser && balance < selectedBet && (
+                  <div className="account-warning">
+                    Add {formatMoney(selectedBet - balance)} more to play this entry.
+                  </div>
+                )}
                 <button
                   id="playButton"
                   onClick={startGame}
@@ -1072,7 +1102,7 @@ function AppContent() {
                   <>
                     <div className="deposit-hero">
                       <strong>Add money</strong>
-                      <span>Card, Apple Pay, Google Pay, bank, and PayPal where available.</span>
+                      <span>Fastest option: card checkout through Stripe.</span>
                     </div>
                     <div className="quick-amounts" aria-label="Quick deposit amounts">
                       {QUICK_DEPOSIT_AMOUNTS.map((amount) => (
@@ -1095,7 +1125,7 @@ function AppContent() {
                       onChange={(event) => setWalletAmount(event.target.value)}
                     />
                     <div className="provider-note">
-                      Secure checkout opens in Stripe. Your balance updates after payment confirmation.
+                      Card deposits open Stripe Checkout. Your balance updates after Stripe confirms the payment.
                     </div>
                     <button
                       type="button"
@@ -1113,6 +1143,9 @@ function AppContent() {
                     </button>
                     {CRYPTO_DEPOSIT_OPTIONS.length > 0 ? (
                       <>
+                        <div className="provider-note">
+                          Crypto deposits require sending funds first, then pasting the transaction hash for verification.
+                        </div>
                         <div className="wallet-row crypto-deposit-row">
                           <select
                             value={depositCryptoId}

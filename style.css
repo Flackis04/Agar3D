@@ -134,6 +134,35 @@ canvas {
   box-sizing: border-box;
 }
 
+.round-result {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 230, 118, 0.42);
+  border-radius: 8px;
+  background: rgba(0, 230, 118, 0.1);
+  color: #ffffff;
+  text-align: left;
+}
+
+.round-result strong {
+  color: #8dffc0;
+  font-size: 15px;
+}
+
+.round-result span,
+.play-summary {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.play-summary {
+  margin: -4px 0 14px;
+  text-align: left;
+}
+
 #walletPanel,
 #accountPanel {
   display: flex;
@@ -479,18 +508,31 @@ canvas {
   bottom: 28px;
   transform: translateX(-50%);
   z-index: 1000;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+#cashInHint {
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 230, 118, 0.28);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.48);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 #cashInButton {
-  min-width: 260px;
-  padding: 16px 28px;
+  min-width: 300px;
+  padding: 18px 30px;
   border: 2px solid rgba(0, 230, 118, 0.65);
   border-radius: 10px;
   background: linear-gradient(135deg, #008f4d 0%, #00c46a 100%);
   color: white;
   cursor: pointer;
   font-weight: 800;
-  font-size: 18px;
+  font-size: 20px;
   box-shadow: 0 0 28px rgba(0, 230, 118, 0.34);
   transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
