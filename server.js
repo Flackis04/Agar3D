@@ -901,15 +901,32 @@ async function requestWithdrawal(req, res) {
       });
       return;
     }
-    const transfer = await stripe.transfers.create({
-      amount: amountCents,
-      currency: "usd",
-      destination: account.id,
-      metadata: {
-        agar3d_user_id: user.id,
-        withdrawal_method: "card",
-      },
-    });
+    let transfer;
+    try {
+      transfer = await stripe.transfers.create({
+        amount: amountCents,
+        currency: "usd",
+        destination: account.id,
+        metadata: {
+          agar3d_user_id: user.id,
+          withdrawal_method: "card",
+        },
+      });
+    } catch (error) {
+      console.error("Stripe transfer failed:", {
+        message: error?.message,
+        code: error?.code,
+        type: error?.type,
+        declineCode: error?.decline_code,
+      });
+      sendJson(res, 502, {
+        error:
+          error?.message ||
+          "Stripe could not create the withdrawal transfer. Check your Stripe balance and Connect setup.",
+        code: error?.code || null,
+      });
+      return;
+    }
     providerReference = transfer.id;
     withdrawalStatus = "processing";
   }
