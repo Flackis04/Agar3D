@@ -28,7 +28,7 @@ export function initializeGame(scene, camera, onReady, playerName = "Player") {
   const sizeOffset = Math.sqrt(playerRadius) * 3;
   const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, 3);
   const initialCameraDistance = playerRadius * adjustedMultiplier;
-  updateFogDistance(scene, initialCameraDistance, playerRadius);
+  updateFogDistance(scene);
 
   // Bots disabled for multiplayer - only players will be visible
   const botCount = 0;

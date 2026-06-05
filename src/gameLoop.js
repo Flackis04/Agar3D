@@ -16,7 +16,7 @@ export function createAnimationLoop(
     rotation: { yaw: 0, pitch: 0 },
   };
   let lastInputSend = 0;
-  let lastRadius = null;
+  let fogInitialized = false;
   let lastFrameTime = performance.now();
 
   function tick(deltaOverride) {
@@ -62,14 +62,9 @@ export function createAnimationLoop(
     };
 
     const updateFog = () => {
-      const currentRadius = cameraController.getPlayerRadius();
-      if (lastRadius === null || Math.abs(currentRadius - lastRadius) > 0.05) {
-        updateFogDistance(
-          scene,
-          cameraController.getCameraDistance(),
-          currentRadius
-        );
-        lastRadius = currentRadius;
+      if (!fogInitialized) {
+        updateFogDistance(scene);
+        fogInitialized = true;
       }
     };
 
