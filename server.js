@@ -54,6 +54,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && req.url?.startsWith("/api/checkout-session-status")) {
+      await sendCheckoutSessionStatus(req, res);
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/api/stripe-webhook") {
       await handleStripeWebhook(req, res);
       return;
@@ -426,7 +431,7 @@ async function createCheckoutSession(req, res) {
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
-    success_url: `${checkoutReturnUrl}?payment=success`,
+    success_url: `${checkoutReturnUrl}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${checkoutReturnUrl}?payment=cancelled`,
     payment_method_types:
       paymentMethod === "card" ? ["card"] : undefined,
@@ -450,6 +455,65 @@ async function createCheckoutSession(req, res) {
   });
 
   sendJson(res, 200, { url: session.url });
+}
+
+function creditStripeCheckoutSession(session) {
+  if (session.payment_status !== "paid") return null;
+
+  const userId = session.metadata?.userId;
+  const amountUsd = normalizeMoneyAmount(session.metadata?.amountUsd);
+  const providerReference = session.payment_intent || session.id;
+  if (!userId || !amountUsd || !providerReference) return null;
+
+  const existingEntry = db.prepare(`
+    SELECT id FROM ledger_entries
+    WHERE provider = 'stripe' AND provider_reference = ?
+    LIMIT 1
+  `).get(providerReference);
+  if (existingEntry) {
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+    return centsToDollars(user?.balance_cents || 0);
+  }
+
+  return adjustUserBalance({
+    userId,
+    amountCents: Math.round(amountUsd * 100),
+    type: "deposit",
+    provider: "stripe",
+    providerReference,
+    notes: `Stripe checkout session ${session.id}`,
+  });
+}
+
+async function sendCheckoutSessionStatus(req, res) {
+  if (!stripe) {
+    sendJson(res, 503, { error: "Stripe is not configured." });
+    return;
+  }
+
+  const user = requireUser(req, res);
+  if (!user) return;
+
+  const url = new URL(req.url, "http://localhost");
+  const sessionId = url.searchParams.get("session_id");
+  if (!sessionId) {
+    sendJson(res, 400, { error: "session_id is required." });
+    return;
+  }
+
+  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  if (session.metadata?.userId !== user.id) {
+    sendJson(res, 403, { error: "Checkout session does not belong to this account." });
+    return;
+  }
+
+  const balance = creditStripeCheckoutSession(session);
+  const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
+  sendJson(res, 200, {
+    paid: session.payment_status === "paid",
+    balance: balance ?? centsToDollars(updatedUser.balance_cents),
+    user: publicUser(updatedUser),
+  });
 }
 
 async function handleStripeWebhook(req, res) {
@@ -480,19 +544,7 @@ async function handleStripeWebhook(req, res) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
-    if (session.payment_status === "paid") {
-      const userId = session.metadata?.userId;
-      const amountUsd = normalizeMoneyAmount(session.metadata?.amountUsd);
-      if (userId && amountUsd) {
-        adjustUserBalance({
-          userId,
-          amountCents: Math.round(amountUsd * 100),
-          type: "deposit",
-          provider: "stripe",
-          providerReference: session.payment_intent || session.id,
-        });
-      }
-    }
+    creditStripeCheckoutSession(session);
   } else if (event.type === "charge.dispute.created") {
     handleStripeDispute(event.data.object);
   } else if (event.type === "charge.dispute.closed") {

@@ -326,11 +326,28 @@ function App() {
     let cancelled = false;
     let attempts = 0;
     const previousBalance = balance;
+    const sessionId = params.get("session_id");
     setWalletMessage("Payment successful. Updating balance...");
 
     const pollBalance = async () => {
       attempts += 1;
-      const nextBalance = await refreshServerBalance();
+      let nextBalance = null;
+      if (sessionId) {
+        const response = await authFetch(
+          `/api/checkout-session-status?session_id=${encodeURIComponent(sessionId)}`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (typeof data.balance === "number") {
+            saveBalance(data.balance);
+            if (data.user) setCurrentUser(data.user);
+            nextBalance = data.balance;
+          }
+        }
+      }
+      if (nextBalance === null) {
+        nextBalance = await refreshServerBalance();
+      }
       if (cancelled) return;
 
       if (typeof nextBalance === "number" && nextBalance > previousBalance) {
@@ -353,7 +370,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [balance, refreshServerBalance]);
+  }, [authFetch, balance, refreshServerBalance, saveBalance]);
 
   useEffect(() => {
     const onBalanceUpdated = ({ userId: updatedUserId, balance: nextBalance }) => {

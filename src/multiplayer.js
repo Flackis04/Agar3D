@@ -2,11 +2,8 @@ import { io } from "socket.io-client";
 import * as THREE from "three";
 import { mapSize, pelletMinSize } from "./objects.js";
 
-const localHosts = ["localhost", "127.0.0.1", "::1"];
-const resolvedHost = localHosts.includes(window.location.hostname)
-  ? window.location.hostname
-  : window.location.hostname;
-const socketUrl = `http://${resolvedHost}:3001`;
+const defaultSocketUrl = `${window.location.protocol}//${window.location.hostname}:3001`;
+const socketUrl = import.meta.env.VITE_API_BASE_URL || defaultSocketUrl;
 
 let socket;
 if (!window.__socket) {
