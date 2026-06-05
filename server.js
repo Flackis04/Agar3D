@@ -12,6 +12,10 @@ const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
 const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
 const databasePath = process.env.DATABASE_PATH || "./data/agar3d.sqlite";
+const relayApiBaseUrl = process.env.RELAY_API_BASE_URL || "https://api.relay.link";
+const relayApiKey = process.env.RELAY_API_KEY || "";
+const cryptoDepositPollingEnabled =
+  process.env.CRYPTO_DEPOSIT_POLLING_ENABLED !== "false";
 mkdirSync(dirname(databasePath), { recursive: true });
 const db = new DatabaseSync(databasePath);
 db.exec("PRAGMA journal_mode = WAL");
@@ -71,6 +75,21 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && req.url === "/api/request-withdrawal") {
       await requestWithdrawal(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/crypto-deposit-session") {
+      await createCryptoDepositSession(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/crypto-deposit-session/update") {
+      await updateCryptoDepositSession(req, res);
+      return;
+    }
+
+    if (req.method === "GET" && req.url?.startsWith("/api/crypto-deposit-status")) {
+      await sendCryptoDepositStatus(req, res);
       return;
     }
 
@@ -166,6 +185,23 @@ db.exec(`
     method TEXT NOT NULL,
     destination TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS crypto_deposit_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount_cents INTEGER NOT NULL,
+    asset TEXT NOT NULL,
+    destination_address TEXT NOT NULL,
+    destination_chain TEXT NOT NULL,
+    destination_currency TEXT NOT NULL,
+    deposit_address TEXT,
+    relay_request_id TEXT,
+    provider_payload TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    credited_ledger_reference TEXT UNIQUE,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -356,6 +392,152 @@ function adjustUserBalance({
   return balance;
 }
 
+function safeJson(value) {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return null;
+  }
+}
+
+function parseJson(value) {
+  try {
+    return value ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getRelayHeaders() {
+  return {
+    Accept: "application/json",
+    ...(relayApiKey ? { Authorization: `Bearer ${relayApiKey}` } : {}),
+  };
+}
+
+function findRelayRequestPayload(payload) {
+  if (!payload) return null;
+  if (Array.isArray(payload.requests)) return payload.requests[0] || null;
+  if (Array.isArray(payload.data)) return payload.data[0] || null;
+  if (Array.isArray(payload.items)) return payload.items[0] || null;
+  if (payload.requestId || payload.id || payload.status) return payload;
+  return null;
+}
+
+function getRelayRequestId(payload) {
+  const request = findRelayRequestPayload(payload);
+  return request?.requestId || request?.id || payload?.requestId || payload?.id || null;
+}
+
+function getRelayStatus(payload) {
+  const request = findRelayRequestPayload(payload);
+  return `${request?.status || request?.state || payload?.status || ""}`.toLowerCase();
+}
+
+function isRelayFilledStatus(status) {
+  return ["filled", "complete", "completed", "success", "succeeded", "settled"].includes(status);
+}
+
+async function fetchRelayJson(path) {
+  const response = await fetch(`${relayApiBaseUrl}${path}`, {
+    headers: getRelayHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Relay request failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+async function fetchRelayDepositSessionStatus(session) {
+  if (session.relay_request_id) {
+    const status = await fetchRelayJson(
+      `/intents/status/v3?requestId=${encodeURIComponent(session.relay_request_id)}`
+    );
+    return {
+      payload: status,
+      relayRequestId: getRelayRequestId(status) || session.relay_request_id,
+      status: getRelayStatus(status),
+    };
+  }
+
+  if (session.deposit_address) {
+    const requests = await fetchRelayJson(
+      `/requests/v2?depositAddress=${encodeURIComponent(
+        session.deposit_address
+      )}&includeChildRequests=true&sortBy=updatedAt&sortDirection=desc&limit=20`
+    );
+    const relayRequestId = getRelayRequestId(requests);
+    return {
+      payload: requests,
+      relayRequestId,
+      status: getRelayStatus(requests),
+    };
+  }
+
+  return null;
+}
+
+function creditCryptoDepositSession(session, providerReference, providerPayload) {
+  const ledgerReference = providerReference || session.relay_request_id || session.deposit_address;
+  if (!ledgerReference) return null;
+
+  const existing = db.prepare(`
+    SELECT id FROM ledger_entries
+    WHERE provider = 'crypto' AND provider_reference = ?
+    LIMIT 1
+  `).get(ledgerReference);
+  if (existing || session.credited_ledger_reference) {
+    return db.prepare("SELECT * FROM crypto_deposit_sessions WHERE id = ?").get(session.id);
+  }
+
+  adjustUserBalance({
+    userId: session.user_id,
+    amountCents: session.amount_cents,
+    type: "crypto_deposit",
+    provider: "crypto",
+    providerReference: ledgerReference,
+    notes: `Crypto deposit session ${session.id} confirmed.`,
+  });
+
+  db.prepare(`
+    UPDATE crypto_deposit_sessions
+    SET status = 'credited',
+      credited_ledger_reference = ?,
+      provider_payload = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(ledgerReference, safeJson(providerPayload), session.id);
+
+  return db.prepare("SELECT * FROM crypto_deposit_sessions WHERE id = ?").get(session.id);
+}
+
+async function refreshCryptoDepositSession(session) {
+  if (!session || ["credited", "cancelled", "failed"].includes(session.status)) {
+    return session;
+  }
+
+  const relayStatus = await fetchRelayDepositSessionStatus(session);
+  if (!relayStatus) return session;
+
+  const nextStatus = relayStatus.status || session.status;
+  const relayRequestId = relayStatus.relayRequestId || session.relay_request_id;
+
+  db.prepare(`
+    UPDATE crypto_deposit_sessions
+    SET relay_request_id = COALESCE(?, relay_request_id),
+      status = ?,
+      provider_payload = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(relayRequestId, nextStatus || session.status, safeJson(relayStatus.payload), session.id);
+
+  const updated = db.prepare("SELECT * FROM crypto_deposit_sessions WHERE id = ?").get(session.id);
+  if (isRelayFilledStatus(nextStatus)) {
+    return creditCryptoDepositSession(updated, relayRequestId, relayStatus.payload);
+  }
+  return updated;
+}
+
 function createWithdrawalRequest({
   userId,
   amountCents,
@@ -399,6 +581,16 @@ async function requestWithdrawal(req, res) {
     sendJson(res, 400, { error: "Choose Mastercard/card or crypto withdrawal." });
     return;
   }
+  const payoutMode = process.env[
+    normalizedMethod === "crypto" ? "CRYPTO_PAYOUT_MODE" : "CARD_PAYOUT_MODE"
+  ] || "manual";
+  if (payoutMode !== "manual") {
+    sendJson(res, 503, {
+      error:
+        "Automatic payouts are not configured. Set payout provider credentials before enabling this mode.",
+    });
+    return;
+  }
   const payoutDestination =
     normalizedMethod === "crypto"
       ? `${cryptoAsset || "CRYPTO"}:${destination || ""}`.trim()
@@ -430,6 +622,145 @@ async function requestWithdrawal(req, res) {
       method: normalizedMethod,
       status: "pending",
     },
+  });
+}
+
+async function createCryptoDepositSession(req, res) {
+  const user = requireUser(req, res);
+  if (!user) return;
+  if (user.frozen) {
+    sendJson(res, 403, { error: "Account is frozen pending payment review." });
+    return;
+  }
+  if (!user.terms_accepted_at) {
+    sendJson(res, 403, { error: "Terms must be accepted before depositing." });
+    return;
+  }
+
+  const {
+    amountUsd,
+    asset = "USDC",
+    destinationAddress,
+    destinationChain,
+    destinationCurrency,
+  } = await readJsonBody(req);
+  const amountCents = dollarsToCents(amountUsd);
+  if (!amountCents) {
+    sendJson(res, 400, { error: "Enter a valid deposit amount." });
+    return;
+  }
+  if (!destinationAddress || !destinationChain || !destinationCurrency) {
+    sendJson(res, 400, { error: "Crypto deposit destination is not configured." });
+    return;
+  }
+
+  const id = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO crypto_deposit_sessions (
+      id,
+      user_id,
+      amount_cents,
+      asset,
+      destination_address,
+      destination_chain,
+      destination_currency
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    user.id,
+    amountCents,
+    `${asset}`.toUpperCase(),
+    `${destinationAddress}`,
+    `${destinationChain}`,
+    `${destinationCurrency}`
+  );
+
+  sendJson(res, 201, {
+    depositSession: {
+      id,
+      amount: centsToDollars(amountCents),
+      asset: `${asset}`.toUpperCase(),
+      status: "pending",
+    },
+  });
+}
+
+async function updateCryptoDepositSession(req, res) {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const {
+    id,
+    depositAddress,
+    relayRequestId,
+    providerPayload,
+  } = await readJsonBody(req);
+  const session = db.prepare(`
+    SELECT * FROM crypto_deposit_sessions
+    WHERE id = ? AND user_id = ?
+  `).get(id, user.id);
+  if (!session) {
+    sendJson(res, 404, { error: "Deposit session not found." });
+    return;
+  }
+
+  db.prepare(`
+    UPDATE crypto_deposit_sessions
+    SET deposit_address = COALESCE(?, deposit_address),
+      relay_request_id = COALESCE(?, relay_request_id),
+      provider_payload = COALESCE(?, provider_payload),
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(
+    depositAddress || null,
+    relayRequestId || null,
+    providerPayload ? safeJson(providerPayload) : null,
+    session.id
+  );
+
+  const updated = db.prepare("SELECT * FROM crypto_deposit_sessions WHERE id = ?").get(session.id);
+  sendJson(res, 200, { depositSession: publicCryptoDepositSession(updated) });
+}
+
+function publicCryptoDepositSession(session) {
+  if (!session) return null;
+  return {
+    id: session.id,
+    amount: centsToDollars(session.amount_cents),
+    asset: session.asset,
+    status: session.status,
+    depositAddress: session.deposit_address,
+    relayRequestId: session.relay_request_id,
+    createdAt: session.created_at,
+    updatedAt: session.updated_at,
+  };
+}
+
+async function sendCryptoDepositStatus(req, res) {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const url = new URL(req.url, "http://localhost");
+  const id = url.searchParams.get("id");
+  const session = db.prepare(`
+    SELECT * FROM crypto_deposit_sessions
+    WHERE id = ? AND user_id = ?
+  `).get(id, user.id);
+  if (!session) {
+    sendJson(res, 404, { error: "Deposit session not found." });
+    return;
+  }
+
+  let refreshed = session;
+  try {
+    refreshed = await refreshCryptoDepositSession(session);
+  } catch (error) {
+    console.error("Crypto deposit status refresh failed:", error.message);
+  }
+  const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
+  sendJson(res, 200, {
+    depositSession: publicCryptoDepositSession(refreshed),
+    balance: centsToDollars(updatedUser.balance_cents),
+    user: publicUser(updatedUser),
   });
 }
 
@@ -902,6 +1233,7 @@ const pelletState = serializePelletState(pellets);
 const players = new Map();
 const gameTickets = new Map();
 let lastTick = Date.now();
+let cryptoDepositPollerRunning = false;
 
 function getPlayerSpeed(mass) {
   const slowFactor = 1 + SPEED_FALLOFF * Math.cbrt(mass);
@@ -1071,6 +1403,35 @@ setInterval(() => {
   updatePlayers(delta);
   broadcastWorldState();
 }, TICK_INTERVAL);
+
+async function pollPendingCryptoDeposits() {
+  if (!cryptoDepositPollingEnabled || cryptoDepositPollerRunning) return;
+  cryptoDepositPollerRunning = true;
+  try {
+    const sessions = db.prepare(`
+      SELECT * FROM crypto_deposit_sessions
+      WHERE status NOT IN ('credited', 'cancelled', 'failed')
+        AND (deposit_address IS NOT NULL OR relay_request_id IS NOT NULL)
+      ORDER BY updated_at ASC
+      LIMIT 20
+    `).all();
+    for (const session of sessions) {
+      try {
+        await refreshCryptoDepositSession(session);
+      } catch (error) {
+        console.error(`Crypto deposit poll failed for ${session.id}:`, error.message);
+      }
+    }
+  } finally {
+    cryptoDepositPollerRunning = false;
+  }
+}
+
+setInterval(() => {
+  pollPendingCryptoDeposits().catch((error) => {
+    console.error("Crypto deposit poller failed:", error.message);
+  });
+}, 30_000);
 
 io.on("connection", (socket) => {
   console.log(`✅ Client connected: ${socket.id}`);

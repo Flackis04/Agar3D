@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { PrivyProvider, useDepositAddress, usePrivy } from "@privy-io/react-auth";
+import { PrivyProvider, useFundWallet, usePrivy } from "@privy-io/react-auth";
 import Stats from "three/addons/libs/stats.module.js";
 import { setupControls } from "./controls.js";
 import { createCameraController } from "./camera.js";
@@ -24,6 +24,12 @@ const PRIVY_DEPOSIT_CURRENCY =
   import.meta.env.VITE_PRIVY_DEPOSIT_CURRENCY ||
   "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const PRIVY_DEPOSIT_ADDRESS = import.meta.env.VITE_PRIVY_DEPOSIT_ADDRESS || "";
+const PRIVY_DEPOSIT_ASSET = import.meta.env.VITE_PRIVY_DEPOSIT_ASSET || "USDC";
+const PRIVY_DEPOSIT_CHAIN_NAME =
+  import.meta.env.VITE_PRIVY_DEPOSIT_CHAIN_NAME || "Base";
+const PRIVY_DEPOSIT_CHAIN_ID = Number(
+  PRIVY_DEPOSIT_CHAIN.replace("eip155:", "")
+) || 8453;
 const LOCAL_HOSTS = ["localhost", "127.0.0.1", "::1"];
 const IS_LOCAL_DEV = LOCAL_HOSTS.includes(window.location.hostname);
 const CRYPTO_ASSETS = ["USDC", "USDT", "BTC", "ETH", "SOL", "BNB", "LTC", "XRP", "DOGE", "TRX"];
@@ -48,6 +54,30 @@ function formatMoney(value) {
     currency: "USD",
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function getDepositAddressFromPrivyResult(result) {
+  return (
+    result?.depositAddress ||
+    result?.address ||
+    result?.data?.depositAddress ||
+    result?.quote?.depositAddress ||
+    null
+  );
+}
+
+function getRelayRequestIdFromPrivyResult(result) {
+  return (
+    result?.requestId ||
+    result?.relayRequestId ||
+    result?.data?.requestId ||
+    result?.quote?.requestId ||
+    null
+  );
+}
+
+function getTransactionHashFromPrivyResult(result) {
+  return result?.transactionHash || result?.hash || null;
 }
 
 function GameScene({ playerName, startingMass, gameTicket, onGameReady }) {
@@ -279,7 +309,7 @@ function GameActions({ gameState, isPlaying, onCashIn }) {
 
 function AppContent() {
   const { authenticated, login, ready: privyReady } = usePrivy();
-  const { createDepositAddress } = useDepositAddress();
+  const { fundWallet } = useFundWallet();
   const [balance, setBalance] = useState(getInitialBalance);
   const [gameState, setGameState] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -511,15 +541,87 @@ function AppContent() {
         }
         try {
           setWalletMessage("Opening Privy crypto deposit...");
+          const sessionResponse = await authFetch("/api/crypto-deposit-session", {
+            method: "POST",
+            body: JSON.stringify({
+              amountUsd: amount,
+              asset: PRIVY_DEPOSIT_ASSET,
+              destinationAddress: PRIVY_DEPOSIT_ADDRESS,
+              destinationChain: PRIVY_DEPOSIT_CHAIN,
+              destinationCurrency: PRIVY_DEPOSIT_CURRENCY,
+            }),
+          });
+          const sessionData = await sessionResponse.json();
+          if (!sessionResponse.ok) {
+            setWalletMessage(sessionData.error || "Could not create crypto deposit session.");
+            return;
+          }
+          const depositSessionId = sessionData.depositSession.id;
+
           if (privyReady && !authenticated) {
             await login();
           }
-          await createDepositAddress({
-            destinationAddress: PRIVY_DEPOSIT_ADDRESS,
-            destinationChain: PRIVY_DEPOSIT_CHAIN,
-            destinationCurrency: PRIVY_DEPOSIT_CURRENCY,
+          const privyResult = await fundWallet({
+            address: PRIVY_DEPOSIT_ADDRESS,
+            options: {
+              amount: `${amount}`,
+              asset: PRIVY_DEPOSIT_ASSET,
+              chain: {
+                id: PRIVY_DEPOSIT_CHAIN_ID,
+                name: PRIVY_DEPOSIT_CHAIN_NAME,
+                nativeCurrency: {
+                  name: "Ether",
+                  symbol: "ETH",
+                  decimals: 18,
+                },
+                rpcUrls: {
+                  default: { http: ["https://mainnet.base.org"] },
+                },
+              },
+              defaultFundingMethod: "manual",
+              uiConfig: {
+                receiveFundsTitle: `Receive ${formatMoney(amount)} ${PRIVY_DEPOSIT_ASSET}`,
+                receiveFundsSubtitle:
+                  "Scan this code or copy the wallet address to deposit funds.",
+              },
+            },
           });
-          setWalletMessage("Privy deposit completed. Balance credit requires confirmation handling.");
+
+          const depositAddress =
+            getDepositAddressFromPrivyResult(privyResult) || PRIVY_DEPOSIT_ADDRESS;
+          const relayRequestId =
+            getRelayRequestIdFromPrivyResult(privyResult) ||
+            getTransactionHashFromPrivyResult(privyResult);
+          await authFetch("/api/crypto-deposit-session/update", {
+            method: "POST",
+            body: JSON.stringify({
+              id: depositSessionId,
+              depositAddress,
+              relayRequestId,
+              providerPayload: privyResult,
+            }),
+          });
+
+          setWalletMessage("Crypto deposit pending confirmation...");
+          for (let attempt = 0; attempt < 20; attempt++) {
+            await new Promise((resolve) => window.setTimeout(resolve, 3000));
+            const statusResponse = await authFetch(
+              `/api/crypto-deposit-status?id=${encodeURIComponent(depositSessionId)}`
+            );
+            if (!statusResponse.ok) continue;
+            const statusData = await statusResponse.json();
+            if (typeof statusData.balance === "number") saveBalance(statusData.balance);
+            const status = statusData.depositSession?.status;
+            if (status === "credited") {
+              setWalletMessage("Crypto deposit credited to your balance.");
+              return;
+            }
+            if (["failed", "cancelled"].includes(status)) {
+              setWalletMessage(`Crypto deposit ${status}.`);
+              return;
+            }
+          }
+          setWalletMessage("Crypto deposit pending. Balance will update after confirmation.");
         } catch (error) {
           setWalletMessage(error?.message || "Privy deposit was cancelled or failed.");
         }
@@ -584,7 +686,6 @@ function AppContent() {
     authFetch,
     balance,
     authenticated,
-    createDepositAddress,
     cryptoAsset,
     currentUser,
     login,
@@ -935,16 +1036,22 @@ function AppContent() {
                 </div>
                 <div className="wallet-row">
                   {paymentMethod === "crypto" ? (
-                    <select
-                      value={cryptoAsset}
-                      onChange={(event) => setCryptoAsset(event.target.value)}
-                    >
-                      {CRYPTO_ASSETS.map((asset) => (
-                        <option key={asset} value={asset}>
-                          {asset}
-                        </option>
-                      ))}
-                    </select>
+                    walletMode === "deposit" ? (
+                      <div className="method-chip">
+                        {`${PRIVY_DEPOSIT_CHAIN_NAME} / ${PRIVY_DEPOSIT_ASSET}`}
+                      </div>
+                    ) : (
+                      <select
+                        value={cryptoAsset}
+                        onChange={(event) => setCryptoAsset(event.target.value)}
+                      >
+                        {CRYPTO_ASSETS.map((asset) => (
+                          <option key={asset} value={asset}>
+                            {asset}
+                          </option>
+                        ))}
+                      </select>
+                    )
                   ) : (
                     <div className="method-chip">
                       {
@@ -966,7 +1073,7 @@ function AppContent() {
                   paymentMethod === "crypto" ? (
                     <div className="wallet-address">
                       {PRIVY_DEPOSIT_ADDRESS
-                        ? `Privy -> ${PRIVY_DEPOSIT_CHAIN} / ${cryptoAsset}`
+                        ? `Privy QR receive -> ${PRIVY_DEPOSIT_CHAIN_NAME} / ${PRIVY_DEPOSIT_ASSET}`
                         : "Configure VITE_PRIVY_DEPOSIT_ADDRESS"}
                     </div>
                   ) : (
