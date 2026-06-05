@@ -143,13 +143,13 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e8,
 });
 
-const WORLD_SIZE = 250;
+const WORLD_SIZE = 125;
 const HALF_WORLD = WORLD_SIZE / 2;
 const DEFAULT_STARTING_MASS_USD = 20;
 const MIN_BET_USD = 5;
 const BASE_SPEED = 10; // units per second
 const SPEED_FALLOFF = 0.15;
-const PELLET_COUNT = 100000;
+const PELLET_COUNT = 125000;
 const PELLET_MIN_RADIUS = 0.03;
 const PELLET_MAX_RADIUS = 0.04;
 const PELLET_EAT_PADDING = PELLET_MAX_RADIUS * 1.5;
