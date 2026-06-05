@@ -259,7 +259,7 @@ export function createPelletsInstanced(scene, count, colors) {
   meshPowerup.instanceMatrix.needsUpdate = true;
   if (meshPowerup.instanceColor) meshPowerup.instanceColor.needsUpdate = true;
 
-  meshNormal.frustumCulled = true;
+  meshNormal.frustumCulled = false;
   meshPowerup.frustumCulled = true;
 
   scene.add(meshNormal);
