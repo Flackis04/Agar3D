@@ -61,7 +61,7 @@ export function initializeGame(scene, camera, onReady, playerName = "Player", au
 
     // Keep this equal to the server count. Otherwise unseen server pellets
     // can still block shots aimed at the rendered pellet set.
-    const PELLET_COUNT = 75000;
+    const PELLET_COUNT = 25000;
     const pelletData = createPelletsInstanced(
       scene,
       PELLET_COUNT,
