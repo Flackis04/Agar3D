@@ -344,21 +344,76 @@ function updateBullets(bulletStates = []) {
   });
 }
 
-function createLaserMesh(laser) {
-  const geometry = new THREE.BufferGeometry();
-  geometry.setFromPoints([
-    new THREE.Vector3(laser.origin.x, laser.origin.y, laser.origin.z),
-    new THREE.Vector3(laser.end.x, laser.end.y, laser.end.z),
-  ]);
-  const material = new THREE.LineBasicMaterial({
-    color: 0x66e8ff,
-    transparent: true,
-    opacity: 0.9,
-    linewidth: 2,
+const laserStart = new THREE.Vector3();
+const laserEnd = new THREE.Vector3();
+const laserDirection = new THREE.Vector3();
+const laserMidpoint = new THREE.Vector3();
+const laserUp = new THREE.Vector3(0, 1, 0);
+const LASER_LIGHT_COUNT = 6;
+
+function updateLaserMesh(mesh, laser) {
+  laserStart.set(laser.origin.x, laser.origin.y, laser.origin.z);
+  laserEnd.set(laser.end.x, laser.end.y, laser.end.z);
+  laserDirection.subVectors(laserEnd, laserStart);
+
+  const length = laserDirection.length();
+  mesh.visible = length > 0.001;
+  if (!mesh.visible) return;
+
+  laserMidpoint.addVectors(laserStart, laserEnd).multiplyScalar(0.5);
+  mesh.position.copy(laserMidpoint);
+  mesh.quaternion.setFromUnitVectors(laserUp, laserDirection.normalize());
+  mesh.userData.core.scale.y = length;
+  mesh.userData.glow.scale.y = length;
+
+  mesh.userData.lights.forEach((light, index) => {
+    const progress = (index + 0.5) / LASER_LIGHT_COUNT;
+    light.position.y = (progress - 0.5) * length;
+    light.distance = Math.min(20, Math.max(12, length / LASER_LIGHT_COUNT + 4));
   });
-  const line = new THREE.Line(geometry, material);
-  line.renderOrder = 10;
-  return line;
+}
+
+function createLaserMesh(laser) {
+  const group = new THREE.Group();
+
+  const core = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.065, 0.065, 1, 8, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xc8f8ff,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  );
+  core.renderOrder = 11;
+  core.frustumCulled = false;
+
+  const glow = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.15, 0.15, 1, 8, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0x28cfff,
+      transparent: true,
+      opacity: 0.22,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  );
+  glow.renderOrder = 10;
+  glow.frustumCulled = false;
+
+  const lights = Array.from({ length: LASER_LIGHT_COUNT }, () => (
+    new THREE.PointLight(0x35dfff, 2.5, 18, 2)
+  ));
+
+  group.add(glow, core, ...lights);
+  group.userData.core = core;
+  group.userData.glow = glow;
+  group.userData.lights = lights;
+  updateLaserMesh(group, laser);
+  return group;
 }
 
 function updateLasers(laserStates = []) {
@@ -367,6 +422,8 @@ function updateLasers(laserStates = []) {
 
   laserStates.forEach((laser) => {
     if (!laser?.id || !laser.origin || !laser.end) return;
+    if (laser.id === socket.id) return;
+
     seen.add(laser.id);
     if (!lasers[laser.id]) {
       const mesh = createLaserMesh(laser);
@@ -374,12 +431,7 @@ function updateLasers(laserStates = []) {
       lasers[laser.id] = { mesh };
     }
 
-    const entry = lasers[laser.id];
-    const position = entry.mesh.geometry.getAttribute("position");
-    position.setXYZ(0, laser.origin.x, laser.origin.y, laser.origin.z);
-    position.setXYZ(1, laser.end.x, laser.end.y, laser.end.z);
-    position.needsUpdate = true;
-    entry.mesh.geometry.computeBoundingSphere();
+    updateLaserMesh(lasers[laser.id].mesh, laser);
   });
 
   Object.keys(lasers).forEach((id) => {
@@ -499,10 +551,20 @@ export function initNetworking(scene, playerCell, audioMgr = null, camera = null
   }
   handlersRegistered = true;
 
-  socket.on("world-update", ({ players, bullets: bulletStates = [], lasers: laserStates = [] }) => {
+  socket.on("world-update", ({
+    players,
+    bullets: bulletStates = [],
+    lasers: laserStates = [],
+    isBeingLasered = false,
+  }) => {
     // The server sends every player's latest position and size.
     // This client applies its own state locally and creates/updates meshes
     // for everyone else.
+    window.dispatchEvent(
+      new CustomEvent("local-laser-hit-state", {
+        detail: { active: isBeingLasered },
+      })
+    );
     updateBullets(bulletStates);
     updateLasers(laserStates);
     if (!players || players.length === 0) return;

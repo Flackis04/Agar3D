@@ -283,6 +283,35 @@ function Crosshair({ visible }) {
   return <div id="crosshair" aria-hidden="true" />;
 }
 
+function LaserHitVignette({ visible }) {
+  const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    function onLaserHitState(event) {
+      setActive(Boolean(event.detail?.active));
+    }
+
+    window.addEventListener("local-laser-hit-state", onLaserHitState);
+    return () => {
+      window.removeEventListener("local-laser-hit-state", onLaserHitState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!visible) setActive(false);
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <div
+      id="laser-hit-vignette"
+      className={active ? "active" : ""}
+      aria-hidden="true"
+    />
+  );
+}
+
 export function App() {
   // App owns the menu-level state. The Three.js world only exists while the
   // screen is "playing" or "paused"; returning home unmounts the Canvas.
@@ -445,6 +474,7 @@ export function App() {
 
       <MassCounter gameState={gameState} visible={isPlaying} />
       <MassGainPopups visible={isPlaying} />
+      <LaserHitVignette visible={isPlaying} />
       <Crosshair visible={isPlaying} />
       <PlayerHpHud visible={isPlaying} />
       <DevControls visible={isPlaying} />

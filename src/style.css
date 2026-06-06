@@ -14,6 +14,28 @@ body,
   height: 100vh !important;
 }
 
+#laser-hit-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 1150;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(
+      circle at center,
+      rgba(255, 30, 45, 0.015) 20%,
+      rgba(255, 20, 35, 0.08) 62%,
+      rgba(175, 0, 20, 0.28) 100%
+    );
+  transition: opacity 0.32s ease-out;
+}
+
+#laser-hit-vignette.active {
+  opacity: 1;
+  transition-duration: 0.16s;
+  transition-timing-function: ease-in;
+}
+
 #leaderboard {
   position: fixed;
   top: 20px;

@@ -42,7 +42,7 @@ const LASER_RANGE = 90;
 const LASER_RADIUS = 0.18;
 const BASE_HEALTH_REGEN_PER_SECOND = 2;
 const BASE_BODY_DAMAGE = 18;
-const BOT_COUNT = 25;
+const BOT_COUNT = 5;
 const BOT_RENDER_DISTANCE = 45;
 const BOT_PELLET_SCAN_RADIUS = 18;
 const BOT_THINK_INTERVAL_MS = 450;
@@ -446,7 +446,7 @@ function createPlayerState({ id, name, isBot = false, position = null }) {
       rotation: { yaw: 0, pitch: 0 },
       aim: null,
       shoot: false,
-      weaponMode: "bullet",
+      weaponMode: isBot ? "laser" : "bullet",
     },
   };
   player.speed = getPlayerSpeed(player);
@@ -677,14 +677,14 @@ function applyLaserPlayerHit(owner, origin, direction, damage) {
 
   hits.sort((a, b) => a.distance - b.distance);
   const hit = hits.find(({ target }) => players.has(target.id));
-  if (!hit) return false;
+  if (!hit) return null;
 
   hit.target.hp = Math.max(0, hit.target.hp - damage * 125);
   if (hit.target.hp <= 0) {
     io.to(owner.id).emit("shot-confirmed", { target: "player" });
     defeatPlayer(hit.target, "player");
   }
-  return true;
+  return hit.target.id;
 }
 
 function applyLaserPelletHit(owner, origin, end, damage) {
@@ -722,10 +722,10 @@ function updatePlayerLaser(player, delta) {
     (getBulletDamage(player) * 1000) / Math.max(1, getBulletCooldown(player));
   const frameDamage = damagePerSecond * delta;
 
-  applyLaserPlayerHit(player, origin, direction, frameDamage);
+  const hitPlayerId = applyLaserPlayerHit(player, origin, direction, frameDamage);
   applyLaserPelletHit(player, origin, end, frameDamage);
 
-  player.activeLaser = { origin, end };
+  player.activeLaser = { origin, end, hitPlayerId };
 }
 
 function eatPellet(player, pellet) {
@@ -921,6 +921,8 @@ function pickBotWanderTarget(bot, now) {
 function updateBotIntent(bot, now) {
   if (bot.nextThinkAt && bot.nextThinkAt > now) return;
   bot.nextThinkAt = now + BOT_THINK_INTERVAL_MS + randomBetween(0, 80);
+  bot.input.weaponMode = "laser";
+  bot.input.shoot = false;
 
   const playerTarget = findNearestHumanPlayer(bot);
   const pelletTarget = findNearestBotPellet(bot);
@@ -950,10 +952,8 @@ function updateBotIntent(bot, now) {
   if (hasAim && (playerTarget || pelletTarget)) {
     if (playerTarget && setBotAim(bot, playerTarget.position)) {
       setBotEvasiveMovement(bot, playerTarget, findIncomingBulletThreat(bot), now);
-      shootBullet(bot);
-    } else {
-      shootBullet(bot);
     }
+    bot.input.shoot = true;
   }
 }
 
@@ -1156,8 +1156,20 @@ function broadcastWorldState() {
       id: player.id,
       origin: player.activeLaser.origin,
       end: player.activeLaser.end,
+      hitPlayerId: player.activeLaser.hitPlayerId,
     }));
-  io.emit("world-update", { players: payload, bullets: bulletPayload, lasers: laserPayload });
+  io.sockets.sockets.forEach((socket) => {
+    const isBeingLasered = laserPayload.some(
+      (laser) => laser.hitPlayerId === socket.id
+    );
+    const visibleLasers = laserPayload.filter((laser) => laser.hitPlayerId !== socket.id);
+    socket.emit("world-update", {
+      players: payload,
+      bullets: bulletPayload,
+      lasers: visibleLasers,
+      isBeingLasered,
+    });
+  });
 }
 
 function spawnBot(index) {
