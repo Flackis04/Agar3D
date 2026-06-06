@@ -4,7 +4,7 @@ import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js"
 import { SpatialGrid } from "./utils/spatialGrid.js";
 
 export const mapSize = 125;
-export const pelletCount = 125000;
+export const pelletCount = 250000;
 export const pelletMinSize = 0.03;
 export const pelletMaxSize = 0.04;
 export const minBetUsd = 5;
@@ -192,10 +192,7 @@ export function createPelletsInstanced(scene, count, colors) {
   const palette = colors.map((color) => new THREE.Color(color));
 
   for (let i = 0; i < count; i++) {
-    const color = palette[i % palette.length];
-    const isPowerUp =
-      color.getHex() === 0xff0000 && Math.floor(Math.random() * 8) === 0;
-    powerUps[i] = isPowerUp;
+    powerUps[i] = false;
     bombRolls[i] = Math.random();
   }
 

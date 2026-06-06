@@ -31,6 +31,16 @@ let localPlayerCell = null;
 let basePlayerRadius = 1;
 let handlersRegistered = false;
 let magnetTimeout = null;
+let speedBoostTimeout = null;
+const ABILITY_COOLDOWN_MS = 30_000;
+const MAGNET_DURATION_MS = 8_000;
+const SPEED_DURATION_MS = 5_000;
+const SPEED_MULTIPLIER = 1.75;
+const abilityReadyAt = {
+  magnet: 0,
+  speed: 0,
+  speedActiveUntil: 0,
+};
 const localTarget = {
   position: new THREE.Vector3(),
   velocity: new THREE.Vector3(),
@@ -126,7 +136,42 @@ function getLocalMass() {
 
 function getPredictedSpeed() {
   const slowFactor = 1 + SPEED_FALLOFF * Math.cbrt(getLocalMass());
-  return Math.max(MIN_SPEED, BASE_SPEED / slowFactor);
+  const baseSpeed = Math.max(MIN_SPEED, BASE_SPEED / slowFactor);
+  const speedMultiplier = performance.now() < abilityReadyAt.speedActiveUntil
+    ? SPEED_MULTIPLIER
+    : 1;
+  return baseSpeed * speedMultiplier;
+}
+
+function setMagnetActive(durationMs = MAGNET_DURATION_MS) {
+  if (!localPlayerCell) return;
+  localPlayerCell.pelletMagnetToggle = true;
+  if (magnetTimeout) clearTimeout(magnetTimeout);
+  magnetTimeout = setTimeout(() => {
+    if (localPlayerCell) localPlayerCell.pelletMagnetToggle = false;
+    magnetTimeout = null;
+  }, durationMs);
+}
+
+function setSpeedActive(durationMs = SPEED_DURATION_MS) {
+  abilityReadyAt.speedActiveUntil = performance.now() + durationMs;
+  if (speedBoostTimeout) clearTimeout(speedBoostTimeout);
+  speedBoostTimeout = setTimeout(() => {
+    abilityReadyAt.speedActiveUntil = 0;
+    speedBoostTimeout = null;
+  }, durationMs);
+}
+
+export function activateAbility(ability) {
+  if (ability !== "magnet" && ability !== "speed") return false;
+  const now = performance.now();
+  if (now < abilityReadyAt[ability]) return false;
+
+  abilityReadyAt[ability] = now + ABILITY_COOLDOWN_MS;
+  if (ability === "magnet") setMagnetActive();
+  if (ability === "speed") setSpeedActive();
+  socket.emit("activate-ability", { ability });
+  return true;
 }
 
 function rotationToForward(rotation = latestInput.rotation, target = forwardVector) {
@@ -294,8 +339,16 @@ export function updateNetworkedPlayers(delta) {
 
 export function initNetworking(scene, playerCell) {
   if (localScene && localScene !== scene) clearOtherPlayers();
+  if (magnetTimeout) clearTimeout(magnetTimeout);
+  if (speedBoostTimeout) clearTimeout(speedBoostTimeout);
+  magnetTimeout = null;
+  speedBoostTimeout = null;
+  abilityReadyAt.magnet = 0;
+  abilityReadyAt.speed = 0;
+  abilityReadyAt.speedActiveUntil = 0;
   localScene = scene;
   localPlayerCell = playerCell;
+  localPlayerCell.pelletMagnetToggle = false;
   basePlayerRadius = playerCell.geometry.parameters.radius;
   localTarget.hasState = false;
   predictedVelocity.set(0, 0, 0);
@@ -358,16 +411,25 @@ export function initNetworking(scene, playerCell) {
     audioManager.playEatSoundSegment(0.9, 0.75);
   });
 
-  socket.on("powerup-activated", () => {
-    if (!localPlayerCell) return;
-    localPlayerCell.pelletMagnetToggle = true;
-    if (magnetTimeout) clearTimeout(magnetTimeout);
-    magnetTimeout = setTimeout(() => {
-      if (localPlayerCell) {
-        localPlayerCell.pelletMagnetToggle = false;
-      }
+  socket.on("ability-activated", ({ ability, durationMs, cooldownMs }) => {
+    abilityReadyAt[ability] = performance.now() + cooldownMs;
+    if (ability === "magnet") setMagnetActive(durationMs);
+    if (ability === "speed") setSpeedActive(durationMs);
+  });
+
+  socket.on("ability-rejected", ({ ability, readyInMs }) => {
+    if (ability !== "magnet" && ability !== "speed") return;
+    abilityReadyAt[ability] = performance.now() + Math.max(0, readyInMs || 0);
+    if (ability === "magnet" && localPlayerCell) {
+      localPlayerCell.pelletMagnetToggle = false;
+      if (magnetTimeout) clearTimeout(magnetTimeout);
       magnetTimeout = null;
-    }, 8000);
+    }
+    if (ability === "speed") {
+      abilityReadyAt.speedActiveUntil = 0;
+      if (speedBoostTimeout) clearTimeout(speedBoostTimeout);
+      speedBoostTimeout = null;
+    }
   });
 }
 

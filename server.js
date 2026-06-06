@@ -147,6 +147,7 @@ const WORLD_SIZE = 125;
 const HALF_WORLD = WORLD_SIZE / 2;
 const DEFAULT_STARTING_MASS_USD = 20;
 const MIN_BET_USD = 5;
+const TEMP_LOGIN_BALANCE_CENTS = 100_000;
 const BASE_SPEED = 5; // units per second
 const MIN_SPEED = 1.25;
 const SPEED_FALLOFF = 0.15;
@@ -157,13 +158,14 @@ const PLAYER_EAT_OVERLAP = 0.35;
 const PLAYER_MASS_TRANSFER = 0.9;
 const SPAWN_CLEARANCE = 4;
 const SPAWN_ATTEMPTS = 24;
-const PELLET_COUNT = 125000;
+const ABILITY_COOLDOWN_MS = 30_000;
+const MAGNET_DURATION_MS = 8_000;
+const SPEED_DURATION_MS = 5_000;
+const SPEED_MULTIPLIER = 1.75;
+const PELLET_COUNT = 250000;
 const PELLET_MIN_RADIUS = 0.03;
 const PELLET_MAX_RADIUS = 0.04;
 const PELLET_GRID_SIZE = 4;
-const PELLET_COLOR_COUNT = 8;
-const RED_PELLET_INDEX = 0;
-const RED_PELLET_MAGNET_CHANCE = 1 / 8;
 const TICK_RATE = 30;
 const TICK_INTERVAL = 1000 / TICK_RATE;
 
@@ -534,6 +536,19 @@ function adjustUserBalance({
   const balance = centsToDollars(nextBalanceCents);
   io.emit("balance-updated", { userId, balance });
   return balance;
+}
+
+function applyTemporaryLoginBalance(user) {
+  const adjustment = TEMP_LOGIN_BALANCE_CENTS - user.balance_cents;
+  if (adjustment !== 0) {
+    adjustUserBalance({
+      userId: user.id,
+      amountCents: adjustment,
+      type: "temporary_login_grant",
+      notes: "Temporary development balance set to $1,000 on login.",
+    });
+  }
+  return db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
 }
 
 function safeJson(value) {
@@ -1300,8 +1315,12 @@ async function loginUser(req, res) {
     return;
   }
 
-  const session = createSession(user.id);
-  sendJson(res, 200, { user: publicUser(user), token: session.token });
+  const updatedUser = applyTemporaryLoginBalance(user);
+  const session = createSession(updatedUser.id);
+  sendJson(res, 200, {
+    user: publicUser(updatedUser),
+    token: session.token,
+  });
 }
 
 function sendCurrentUser(req, res) {
@@ -1670,14 +1689,12 @@ function findSafePlayerSpawn(radius) {
 function createPellet(index) {
   const size = randomBetween(PELLET_MIN_RADIUS, PELLET_MAX_RADIUS);
   const position = randomPosition(size);
-  const isRed = index % PELLET_COLOR_COUNT === RED_PELLET_INDEX;
-  const isPowerUp = isRed && Math.random() < RED_PELLET_MAGNET_CHANCE;
   const bombRoll = Math.random();
   return {
     index,
     position,
     size,
-    isPowerUp,
+    isPowerUp: false,
     bombRoll,
     active: true,
   };
@@ -1927,11 +1944,7 @@ function handlePelletCollisions(player) {
         playerId: player.id,
         size: pellet.size,
       });
-      if (pellet.isPowerUp) {
-        player.magnetUntil = Date.now() + 8000;
-        io.to(player.id).emit("powerup-activated");
-      }
-      setTimeout(() => respawnPellet(pellet), pellet.isPowerUp ? 5000 : 2500);
+      setTimeout(() => respawnPellet(pellet), 2500);
     }
   }
 }
@@ -2014,7 +2027,11 @@ function cashInPlayer(socket, player) {
 function updatePlayers(delta) {
   players.forEach((player) => {
     const direction = rotationToForward(player.input.rotation);
-    const targetSpeed = player.input.forward ? player.speed : 0;
+    const speedMultiplier =
+      player.speedBoostUntil > Date.now() ? SPEED_MULTIPLIER : 1;
+    const targetSpeed = player.input.forward
+      ? player.speed * speedMultiplier
+      : 0;
     const movementDamping = dampingFactor(
       player.input.forward ? MOVE_ACCELERATION : MOVE_DECELERATION,
       delta
@@ -2122,6 +2139,8 @@ io.on("connection", (socket) => {
       position: spawnPosition,
       radius: playerRadius,
       magnetUntil: 0,
+      speedBoostUntil: 0,
+      abilityReadyAt: { magnet: 0, speed: 0 },
       mass,
       startingMass: mass,
       speed: getPlayerSpeed(mass),
@@ -2168,6 +2187,33 @@ io.on("connection", (socket) => {
         ),
       };
     }
+  });
+
+  socket.on("activate-ability", ({ ability }) => {
+    const player = players.get(socket.id);
+    if (!player || (ability !== "magnet" && ability !== "speed")) return;
+
+    const now = Date.now();
+    const readyAt = player.abilityReadyAt[ability] || 0;
+    if (now < readyAt) {
+      socket.emit("ability-rejected", {
+        ability,
+        readyInMs: readyAt - now,
+      });
+      return;
+    }
+
+    player.abilityReadyAt[ability] = now + ABILITY_COOLDOWN_MS;
+    const durationMs =
+      ability === "magnet" ? MAGNET_DURATION_MS : SPEED_DURATION_MS;
+    if (ability === "magnet") player.magnetUntil = now + durationMs;
+    if (ability === "speed") player.speedBoostUntil = now + durationMs;
+
+    socket.emit("ability-activated", {
+      ability,
+      durationMs,
+      cooldownMs: ABILITY_COOLDOWN_MS,
+    });
   });
 
   socket.on("request-pellet-state", () => {

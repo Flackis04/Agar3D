@@ -1,4 +1,4 @@
-import { unlockGameAudio } from "./multiplayer.js";
+import { activateAbility, unlockGameAudio } from "./multiplayer.js";
 
 function clampPitch(pitch) {
   return Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
@@ -20,6 +20,8 @@ export function setupControls(canvas, cameraController) {
 
     if (key === 'x') cameraController.toggleDeveloperMode();
     if (key === 'w') forwardBtnIsPressed = true;
+    if (!e.repeat && key === '1') activateAbility('magnet');
+    if (!e.repeat && key === '2') activateAbility('speed');
   }
 
   function onKeyUp(e) {
