@@ -1,3 +1,5 @@
+import { unlockGameAudio } from "./multiplayer.js";
+
 function clampPitch(pitch) {
   return Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
 }
@@ -28,6 +30,7 @@ export function setupControls(canvas, cameraController) {
   });
 
   canvas.addEventListener('click', async () => {
+    unlockGameAudio();
     try {
       await canvas.requestPointerLock();
       window.isPaused = false;

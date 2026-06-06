@@ -1,6 +1,7 @@
 import { io } from "socket.io-client";
 import * as THREE from "three";
 import { mapSize, pelletMinSize } from "./objects.js";
+import { AudioManager } from "./audio.js";
 
 const defaultSocketUrl = `${window.location.protocol}//${window.location.hostname}:3001`;
 const socketUrl = import.meta.env.VITE_API_BASE_URL || defaultSocketUrl;
@@ -42,6 +43,12 @@ const latestInput = {
   forward: false,
   rotation: { yaw: 0, pitch: 0 },
 };
+const audioManager = new AudioManager();
+const locallyConsumedPellets = new Set();
+
+export function unlockGameAudio() {
+  audioManager.unlock();
+}
 
 setInterval(() => {
   if (socket.connected) {
@@ -214,6 +221,7 @@ export function updateNetworkedPlayers(delta) {
       localPlayerCell.scale.x +
       (localTarget.scale - localPlayerCell.scale.x) * scaleAlpha;
     localPlayerCell.scale.setScalar(scale);
+    clampLocalPlayerPosition();
     updatePositionDisplay(localPlayerCell);
   }
 
@@ -351,6 +359,39 @@ function updatePelletInstance(index) {
   mesh.instanceMatrix.needsUpdate = true;
 }
 
+export function predictLocalPelletConsumption() {
+  if (!pelletDataRef || !localPlayerCell || !socket.connected) return;
+
+  const playerRadius = getLocalRadius();
+  const collectionRadius = localPlayerCell.pelletMagnetToggle
+    ? playerRadius * 4
+    : playerRadius;
+  const position = localPlayerCell.position;
+  const nearbyIndices = pelletDataRef.spatialGrid
+    ? pelletDataRef.spatialGrid.getItemsInRadius(
+        position.x,
+        position.y,
+        position.z,
+        collectionRadius + pelletDataRef.minRadius
+      )
+    : pelletDataRef.positions.map((_, index) => index);
+
+  for (const index of nearbyIndices) {
+    if (!pelletDataRef.active[index]) continue;
+    const pelletPosition = pelletDataRef.positions[index];
+    const pelletRadius = pelletDataRef.sizes[index] || pelletMinSize;
+    const eatRadius = collectionRadius + pelletRadius;
+    if (position.distanceToSquared(pelletPosition) > eatRadius * eatRadius) {
+      continue;
+    }
+
+    pelletDataRef.active[index] = false;
+    locallyConsumedPellets.add(index);
+    updatePelletInstance(index);
+    audioManager.playEatSoundSegment(1, 1.5 - pelletRadius);
+  }
+}
+
 function registerPelletHandlers() {
   if (pelletHandlersRegistered) return;
   pelletHandlersRegistered = true;
@@ -379,6 +420,12 @@ function registerPelletHandlers() {
     if (!pelletDataRef || typeof data.index !== "number") return;
     pelletDataRef.active[data.index] = false;
     updatePelletInstance(data.index);
+    const wasPredicted = locallyConsumedPellets.delete(data.index);
+    if (data.playerId === socket.id && !wasPredicted) {
+      const size = Number(data.size) || pelletMinSize;
+      const pitch = 1.5 - size;
+      audioManager.playEatSoundSegment(1, pitch);
+    }
   });
 
   socket.on("pellet-respawn", (data) => {
@@ -395,6 +442,7 @@ function registerPelletHandlers() {
       pelletDataRef.powerUps[data.index] = data.isPowerUp;
     }
     pelletDataRef.active[data.index] = true;
+    locallyConsumedPellets.delete(data.index);
     updatePelletInstance(data.index);
   });
 }

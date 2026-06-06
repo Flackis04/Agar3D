@@ -147,9 +147,9 @@ const WORLD_SIZE = 125;
 const HALF_WORLD = WORLD_SIZE / 2;
 const DEFAULT_STARTING_MASS_USD = 20;
 const MIN_BET_USD = 5;
-const BASE_SPEED = 10; // units per second
+const BASE_SPEED = 5; // units per second
 const SPEED_FALLOFF = 0.15;
-const PELLET_COUNT = 100000;
+const PELLET_COUNT = 125000;
 const PELLET_MIN_RADIUS = 0.03;
 const PELLET_MAX_RADIUS = 0.04;
 const PELLET_EAT_PADDING = PELLET_MAX_RADIUS * 1.5;
@@ -1789,14 +1789,19 @@ function settlePlayerDeath(player) {
 }
 
 function handlePelletCollisions(player) {
-  const nearbyPelletIndices = getNearbyPelletIndices(player.position, player.radius);
+  const magnetActive = player.magnetUntil > Date.now();
+  const collectionRadius = magnetActive ? player.radius * 4 : player.radius;
+  const nearbyPelletIndices = getNearbyPelletIndices(
+    player.position,
+    collectionRadius
+  );
   for (let i = 0; i < nearbyPelletIndices.length; i++) {
     const pellet = pellets[nearbyPelletIndices[i]];
     if (!pellet.active) continue;
     const dx = player.position.x - pellet.position.x;
     const dy = player.position.y - pellet.position.y;
     const dz = player.position.z - pellet.position.z;
-    const eatRadius = player.radius + pellet.size + PELLET_EAT_PADDING;
+    const eatRadius = collectionRadius + pellet.size + PELLET_EAT_PADDING;
     if (dx * dx + dy * dy + dz * dz <= eatRadius * eatRadius) {
       pellet.active = false;
       removePelletFromGrid(pellet);
@@ -1809,7 +1814,7 @@ function handlePelletCollisions(player) {
       if (pellet.bombRoll < bombChance) {
         settlePlayerDeath(player);
         players.delete(player.id);
-        io.emit("pellet-eaten", { index: pellet.index });
+        io.emit("pellet-eaten", { index: pellet.index, playerId: player.id });
         io.emit("player-killed", { id: player.id });
         setTimeout(() => respawnPellet(pellet), 2500);
         return;
@@ -1817,8 +1822,13 @@ function handlePelletCollisions(player) {
       player.mass += gainedMass;
       player.radius = massToRadius(player.mass);
       player.speed = getPlayerSpeed(player.mass);
-      io.emit("pellet-eaten", { index: pellet.index });
+      io.emit("pellet-eaten", {
+        index: pellet.index,
+        playerId: player.id,
+        size: pellet.size,
+      });
       if (pellet.isPowerUp) {
+        player.magnetUntil = Date.now() + 8000;
         io.to(player.id).emit("powerup-activated");
       }
       setTimeout(() => respawnPellet(pellet), pellet.isPowerUp ? 5000 : 2500);
@@ -1968,6 +1978,7 @@ io.on("connection", (socket) => {
       name: name || "Player",
       position: spawnPosition,
       radius: playerRadius,
+      magnetUntil: 0,
       mass,
       startingMass: mass,
       speed: getPlayerSpeed(mass),

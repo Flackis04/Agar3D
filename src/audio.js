@@ -26,7 +26,12 @@ export class AudioManager {
   ensureAudioBufferLoaded() {
     if (this.audioBufferLoading) return this.audioBufferLoading;
     this.audioBufferLoading = fetch(this.audioUrl)
-      .then((response) => response.arrayBuffer())
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Audio request failed with ${response.status}`);
+        }
+        return response.arrayBuffer();
+      })
       .then((arrayBuffer) => {
         const ctx = this.initAudioContext();
         return ctx.decodeAudioData(arrayBuffer);
@@ -44,6 +49,12 @@ export class AudioManager {
 
   playEatSoundSegment(volume = 1.0, pitch = 1.0) {
     const ctx = this.initAudioContext();
+    if (!this.audioBuffer) {
+      this.ensureAudioBufferLoaded().then((buffer) => {
+        if (buffer) this.playEatSoundSegment(volume, pitch);
+      });
+      return;
+    }
     try {
       const source = ctx.createBufferSource();
       const gainNode = ctx.createGain();
@@ -52,7 +63,8 @@ export class AudioManager {
       source.playbackRate.value = pitch;
       source.connect(gainNode);
       gainNode.connect(ctx.destination);
-      source.start(ctx.currentTime, 2.1, 0.3);
+      const duration = Math.min(0.3, this.audioBuffer.duration);
+      source.start(ctx.currentTime, 0, duration);
       this.soundSourcePool.push(source);
       if (this.soundSourcePool.length > this.MAX_CONCURRENT_SOUNDS) {
         this.soundSourcePool.shift();
@@ -60,5 +72,10 @@ export class AudioManager {
     } catch (err) {
       console.error("Failed to play eat sound:", err);
     }
+  }
+
+  unlock() {
+    this.initAudioContext();
+    return this.ensureAudioBufferLoaded();
   }
 }

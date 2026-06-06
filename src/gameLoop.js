@@ -1,7 +1,15 @@
 import { updateFogDistance } from "./scene.js";
 import { handleDevModeObjectVisibility } from "./camera.js";
-import { sendPlayerInput, socket, updateNetworkedPlayers } from "./multiplayer.js";
-import { updatePlayerGrowth } from "./utils/playerUtils.js";
+import {
+  predictLocalPelletConsumption,
+  sendPlayerInput,
+  socket,
+  updateNetworkedPlayers,
+} from "./multiplayer.js";
+import {
+  updatePelletMagnet,
+  updatePlayerGrowth,
+} from "./utils/playerUtils.js";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
@@ -89,6 +97,16 @@ export function createAnimationLoop(
         null,
         null
       );
+    } else {
+      updatePelletMagnet(
+        false,
+        gameState.playerCell,
+        gameState.pelletData,
+        gameState.playerCell.pelletMagnetToggle,
+        scene,
+        gameState.playerCell.magnetSphere
+      );
+      predictLocalPelletConsumption();
     }
     updateFog();
 

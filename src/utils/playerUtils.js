@@ -353,7 +353,7 @@ export function updatePelletMagnet(
 ) {
   const playerCellRadius = computeCellRadius(playerCell);
   const magnetSphereRadius = playerCellRadius * 4;
-  const magnetSphereBaseRadius = 4;
+  const magnetSphereBaseRadius = magnetSphere?.userData?.baseRadius || 4;
 
   if (magnetSphere) {
     const targetScale = pelletMagnetToggle

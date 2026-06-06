@@ -4,7 +4,7 @@ import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js"
 import { SpatialGrid } from "./utils/spatialGrid.js";
 
 export const mapSize = 125;
-export const pelletCount = 100000;
+export const pelletCount = 125000;
 export const pelletMinSize = 0.03;
 export const pelletMaxSize = 0.04;
 export const minBetUsd = 5;
@@ -69,6 +69,7 @@ export function createMagnetSphere(playerCell, magnetRange) {
   });
 
   const magnetSphere = new THREE.Group();
+  magnetSphere.userData.baseRadius = magnetRange;
 
   const solidMesh = new THREE.Mesh(geometry, solidMaterial);
   const wireframeMesh = new THREE.Mesh(geometry, wireframeMaterial);
