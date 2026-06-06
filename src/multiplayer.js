@@ -450,6 +450,10 @@ export function requestCashIn() {
   socket.emit("cash-in");
 }
 
+export function requestTeleportToNearestPlayer() {
+  socket.emit("teleport-nearest-player");
+}
+
 function updatePositionDisplay(mainSphere) {
   const positionElement = document.getElementById("position");
   if (positionElement) {

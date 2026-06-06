@@ -547,6 +547,39 @@ canvas {
   transform: scale(0.98);
 }
 
+#teleportControl {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 1000;
+  display: grid;
+  gap: 8px;
+  max-width: 240px;
+}
+
+#teleportButton {
+  padding: 12px 16px;
+  border: 1px solid rgba(126, 214, 255, 0.7);
+  border-radius: 8px;
+  background: rgba(5, 18, 38, 0.88);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 0 20px rgba(0, 119, 255, 0.25);
+}
+
+#teleportButton:hover {
+  background: rgba(0, 77, 160, 0.92);
+}
+
+#teleportMessage {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12px;
+}
+
 #leaderboard {
   position: fixed;
   top: 20px;

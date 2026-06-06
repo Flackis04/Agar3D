@@ -9,7 +9,12 @@ import { initializeGame } from "./gameInit.js";
 import { createAnimationLoop } from "./gameLoop.js";
 import { minBetUsd, pelletMinSize, startingMassUsd } from "./objects.js";
 import { calculateCellMass } from "./utils/playerUtils.js";
-import { otherPlayers, requestCashIn, socket } from "./multiplayer.js";
+import {
+  otherPlayers,
+  requestCashIn,
+  requestTeleportToNearestPlayer,
+  socket,
+} from "./multiplayer.js";
 
 const MIN_BET_USD = minBetUsd;
 const DEFAULT_BALANCE = 0;
@@ -345,6 +350,36 @@ function GameActions({ gameState, isPlaying, onCashIn }) {
       <button type="button" id="cashInButton" onClick={onCashIn}>
         Cash In {formatMoney(mass)}
       </button>
+    </div>
+  );
+}
+
+function TeleportControl({ isPlaying }) {
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const onTeleportResult = ({ ok, targetName, error }) => {
+      setMessage(ok ? `Teleported near ${targetName}.` : error);
+    };
+    socket.on("teleport-result", onTeleportResult);
+    return () => socket.off("teleport-result", onTeleportResult);
+  }, []);
+
+  if (!isPlaying) return null;
+
+  return (
+    <div id="teleportControl">
+      <button
+        type="button"
+        id="teleportButton"
+        onClick={() => {
+          setMessage("");
+          requestTeleportToNearestPlayer();
+        }}
+      >
+        Teleport to nearest player
+      </button>
+      {message && <div id="teleportMessage">{message}</div>}
     </div>
   );
 }
@@ -1317,6 +1352,7 @@ function AppContent() {
       )}
 
       <GameActions gameState={gameState} isPlaying={isPlaying} onCashIn={cashIn} />
+      <TeleportControl isPlaying={isPlaying} />
       <Leaderboard
         gameState={gameState}
         playerName={activePlayerName}

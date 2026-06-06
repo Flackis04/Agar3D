@@ -2216,6 +2216,67 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("teleport-nearest-player", () => {
+    const player = players.get(socket.id);
+    if (!player) {
+      socket.emit("teleport-result", {
+        ok: false,
+        error: "No active player.",
+      });
+      return;
+    }
+
+    let nearestPlayer = null;
+    let nearestDistanceSquared = Infinity;
+    players.forEach((candidate) => {
+      if (candidate.id === player.id) return;
+      const dx = player.position.x - candidate.position.x;
+      const dy = player.position.y - candidate.position.y;
+      const dz = player.position.z - candidate.position.z;
+      const distanceSquared = dx * dx + dy * dy + dz * dz;
+      if (distanceSquared < nearestDistanceSquared) {
+        nearestDistanceSquared = distanceSquared;
+        nearestPlayer = candidate;
+      }
+    });
+
+    if (!nearestPlayer) {
+      socket.emit("teleport-result", {
+        ok: false,
+        error: "No other players are currently in the arena.",
+      });
+      return;
+    }
+
+    let dx = player.position.x - nearestPlayer.position.x;
+    let dy = player.position.y - nearestPlayer.position.y;
+    let dz = player.position.z - nearestPlayer.position.z;
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (distance < 0.0001) {
+      dx = 1;
+      dy = 0;
+      dz = 0;
+    } else {
+      dx /= distance;
+      dy /= distance;
+      dz /= distance;
+    }
+
+    const safeDistance = player.radius + nearestPlayer.radius + 0.5;
+    player.position.x = nearestPlayer.position.x + dx * safeDistance;
+    player.position.y = nearestPlayer.position.y + dy * safeDistance;
+    player.position.z = nearestPlayer.position.z + dz * safeDistance;
+    player.velocity.x = 0;
+    player.velocity.y = 0;
+    player.velocity.z = 0;
+    clampPlayerPosition(player);
+
+    socket.emit("teleport-result", {
+      ok: true,
+      targetName: nearestPlayer.name,
+    });
+  });
+
   socket.on("request-pellet-state", () => {
     socket.emit("pellet-state", pelletState);
   });
