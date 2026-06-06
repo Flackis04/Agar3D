@@ -137,7 +137,7 @@ const io = new Server(server, {
     origin: "*",
     methods: ["GET", "POST"],
   },
-  transports: ["polling"],
+  transports: ["websocket", "polling"],
   pingTimeout: 60000,
   pingInterval: 25000,
   maxHttpBufferSize: 1e8,
@@ -148,14 +148,24 @@ const HALF_WORLD = WORLD_SIZE / 2;
 const DEFAULT_STARTING_MASS_USD = 20;
 const MIN_BET_USD = 5;
 const BASE_SPEED = 5; // units per second
+const MIN_SPEED = 1.25;
 const SPEED_FALLOFF = 0.15;
+const MOVE_ACCELERATION = 8;
+const MOVE_DECELERATION = 12;
+const PLAYER_EAT_SIZE_RATIO = 1.15;
+const PLAYER_EAT_OVERLAP = 0.35;
+const PLAYER_MASS_TRANSFER = 0.9;
+const SPAWN_CLEARANCE = 4;
+const SPAWN_ATTEMPTS = 24;
 const PELLET_COUNT = 125000;
 const PELLET_MIN_RADIUS = 0.03;
 const PELLET_MAX_RADIUS = 0.04;
 const PELLET_EAT_PADDING = PELLET_MAX_RADIUS * 1.5;
 const PELLET_GRID_SIZE = 4;
-const POWERUP_RATIO = 0.15;
-const TICK_RATE = 20;
+const PELLET_COLOR_COUNT = 8;
+const RED_PELLET_INDEX = 0;
+const RED_PELLET_MAGNET_CHANCE = 1 / 8;
+const TICK_RATE = 30;
 const TICK_INTERVAL = 1000 / TICK_RATE;
 
 const pelletVolume = (4 / 3) * Math.PI * Math.pow(PELLET_MIN_RADIUS, 3);
@@ -1624,10 +1634,45 @@ function randomPosition(radius = PLAYER_BASE_RADIUS) {
   };
 }
 
+function getSpawnClearance(position, radius) {
+  let minimumClearance = Infinity;
+  players.forEach((other) => {
+    const dx = position.x - other.position.x;
+    const dy = position.y - other.position.y;
+    const dz = position.z - other.position.z;
+    const centerDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    minimumClearance = Math.min(
+      minimumClearance,
+      centerDistance - radius - other.radius
+    );
+  });
+  return minimumClearance;
+}
+
+function findSafePlayerSpawn(radius) {
+  if (players.size === 0) return randomPosition(radius);
+
+  let bestPosition = randomPosition(radius);
+  let bestClearance = getSpawnClearance(bestPosition, radius);
+
+  for (let attempt = 1; attempt < SPAWN_ATTEMPTS; attempt++) {
+    const candidate = randomPosition(radius);
+    const clearance = getSpawnClearance(candidate, radius);
+    if (clearance >= SPAWN_CLEARANCE) return candidate;
+    if (clearance > bestClearance) {
+      bestPosition = candidate;
+      bestClearance = clearance;
+    }
+  }
+
+  return bestPosition;
+}
+
 function createPellet(index) {
   const size = randomBetween(PELLET_MIN_RADIUS, PELLET_MAX_RADIUS);
   const position = randomPosition(size);
-  const isPowerUp = Math.random() < POWERUP_RATIO;
+  const isRed = index % PELLET_COLOR_COUNT === RED_PELLET_INDEX;
+  const isPowerUp = isRed && Math.random() < RED_PELLET_MAGNET_CHANCE;
   const bombRoll = Math.random();
   return {
     index,
@@ -1719,6 +1764,20 @@ function clampPosition(position, radius) {
   return position;
 }
 
+function clampPlayerPosition(player) {
+  const minBound = -HALF_WORLD + player.radius;
+  const maxBound = HALF_WORLD - player.radius;
+
+  if (player.position.x <= minBound && player.velocity.x < 0) player.velocity.x = 0;
+  if (player.position.x >= maxBound && player.velocity.x > 0) player.velocity.x = 0;
+  if (player.position.y <= minBound && player.velocity.y < 0) player.velocity.y = 0;
+  if (player.position.y >= maxBound && player.velocity.y > 0) player.velocity.y = 0;
+  if (player.position.z <= minBound && player.velocity.z < 0) player.velocity.z = 0;
+  if (player.position.z >= maxBound && player.velocity.z > 0) player.velocity.z = 0;
+
+  clampPosition(player.position, player.radius);
+}
+
 const pelletGrid = new Map();
 const pellets = Array.from({ length: PELLET_COUNT }, (_, i) => createPellet(i));
 pellets.forEach(addPelletToGrid);
@@ -1731,7 +1790,11 @@ let cryptoDepositPollerRunning = false;
 
 function getPlayerSpeed(mass) {
   const slowFactor = 1 + SPEED_FALLOFF * Math.cbrt(mass);
-  return BASE_SPEED / slowFactor;
+  return Math.max(MIN_SPEED, BASE_SPEED / slowFactor);
+}
+
+function dampingFactor(rate, delta) {
+  return 1 - Math.exp(-rate * delta);
 }
 
 function createGameTicket({ userId, startingMass }) {
@@ -1815,7 +1878,7 @@ function handlePelletCollisions(player) {
         settlePlayerDeath(player);
         players.delete(player.id);
         io.emit("pellet-eaten", { index: pellet.index, playerId: player.id });
-        io.emit("player-killed", { id: player.id });
+        io.emit("player-killed", { id: player.id, reason: "bomb" });
         setTimeout(() => respawnPellet(pellet), 2500);
         return;
       }
@@ -1836,27 +1899,55 @@ function handlePelletCollisions(player) {
   }
 }
 
-function handlePlayerCollisions(player) {
-  players.forEach((other) => {
-    if (other.id === player.id || other.radius <= 0 || player.radius <= 0)
-      return;
-    const dx = player.position.x - other.position.x;
-    const dy = player.position.y - other.position.y;
-    const dz = player.position.z - other.position.z;
-    const distanceSq = dx * dx + dy * dy + dz * dz;
-    const minDistance = player.radius + other.radius * 0.85;
-    if (distanceSq > minDistance * minDistance) return;
-    if (player.radius <= other.radius * 1.1) return;
+function canConsumePlayer(predator, prey) {
+  if (predator.radius < prey.radius * PLAYER_EAT_SIZE_RATIO) return false;
+  const dx = predator.position.x - prey.position.x;
+  const dy = predator.position.y - prey.position.y;
+  const dz = predator.position.z - prey.position.z;
+  const distanceSq = dx * dx + dy * dy + dz * dz;
+  const eatDistance = Math.max(
+    predator.radius * 0.25,
+    predator.radius - prey.radius * PLAYER_EAT_OVERLAP
+  );
+  return distanceSq <= eatDistance * eatDistance;
+}
 
-    player.mass += other.mass * 0.9;
-    player.radius = massToRadius(player.mass);
-    player.speed = getPlayerSpeed(player.mass);
-    other.mass = DEFAULT_STARTING_MASS_USD;
-    other.startingMass = DEFAULT_STARTING_MASS_USD;
-    other.radius = PLAYER_BASE_RADIUS;
-    other.speed = getPlayerSpeed(other.mass);
-    other.position = randomPosition(other.radius);
+function consumePlayer(predator, prey) {
+  predator.mass += prey.mass * PLAYER_MASS_TRANSFER;
+  predator.radius = massToRadius(predator.mass);
+  predator.speed = getPlayerSpeed(predator.mass);
+  players.delete(prey.id);
+
+  io.emit("player-killed", {
+    id: prey.id,
+    reason: "player",
+    killerName: predator.name,
   });
+  io.to(predator.id).emit("player-consumed", {
+    mass: prey.mass,
+  });
+}
+
+function handlePlayerCollisions() {
+  const playerList = Array.from(players.values());
+  for (let i = 0; i < playerList.length; i++) {
+    const first = playerList[i];
+    if (!players.has(first.id)) continue;
+
+    for (let j = i + 1; j < playerList.length; j++) {
+      const second = playerList[j];
+      if (!players.has(second.id)) continue;
+
+      if (canConsumePlayer(first, second)) {
+        consumePlayer(first, second);
+        continue;
+      }
+      if (canConsumePlayer(second, first)) {
+        consumePlayer(second, first);
+        break;
+      }
+    }
+  }
 }
 
 function cashInPlayer(socket, player) {
@@ -1885,19 +1976,31 @@ function cashInPlayer(socket, player) {
 
 function updatePlayers(delta) {
   players.forEach((player) => {
-    if (player.input.forward) {
-      const direction = rotationToForward(player.input.rotation);
-      player.position.x += direction.x * player.speed * delta;
-      player.position.y += direction.y * player.speed * delta;
-      player.position.z += direction.z * player.speed * delta;
-      clampPosition(player.position, player.radius);
-    }
+    const direction = rotationToForward(player.input.rotation);
+    const targetSpeed = player.input.forward ? player.speed : 0;
+    const movementDamping = dampingFactor(
+      player.input.forward ? MOVE_ACCELERATION : MOVE_DECELERATION,
+      delta
+    );
+    const targetVelocityX = direction.x * targetSpeed;
+    const targetVelocityY = direction.y * targetSpeed;
+    const targetVelocityZ = direction.z * targetSpeed;
+
+    player.velocity.x +=
+      (targetVelocityX - player.velocity.x) * movementDamping;
+    player.velocity.y +=
+      (targetVelocityY - player.velocity.y) * movementDamping;
+    player.velocity.z +=
+      (targetVelocityZ - player.velocity.z) * movementDamping;
+
+    player.position.x += player.velocity.x * delta;
+    player.position.y += player.velocity.y * delta;
+    player.position.z += player.velocity.z * delta;
+    clampPlayerPosition(player);
     handlePelletCollisions(player);
   });
 
-  players.forEach((player) => {
-    handlePlayerCollisions(player);
-  });
+  handlePlayerCollisions();
 }
 
 function broadcastWorldState() {
@@ -1911,6 +2014,9 @@ function broadcastWorldState() {
       z: player.position.z,
       radius: player.radius,
       mass: player.mass,
+      vx: player.velocity.x,
+      vy: player.velocity.y,
+      vz: player.velocity.z,
     });
   });
   io.emit("world-update", { players: payload });
@@ -1918,7 +2024,7 @@ function broadcastWorldState() {
 
 setInterval(() => {
   const now = Date.now();
-  const delta = (now - lastTick) / 1000;
+  const delta = Math.min((now - lastTick) / 1000, 0.1);
   lastTick = now;
   updatePlayers(delta);
   broadcastWorldState();
@@ -1970,7 +2076,7 @@ io.on("connection", (socket) => {
         ? requestedMass
         : DEFAULT_STARTING_MASS_USD;
     const playerRadius = massToRadius(mass);
-    const spawnPosition = randomPosition(playerRadius);
+    const spawnPosition = findSafePlayerSpawn(playerRadius);
     const player = {
       id: socket.id,
       userId: ticket?.userId || null,
@@ -1982,6 +2088,7 @@ io.on("connection", (socket) => {
       mass,
       startingMass: mass,
       speed: getPlayerSpeed(mass),
+      velocity: { x: 0, y: 0, z: 0 },
       input: { forward: false, rotation: { yaw: 0, pitch: 0 } },
     };
     players.set(socket.id, player);
@@ -1995,6 +2102,9 @@ io.on("connection", (socket) => {
         z: p.position.z,
         radius: p.radius,
         mass: p.mass,
+        vx: p.velocity.x,
+        vy: p.velocity.y,
+        vz: p.velocity.z,
       })),
     });
     socket.broadcast.emit("player-joined", {
@@ -2014,7 +2124,11 @@ io.on("connection", (socket) => {
     if (input.rotation) {
       player.input.rotation = {
         yaw: Number(input.rotation.yaw) || 0,
-        pitch: Number(input.rotation.pitch) || 0,
+        pitch: clamp(
+          Number(input.rotation.pitch) || 0,
+          -Math.PI / 2 + 0.1,
+          Math.PI / 2 - 0.1
+        ),
       };
     }
   });

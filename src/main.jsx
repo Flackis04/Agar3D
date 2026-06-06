@@ -118,6 +118,7 @@ function GameScene({ playerName, startingMass, gameTicket, onGameReady }) {
   const loopRef = useRef(null);
   const initializedRef = useRef(false);
   const statsRef = useRef(null);
+  const controlsRef = useRef(null);
 
   useEffect(() => {
     gl.toneMappingExposure = 1.1;
@@ -127,10 +128,12 @@ function GameScene({ playerName, startingMass, gameTicket, onGameReady }) {
     if (initializedRef.current) return;
     initializedRef.current = true;
 
-    const stats = new Stats();
-    stats.dom.style.display = "block";
-    document.body.appendChild(stats.dom);
-    statsRef.current = stats;
+    const stats = import.meta.env.DEV ? new Stats() : null;
+    if (stats) {
+      stats.dom.style.display = "block";
+      document.body.appendChild(stats.dom);
+      statsRef.current = stats;
+    }
 
     initializeGame(
       scene,
@@ -141,6 +144,7 @@ function GameScene({ playerName, startingMass, gameTicket, onGameReady }) {
           gameState.playerCell
         );
         const controls = setupControls(gl.domElement, cameraController);
+        controlsRef.current = controls;
 
         loopRef.current = createAnimationLoop(
           null,
@@ -159,6 +163,8 @@ function GameScene({ playerName, startingMass, gameTicket, onGameReady }) {
     );
 
     return () => {
+      controlsRef.current?.dispose();
+      controlsRef.current = null;
       if (statsRef.current?.dom.parentNode) {
         statsRef.current.dom.parentNode.removeChild(statsRef.current.dom);
       }
@@ -190,7 +196,7 @@ function MassCounter({ gameState, isPlaying }) {
       return;
     }
 
-    let frameId = null;
+    let bumpTimeout = null;
     const update = () => {
       if (!gameState.playerCell || gameState.playerCell.userData.isEaten) {
         setMass(null);
@@ -201,16 +207,20 @@ function MassCounter({ gameState, isPlaying }) {
         setMass((currentMass) => {
           if (currentMass !== null && currentMass !== nextMass) {
             setBump(true);
-            window.setTimeout(() => setBump(false), 150);
+            if (bumpTimeout) window.clearTimeout(bumpTimeout);
+            bumpTimeout = window.setTimeout(() => setBump(false), 150);
           }
           return nextMass;
         });
       }
-      frameId = requestAnimationFrame(update);
     };
 
     update();
-    return () => cancelAnimationFrame(frameId);
+    const intervalId = window.setInterval(update, 100);
+    return () => {
+      window.clearInterval(intervalId);
+      if (bumpTimeout) window.clearTimeout(bumpTimeout);
+    };
   }, [gameState, isPlaying]);
 
   if (mass === null) return null;
@@ -231,7 +241,6 @@ function Leaderboard({ gameState, playerName, isPlaying }) {
       return;
     }
 
-    let frameId = null;
     const update = () => {
       const allEntries = [];
       const playerMass = Math.floor(
@@ -265,11 +274,11 @@ function Leaderboard({ gameState, playerName, isPlaying }) {
 
       allEntries.sort((a, b) => b.mass - a.mass);
       setEntries(allEntries);
-      frameId = requestAnimationFrame(update);
     };
 
     update();
-    return () => cancelAnimationFrame(frameId);
+    const intervalId = window.setInterval(update, 200);
+    return () => window.clearInterval(intervalId);
   }, [gameState, isPlaying, playerName]);
 
   if (!entries.length) return null;
@@ -316,17 +325,16 @@ function GameActions({ gameState, isPlaying, onCashIn }) {
       return;
     }
 
-    let frameId = null;
     const update = () => {
       if (!gameState.playerCell || gameState.playerCell.userData.isEaten) {
         setMass(null);
       } else {
         setMass(calculateCellMass(gameState.playerCell, pelletMinSize));
       }
-      frameId = requestAnimationFrame(update);
     };
     update();
-    return () => cancelAnimationFrame(frameId);
+    const intervalId = window.setInterval(update, 250);
+    return () => window.clearInterval(intervalId);
   }, [gameState, isPlaying]);
 
   if (mass === null) return null;
@@ -534,16 +542,24 @@ function AppContent() {
   useEffect(() => {
     if (!isPlaying || !gameState?.playerCell) return;
     let frameId = null;
+
     const watchDeath = () => {
       if (gameState.playerCell?.userData?.isEaten) {
+        const deathReason = gameState.playerCell.userData.deathReason;
+        const killerName = gameState.playerCell.userData.killerName;
+        const detail =
+          deathReason === "player"
+            ? `${killerName || "A larger player"} consumed you.`
+            : "You hit a hidden bomb.";
+
         setIsPlaying(false);
         setGameState(null);
         setSavedMass(null);
         setRoundResult({
           title: "Round ended",
-          detail: `You hit a bomb and lost your ${formatMoney(activeStartingMass)} entry.`,
+          detail: `${detail} Entry lost: ${formatMoney(activeStartingMass)}.`,
         });
-        setWalletMessage(`You hit a bomb. Entry lost: ${formatMoney(activeStartingMass)}.`);
+        setWalletMessage(`${detail} Entry lost: ${formatMoney(activeStartingMass)}.`);
         return;
       }
       frameId = requestAnimationFrame(watchDeath);
@@ -908,6 +924,7 @@ function AppContent() {
           className="game-canvas"
           key={gameKey}
           camera={{ fov: 75, near: 0.2, far: 600 }}
+          dpr={[1, 1.75]}
           gl={{ antialias: true, powerPreference: "high-performance" }}
         >
           <color attach="background" args={["#050010"]} />

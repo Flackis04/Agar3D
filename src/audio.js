@@ -5,7 +5,7 @@ export class AudioManager {
     this.audioBuffer = null;
     this.audioBufferLoading = null;
     this.soundSourcePool = [];
-    this.MAX_CONCURRENT_SOUNDS = 16;
+    this.MAX_CONCURRENT_SOUNDS = 8;
     this.audioUrl = audioUrl;
     this.ensureAudioBufferLoaded();
   }
@@ -59,16 +59,28 @@ export class AudioManager {
       const source = ctx.createBufferSource();
       const gainNode = ctx.createGain();
       source.buffer = this.audioBuffer;
-      gainNode.gain.value = Math.min(volume, 1.0);
-      source.playbackRate.value = pitch;
+      gainNode.gain.value = Math.max(0, Math.min(volume, 1));
+      source.playbackRate.value = Math.max(0.5, Math.min(pitch, 2));
       source.connect(gainNode);
       gainNode.connect(ctx.destination);
       const duration = Math.min(0.3, this.audioBuffer.duration);
+
+      if (this.soundSourcePool.length >= this.MAX_CONCURRENT_SOUNDS) {
+        const oldestSource = this.soundSourcePool.shift();
+        oldestSource?.stop();
+      }
+
+      source.addEventListener("ended", () => {
+        const sourceIndex = this.soundSourcePool.indexOf(source);
+        if (sourceIndex !== -1) {
+          this.soundSourcePool.splice(sourceIndex, 1);
+        }
+        source.disconnect();
+        gainNode.disconnect();
+      });
+
       source.start(ctx.currentTime, 0, duration);
       this.soundSourcePool.push(source);
-      if (this.soundSourcePool.length > this.MAX_CONCURRENT_SOUNDS) {
-        this.soundSourcePool.shift();
-      }
     } catch (err) {
       console.error("Failed to play eat sound:", err);
     }

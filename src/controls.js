@@ -14,22 +14,22 @@ export function setupControls(canvas, cameraController) {
   let lastSplit = 0;
   let viewingCell = false;
 
-  window.addEventListener('keydown', (e) => {
+  function onKeyDown(e) {
     const key = e.key.toLowerCase();
     keys[key] = true;
 
     if (key === 'x') cameraController.toggleDeveloperMode();
     if (key === 'w') forwardBtnIsPressed = true;
-  });
+  }
 
-  window.addEventListener('keyup', (e) => {
+  function onKeyUp(e) {
     const key = e.key.toLowerCase();
     keys[key] = false;
 
     if (key === 'w') forwardBtnIsPressed = false;
-  });
+  }
 
-  canvas.addEventListener('click', async () => {
+  async function onCanvasClick() {
     unlockGameAudio();
     try {
       await canvas.requestPointerLock();
@@ -37,7 +37,7 @@ export function setupControls(canvas, cameraController) {
     } catch (err) {
       if (err.name !== 'SecurityError') console.error(err);
     }
-  });
+  }
 
   function onMouseMove(e) {
     if (cameraController.isDevMode()) {
@@ -53,7 +53,7 @@ export function setupControls(canvas, cameraController) {
     }
   }
 
-  document.addEventListener('pointerlockchange', () => {
+  function onPointerLockChange() {
     if (document.pointerLockElement === canvas) {
       window.isPaused = false;
       document.addEventListener('mousemove', onMouseMove);
@@ -61,10 +61,21 @@ export function setupControls(canvas, cameraController) {
       window.isPaused = true;
       document.removeEventListener('mousemove', onMouseMove);
     }
-  });
+  }
 
-  function updateCamera(magnetActive) {
-    cameraController.updateCamera(playerRotation, keys, playerSpeed, magnetActive);
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  canvas.addEventListener('click', onCanvasClick);
+  document.addEventListener('pointerlockchange', onPointerLockChange);
+
+  function updateCamera(magnetActive, delta) {
+    cameraController.updateCamera(
+      playerRotation,
+      keys,
+      playerSpeed,
+      magnetActive,
+      delta
+    );
   }
 
   function setViewingCell(viewing) {
@@ -76,5 +87,23 @@ export function setupControls(canvas, cameraController) {
     viewingCell = viewing;
   }
 
-  return { updateCamera, getForwardButtonPressed: () => forwardBtnIsPressed, keys, playerSpeed, lastSplit, playerRotation, cellRotation, setViewingCell };
+  function dispose() {
+    window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('keyup', onKeyUp);
+    canvas.removeEventListener('click', onCanvasClick);
+    document.removeEventListener('pointerlockchange', onPointerLockChange);
+    document.removeEventListener('mousemove', onMouseMove);
+  }
+
+  return {
+    updateCamera,
+    getForwardButtonPressed: () => forwardBtnIsPressed,
+    keys,
+    playerSpeed,
+    lastSplit,
+    playerRotation,
+    cellRotation,
+    setViewingCell,
+    dispose,
+  };
 }

@@ -70,6 +70,7 @@ export function createMagnetSphere(playerCell, magnetRange) {
 
   const magnetSphere = new THREE.Group();
   magnetSphere.userData.baseRadius = magnetRange;
+  magnetSphere.scale.setScalar(0.001);
 
   const solidMesh = new THREE.Mesh(geometry, solidMaterial);
   const wireframeMesh = new THREE.Mesh(geometry, wireframeMaterial);
@@ -165,22 +166,11 @@ export function createMapBox(onReady) {
     onReady(particles, PARTICLE_SIZE);
   }
 
-  const loader = new THREE.TextureLoader();
-  loader.load(
-    "https://threejs.org/examples/textures/sprites/disc.png",
-    (texture) => {
-      finalize(buildMaterial(texture));
-    },
-    undefined,
-    () => {
-      console.warn("Falling back to canvas texture for border points");
-      finalize(buildMaterial(createFallbackTexture()));
-    }
-  );
+  finalize(buildMaterial(createFallbackTexture()));
 }
 
 export function createPelletsInstanced(scene, count, colors) {
-  const geometry = new THREE.SphereGeometry(1, 8, 8);
+  const geometry = new THREE.SphereGeometry(1, 6, 4);
   const materialNormal = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     opacity: 1,
@@ -199,11 +189,12 @@ export function createPelletsInstanced(scene, count, colors) {
   const powerUps = new Array(count);
   const bombRolls = new Array(count);
   const pelletToMeshIndex = new Array(count);
+  const palette = colors.map((color) => new THREE.Color(color));
 
   for (let i = 0; i < count; i++) {
-    const color = new THREE.Color(colors[i % colors.length]);
+    const color = palette[i % palette.length];
     const isPowerUp =
-      color.getHex() === 0xff0000 && Math.floor(Math.random() * 3) === 0;
+      color.getHex() === 0xff0000 && Math.floor(Math.random() * 8) === 0;
     powerUps[i] = isPowerUp;
     bombRolls[i] = Math.random();
   }
@@ -222,7 +213,7 @@ export function createPelletsInstanced(scene, count, colors) {
   meshPowerup.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
   for (let i = 0; i < count; i++) {
-    const color = new THREE.Color(colors[i % colors.length]);
+    const color = palette[i % palette.length];
     const isPowerUp = powerUps[i];
 
     const size =
@@ -243,12 +234,14 @@ export function createPelletsInstanced(scene, count, colors) {
       pelletToMeshIndex,
       i,
       isInitialSpawn: true,
+      deferBufferUpdates: true,
     });
-    positions.push(position.clone());
+    positions.push(position);
   }
 
   meshNormal.instanceMatrix.needsUpdate = true;
   if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
+  meshNormal.computeBoundingSphere();
   dummy.position.set(0, 0, 0);
   dummy.scale.setScalar(0.0001);
   dummy.updateMatrix();
@@ -264,7 +257,7 @@ export function createPelletsInstanced(scene, count, colors) {
 
   // Create spatial grid for efficient collision detection
   // Voxel size should be roughly 2x the max interaction radius
-  const voxelSize = 20; // Adjust based on typical cell + magnet radius
+  const voxelSize = 4;
   const spatialGrid = new SpatialGrid(mapSize, voxelSize);
 
   // Build initial grid from pelletCell positions
@@ -305,6 +298,7 @@ export function respawnPellet({
   pelletToMeshIndex,
   i,
   isInitialSpawn = false,
+  deferBufferUpdates = false,
 }) {
   const pelletRadius = size;
   const halfMapSize = mapSize / 2;
@@ -329,8 +323,10 @@ export function respawnPellet({
 
   meshNormal.setMatrixAt(normalIdx, dummy.matrix);
   meshNormal.setColorAt(normalIdx, color);
-  meshNormal.instanceMatrix.needsUpdate = true;
-  if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
+  if (!deferBufferUpdates) {
+    meshNormal.instanceMatrix.needsUpdate = true;
+    if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
+  }
   pelletToMeshIndex[i] = normalIdx;
 
   if (!isInitialSpawn) {

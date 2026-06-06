@@ -3,13 +3,10 @@ import {
   createPelletsInstanced,
   createPlayerCell,
   createMagnetSphere,
-  createCellSpatialGrid,
   pelletCount,
-  pelletMinSize,
 } from "./objects.js";
 import { initNetworking, emitJoin, setupPelletSync } from "./multiplayer.js";
 import { updateFogDistance, updateBorderFog } from "./scene.js";
-import { calculateCellMass } from "./utils/playerUtils.js";
 
 export function initializeGame(
   scene,
@@ -26,13 +23,6 @@ export function initializeGame(
     startingMass
   );
 
-  const playerRadius =
-    playerCell.geometry.parameters.radius *
-    Math.max(playerCell.scale.x, playerCell.scale.y, playerCell.scale.z);
-  const baseMultiplier = 12; // Matches camera.js default (non-magnet)
-  const sizeOffset = Math.sqrt(playerRadius) * 3;
-  const adjustedMultiplier = Math.max(baseMultiplier - sizeOffset, 3);
-  const initialCameraDistance = playerRadius * adjustedMultiplier;
   updateFogDistance(scene);
 
   // Bots disabled for multiplayer - only players will be visible
@@ -72,7 +62,6 @@ export function initializeGame(
       pelletCount,
       pelletColors
     );
-    const cellSpatialGrid = createCellSpatialGrid();
 
     setupPelletSync(pelletData);
 
@@ -84,7 +73,6 @@ export function initializeGame(
       lastSplitTime,
       border: loadedBorder,
       pelletData,
-      cellSpatialGrid,
     });
   });
 }

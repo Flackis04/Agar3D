@@ -65,7 +65,7 @@ export function createAnimationLoop(
       if (
         payload.forward !== lastInputPayload.forward ||
         rotationChanged ||
-        now - lastInputSend > 250
+        now - lastInputSend > (payload.forward ? 50 : 250)
       ) {
         sendPlayerInput(payload);
         lastInputPayload = {
@@ -95,7 +95,8 @@ export function createAnimationLoop(
         gameState.playerCell.position,
         gameState.cells || [],
         null,
-        null
+        null,
+        delta
       );
     } else {
       updatePelletMagnet(
@@ -104,19 +105,25 @@ export function createAnimationLoop(
         gameState.pelletData,
         gameState.playerCell.pelletMagnetToggle,
         scene,
-        gameState.playerCell.magnetSphere
+        gameState.playerCell.magnetSphere,
+        true,
+        6,
+        undefined,
+        null,
+        delta
       );
       predictLocalPelletConsumption();
     }
     updateFog();
 
     controls.updateCamera(
-      gameState.pelletData && gameState.playerCell.pelletMagnetToggle
+      gameState.pelletData && gameState.playerCell.pelletMagnetToggle,
+      delta
     );
 
-    stats.begin();
+    stats?.begin();
     if (renderer) renderer.render(scene, camera);
-    stats.end();
+    stats?.end();
   }
 
   function animate() {
