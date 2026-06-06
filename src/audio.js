@@ -5,7 +5,7 @@ export class AudioManager {
     this.audioBuffer = null;
     this.audioBufferLoading = null;
     this.soundSourcePool = [];
-    this.MAX_CONCURRENT_SOUNDS = 8;
+    this.MAX_CONCURRENT_SOUNDS = 16;
     this.audioUrl = audioUrl;
     this.ensureAudioBufferLoaded();
   }
@@ -26,12 +26,7 @@ export class AudioManager {
   ensureAudioBufferLoaded() {
     if (this.audioBufferLoading) return this.audioBufferLoading;
     this.audioBufferLoading = fetch(this.audioUrl)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`Audio request failed with ${response.status}`);
-        }
-        return response.arrayBuffer();
-      })
+      .then((response) => response.arrayBuffer())
       .then((arrayBuffer) => {
         const ctx = this.initAudioContext();
         return ctx.decodeAudioData(arrayBuffer);
@@ -49,45 +44,40 @@ export class AudioManager {
 
   playEatSoundSegment(volume = 1.0, pitch = 1.0) {
     const ctx = this.initAudioContext();
-    if (!this.audioBuffer) {
-      this.ensureAudioBufferLoaded().then((buffer) => {
-        if (buffer) this.playEatSoundSegment(volume, pitch);
-      });
-      return;
-    }
     try {
       const source = ctx.createBufferSource();
       const gainNode = ctx.createGain();
       source.buffer = this.audioBuffer;
-      gainNode.gain.value = Math.max(0, Math.min(volume, 1));
-      source.playbackRate.value = Math.max(0.5, Math.min(pitch, 2));
+      gainNode.gain.value = Math.min(volume, 1.0);
+      source.playbackRate.value = pitch;
       source.connect(gainNode);
       gainNode.connect(ctx.destination);
-      const duration = Math.min(0.3, this.audioBuffer.duration);
-
-      if (this.soundSourcePool.length >= this.MAX_CONCURRENT_SOUNDS) {
-        const oldestSource = this.soundSourcePool.shift();
-        oldestSource?.stop();
-      }
-
-      source.addEventListener("ended", () => {
-        const sourceIndex = this.soundSourcePool.indexOf(source);
-        if (sourceIndex !== -1) {
-          this.soundSourcePool.splice(sourceIndex, 1);
-        }
-        source.disconnect();
-        gainNode.disconnect();
-      });
-
-      source.start(ctx.currentTime, 0, duration);
+      source.start(ctx.currentTime, 2.1, 0.3);
       this.soundSourcePool.push(source);
+      if (this.soundSourcePool.length > this.MAX_CONCURRENT_SOUNDS) {
+        this.soundSourcePool.shift();
+      }
     } catch (err) {
       console.error("Failed to play eat sound:", err);
     }
   }
 
-  unlock() {
-    this.initAudioContext();
-    return this.ensureAudioBufferLoaded();
+  playLaserHitSound(volume = 1) {
+    const ctx = this.initAudioContext();
+    const now = ctx.currentTime;
+    const gain = ctx.createGain();
+    const oscillator = ctx.createOscillator();
+
+    oscillator.type = "square";
+    oscillator.frequency.setValueAtTime(190, now);
+    oscillator.frequency.exponentialRampToValueAtTime(105, now + 0.055);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.12 * volume, now + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
+
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.07);
   }
 }

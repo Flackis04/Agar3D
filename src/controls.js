@@ -1,44 +1,63 @@
-import { activateAbility, unlockGameAudio } from "./multiplayer.js";
-
 function clampPitch(pitch) {
   return Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
 }
 
+// Browser input lives here. This module does not move the player directly;
+// it records intent, and the game loop sends that intent to the server.
 export function setupControls(canvas, cameraController) {
   const keys = {};
   const playerRotation = { yaw: 0, pitch: 0 };
   const cellRotation = { yaw: 0, pitch: 0 };
   const sensitivity = 0.002;
   const playerSpeed = 0.12;
-  let forwardBtnIsPressed = false;
+  let isShooting = false;
+  let weaponMode = 'bullet';
   let lastSplit = 0;
   let viewingCell = false;
 
+  function hasControl() {
+    return document.pointerLockElement === canvas;
+  }
+
   function onKeyDown(e) {
+    if (!hasControl()) return;
     const key = e.key.toLowerCase();
     keys[key] = true;
 
     if (key === 'x') cameraController.toggleDeveloperMode();
-    if (key === 'w') forwardBtnIsPressed = true;
-    if (!e.repeat && key === '1') activateAbility('magnet');
-    if (!e.repeat && key === '2') activateAbility('speed');
+    if (key === '1') weaponMode = 'bullet';
+    if (key === '2') weaponMode = 'laser';
   }
 
   function onKeyUp(e) {
     const key = e.key.toLowerCase();
     keys[key] = false;
-
-    if (key === 'w') forwardBtnIsPressed = false;
   }
 
   async function onCanvasClick() {
-    unlockGameAudio();
+    if (document.pointerLockElement === canvas) return;
     try {
-      await canvas.requestPointerLock();
-      window.isPaused = false;
+      await canvas.requestPointerLock({ unadjustedMovement: true });
     } catch (err) {
-      if (err.name !== 'SecurityError') console.error(err);
+      if (document.pointerLockElement === canvas) return;
+      try {
+        await canvas.requestPointerLock();
+      } catch (fallbackError) {
+        if (fallbackError.name !== 'SecurityError') {
+          console.error(fallbackError);
+        }
+      }
     }
+  }
+
+  function onMouseDown(e) {
+    if (e.button !== 0 || document.pointerLockElement !== canvas) return;
+    isShooting = true;
+  }
+
+  function onMouseUp(e) {
+    if (e.button !== 0) return;
+    isShooting = false;
   }
 
   function onMouseMove(e) {
@@ -56,27 +75,32 @@ export function setupControls(canvas, cameraController) {
   }
 
   function onPointerLockChange() {
-    if (document.pointerLockElement === canvas) {
-      window.isPaused = false;
+    if (hasControl()) {
       document.addEventListener('mousemove', onMouseMove);
     } else {
-      window.isPaused = true;
       document.removeEventListener('mousemove', onMouseMove);
+      Object.keys(keys).forEach((key) => {
+        keys[key] = false;
+      });
+      isShooting = false;
     }
   }
 
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('mouseup', onMouseUp);
   canvas.addEventListener('click', onCanvasClick);
+  canvas.addEventListener('mousedown', onMouseDown);
   document.addEventListener('pointerlockchange', onPointerLockChange);
 
-  function updateCamera(magnetActive, delta) {
+  function updateCamera(magnetActive, deltaTime) {
+    if (!hasControl()) return;
     cameraController.updateCamera(
       playerRotation,
       keys,
       playerSpeed,
       magnetActive,
-      delta
+      deltaTime
     );
   }
 
@@ -92,14 +116,26 @@ export function setupControls(canvas, cameraController) {
   function dispose() {
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('mouseup', onMouseUp);
     canvas.removeEventListener('click', onCanvasClick);
+    canvas.removeEventListener('mousedown', onMouseDown);
     document.removeEventListener('pointerlockchange', onPointerLockChange);
     document.removeEventListener('mousemove', onMouseMove);
   }
 
   return {
     updateCamera,
-    getForwardButtonPressed: () => forwardBtnIsPressed,
+    getMovementInput: () => ({
+      forward: hasControl() && Boolean(keys.w),
+      backward: hasControl() && Boolean(keys.s),
+      left: hasControl() && Boolean(keys.a),
+      right: hasControl() && Boolean(keys.d),
+      up: hasControl() && Boolean(keys.e),
+      down: hasControl() && Boolean(keys.q),
+    }),
+    getForwardButtonPressed: () => hasControl() && Boolean(keys.w),
+    getShootButtonPressed: () => hasControl() && isShooting,
+    getWeaponMode: () => weaponMode,
     keys,
     playerSpeed,
     lastSplit,

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { createSplitSphere, mapSize, respawnPellet } from "../objects.js";
-import { hasMinimumSphereVolumeOverlap } from "./sphereOverlap.js";
+import { smoothLerp, updateFogDistance } from "../scene.js";
+import { SpatialGrid } from "./spatialGrid.js";
 
 export function checkCellDistanceFromCamera(activeCell, cameraDistance) {
   if (activeCell.position.distanceTo(camera.position) > cameraDistance) {
@@ -31,22 +32,6 @@ function vecLengthSq(dx, dy, dz) {
 
 function volumeFromRadius(r) {
   return (4 / 3) * Math.PI * Math.pow(r, 3);
-}
-
-function isBombPellet(i, pelletData, cell, pelletRadius) {
-  const bombRoll = pelletData.bombRolls?.[i];
-  if (typeof bombRoll !== "number") return false;
-  const startingMass = Math.max(1, Number(cell.userData?.startingMass) || 20);
-  const pelletMass =
-    volumeFromRadius(pelletRadius) /
-    volumeFromRadius(pelletData.minRadius || 0.15);
-  const bombChance = Math.min(1, pelletMass / startingMass);
-  return bombRoll < bombChance;
-}
-
-function killCell(cell) {
-  cell.userData.isEaten = true;
-  cell.visible = false;
 }
 
 export function convertMassToRadius(mass, pelletMinSizeValue = 1) {
@@ -129,18 +114,12 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
   } = pelletData;
 
   active[i] = false;
+  eatenSizes.push(sizes[i]);
 
   const isPowerUp = powerUps && powerUps[i];
   const meshIndex = pelletToMeshIndex[i];
 
-  const bombHit = isBombPellet(i, pelletData, cell, sizes[i]);
-  if (bombHit) {
-    killCell(cell);
-  } else {
-    eatenSizes.push(sizes[i]);
-  }
-
-  if (!bombHit && isPowerUp && !toggleRef.value) {
+  if (isPowerUp && !toggleRef.value) {
     toggleRef.value = togglePelletMagnet(cell, pelletData, toggleRef.value);
     cell.pelletMagnetToggle = toggleRef.value;
   }
@@ -177,10 +156,6 @@ function processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef) {
   }
 
   active[i] = true;
-  if (pelletData.bombRolls) {
-    pelletData.bombRolls[i] = Math.random();
-  }
-  return bombHit ? "bomb" : "pellet";
 }
 
 export function checkEatCondition(cell, pelletData, onEatCallback) {
@@ -202,35 +177,25 @@ export function checkEatCondition(cell, pelletData, onEatCallback) {
   const eatenSizes = [];
   let eatenCount = 0;
   const toggleRef = { value: cell.pelletMagnetToggle || false };
-  const nearbyEatIndices = pelletData._nearbyEatIndices || [];
-  pelletData._nearbyEatIndices = nearbyEatIndices;
 
   const nearbyIndices = spatialGrid
     ? spatialGrid.getItemsInRadius(
         cellPosition.x,
         cellPosition.y,
         cellPosition.z,
-        cellRadius + 5,
-        nearbyEatIndices
+        cellRadius + 5
       )
     : Array.from({ length: positions.length }, (_, i) => i);
 
   for (let idx = 0; idx < nearbyIndices.length; idx++) {
-    if (cell.userData?.isEaten) break;
     const i = nearbyIndices[idx];
     if (!active[i]) continue;
-    if (
-      hasMinimumSphereVolumeOverlap(
-        cellRadius,
-        sizes[i],
-        cellPosition.distanceToSquared(positions[i])
-      )
-    ) {
+    const distance = cellPosition.distanceTo(positions[i]);
+    if (distance <= cellRadius) {
       if (!cell.isBot) {
       }
       eatenCount++;
-      const result = processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef);
-      if (result === "bomb") break;
+      processEatenPellet(i, pelletData, cell, eatenSizes, toggleRef);
     }
   }
 
@@ -263,25 +228,25 @@ function applyMagnetAttraction({
   magnetRangeSq,
   positions,
   powerUps,
+  pelletToMeshIndex,
+  sizes,
   active,
   attractionSpeed,
   affectedNormal,
   affectedPowerup,
   spatialGrid,
-  deltaTime,
-  nearbyIndices,
 }) {
   const px = playerPos.x;
   const py = playerPos.y;
   const pz = playerPos.z;
   const magnetRange = Math.sqrt(magnetRangeSq);
 
-  const candidateIndices = spatialGrid
-    ? spatialGrid.getItemsInRadius(px, py, pz, magnetRange, nearbyIndices)
+  const nearbyIndices = spatialGrid
+    ? spatialGrid.getItemsInRadius(px, py, pz, magnetRange)
     : Array.from({ length: positions.length }, (_, i) => i);
 
-  for (let idx = 0; idx < candidateIndices.length; idx++) {
-    const i = candidateIndices[idx];
+  for (let idx = 0; idx < nearbyIndices.length; idx++) {
+    const i = nearbyIndices[idx];
     if (!active[i]) continue;
     const pelletPos = positions[i];
     const dx = px - pelletPos.x;
@@ -294,7 +259,7 @@ function applyMagnetAttraction({
       distanceSq > playerCellRadius * playerCellRadius
     ) {
       const distance = Math.sqrt(distanceSq) || 1e-6;
-      const factor = Math.min(1, (attractionSpeed * deltaTime) / distance);
+      const factor = attractionSpeed / distance;
 
       const oldX = pelletPos.x;
       const oldY = pelletPos.y;
@@ -318,31 +283,58 @@ function applyMagnetAttraction({
 
       const isPowerUp = powerUps && powerUps[i];
       if (isPowerUp) {
-        affectedPowerup.push(i);
+        affectedPowerup.push({
+          i,
+          meshIndex: pelletToMeshIndex[i],
+          size: sizes[i],
+        });
       } else {
-        affectedNormal.push(i);
+        affectedNormal.push({
+          i,
+          meshIndex: pelletToMeshIndex[i],
+          size: sizes[i],
+        });
       }
     }
   }
 }
 
-function updateInstancedMatricesForAffected(
-  affected,
-  mesh,
-  dummy,
-  positions,
-  sizes,
-  pelletToMeshIndex
-) {
+function updateInstancedMatricesForAffected(affected, mesh, dummy, positions) {
   if (!mesh || affected.length === 0) return;
   for (let j = 0; j < affected.length; j++) {
-    const i = affected[j];
+    const { i, meshIndex, size } = affected[j];
     dummy.position.copy(positions[i]);
-    dummy.scale.setScalar(sizes[i]);
+    dummy.scale.setScalar(size);
     dummy.updateMatrix();
-    mesh.setMatrixAt(pelletToMeshIndex[i], dummy.matrix);
+    mesh.setMatrixAt(meshIndex, dummy.matrix);
   }
   mesh.instanceMatrix.needsUpdate = true;
+}
+
+export function updatePelletMagnetVisual(
+  playerCell,
+  pelletMagnetToggle,
+  magnetSphere
+) {
+  const playerCellRadius = computeCellRadius(playerCell);
+  const magnetSphereRadius = playerCellRadius * 4;
+  const magnetSphereBaseRadius = 4;
+
+  if (magnetSphere) {
+    const targetScale = pelletMagnetToggle
+      ? magnetSphereRadius / magnetSphereBaseRadius
+      : 0.001;
+    const currentScale = magnetSphere.scale.x;
+    const newScale = smoothLerp(currentScale, targetScale, 0.1);
+    magnetSphere.scale.setScalar(newScale);
+    magnetSphere.visible = newScale > 0.01;
+    if (magnetSphere.visible) {
+      magnetSphere.position.copy(playerCell.position);
+      magnetSphere.rotation.y += 0.0025;
+    }
+  }
+
+  return { magnetSphereRadius, magnetSphereBaseRadius };
 }
 
 export function updatePelletMagnet(
@@ -355,27 +347,11 @@ export function updatePelletMagnet(
   isWithinViewDistance = true,
   attractionSpeed = 0.3,
   onEatSound = undefined,
-  playerPosition = null,
-  deltaTime = 1 / 60
+  playerPosition = null
 ) {
   const playerCellRadius = computeCellRadius(playerCell);
-  const magnetSphereRadius = playerCellRadius * 4;
-  const magnetSphereBaseRadius = magnetSphere?.userData?.baseRadius || 4;
-
-  if (magnetSphere) {
-    const targetScale = pelletMagnetToggle
-      ? magnetSphereRadius / magnetSphereBaseRadius
-      : 0.001;
-    const currentScale = magnetSphere.scale.x;
-    const scaleAlpha = 1 - Math.exp(-10 * deltaTime);
-    const newScale = currentScale + (targetScale - currentScale) * scaleAlpha;
-    magnetSphere.scale.setScalar(newScale);
-    magnetSphere.visible = newScale > 0.01;
-    if (magnetSphere.visible) {
-      magnetSphere.position.copy(playerCell.position);
-      magnetSphere.rotation.y += 1.5 * deltaTime;
-    }
-  }
+  const { magnetSphereRadius, magnetSphereBaseRadius } =
+    updatePelletMagnetVisual(playerCell, pelletMagnetToggle, magnetSphere);
 
   if (!pelletMagnetToggle) return;
 
@@ -398,14 +374,8 @@ export function updatePelletMagnet(
     const playerCellPosition = playerCell.position;
     const magnetRangeSq = magnetSphereRadius * magnetSphereRadius;
 
-    const affectedNormal = pelletData._magnetAffectedNormal || [];
-    const affectedPowerup = pelletData._magnetAffectedPowerup || [];
-    const nearbyIndices = pelletData._magnetNearbyIndices || [];
-    pelletData._magnetAffectedNormal = affectedNormal;
-    pelletData._magnetAffectedPowerup = affectedPowerup;
-    pelletData._magnetNearbyIndices = nearbyIndices;
-    affectedNormal.length = 0;
-    affectedPowerup.length = 0;
+    const affectedNormal = [];
+    const affectedPowerup = [];
 
     applyMagnetAttraction({
       playerPos: playerCellPosition,
@@ -413,31 +383,22 @@ export function updatePelletMagnet(
       magnetRangeSq,
       positions,
       powerUps,
+      pelletToMeshIndex,
+      sizes,
       active,
       attractionSpeed,
       affectedNormal,
       affectedPowerup,
       spatialGrid: pelletData.spatialGrid,
-      deltaTime,
-      nearbyIndices,
     });
 
-    updateInstancedMatricesForAffected(
-      affectedNormal,
-      mesh,
-      dummy,
-      positions,
-      sizes,
-      pelletToMeshIndex
-    );
+    updateInstancedMatricesForAffected(affectedNormal, mesh, dummy, positions);
     if (affectedPowerup.length > 0 && meshPowerup) {
       updateInstancedMatricesForAffected(
         affectedPowerup,
         meshPowerup,
         dummy,
-        positions,
-        sizes,
-        pelletToMeshIndex
+        positions
       );
     }
     return;
@@ -486,7 +447,8 @@ export function updatePlayerFade(
 function applyGrowthFromPellets(
   playerCell,
   totalEatenSizes,
-  pelletBaseRadius
+  pelletBaseRadius,
+  deltaTime = 1 / 60
 ) {
   if (!totalEatenSizes || totalEatenSizes.length === 0) return;
 
@@ -500,7 +462,7 @@ function applyGrowthFromPellets(
     pelletsVolume += volumeFromRadius(pelletRadius);
   }
 
-  const newVolume = playerCellVolume + pelletsVolume;
+  const newVolume = playerCellVolume + pelletsVolume * (deltaTime * 60);
   const newRadius = Math.cbrt((3 * newVolume) / (4 * Math.PI));
   const scale = newRadius / playerCell.geometry.parameters.radius;
   playerCell.scale.setScalar(scale);
@@ -645,10 +607,9 @@ export function updatePlayerGrowth(
     scene,
     magnetSphere,
     isWithinView,
-    6,
+    0.3,
     onEatSound,
-    playerPosition,
-    deltaTime
+    playerPosition
   );
 
   const totalEatenSizes = mergeMagnetEatenSizes(eatenSizes, magnetResult);

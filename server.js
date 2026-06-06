@@ -1,137 +1,7 @@
-import "dotenv/config";
 import { Server } from "socket.io";
 import http from "http";
-import crypto from "crypto";
-import { mkdirSync } from "fs";
-import { dirname } from "path";
-import { DatabaseSync } from "node:sqlite";
-import Stripe from "stripe";
 
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
-const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
-const databasePath = process.env.DATABASE_PATH || "./data/agar3d.sqlite";
-const stripePayoutCurrency = (process.env.STRIPE_PAYOUT_CURRENCY || "sek").toLowerCase();
-const stripePayoutRate = Number(process.env.STRIPE_PAYOUT_RATE || "10");
-const relayApiBaseUrl = process.env.RELAY_API_BASE_URL || "https://api.relay.link";
-const relayApiKey = process.env.RELAY_API_KEY || "";
-const cryptoDepositPollingEnabled =
-  process.env.CRYPTO_DEPOSIT_POLLING_ENABLED !== "false";
-const ethereumRpcUrl = process.env.ETHEREUM_RPC_URL || "https://ethereum.publicnode.com";
-const solanaRpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-const btcApiBaseUrl = process.env.BTC_API_BASE_URL || "https://blockstream.info/api";
-const ethereumUsdcContract =
-  (process.env.ETHEREUM_USDC_CONTRACT || "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").toLowerCase();
-const cryptoPriceIds = {
-  BTC: "bitcoin",
-  ETH: "ethereum",
-  USDC: "usd-coin",
-  SOL: "solana",
-};
-mkdirSync(dirname(databasePath), { recursive: true });
-const db = new DatabaseSync(databasePath);
-db.exec("PRAGMA journal_mode = WAL");
-db.exec("PRAGMA foreign_keys = ON");
-
-const server = http.createServer(async (req, res) => {
-  try {
-    if (req.method === "OPTIONS") {
-      sendJson(res, 204);
-      return;
-    }
-
-    if (req.method === "GET" && req.url === "/api/health") {
-      sendJson(res, 200, { ok: true });
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/auth/register") {
-      await registerUser(req, res);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/auth/login") {
-      await loginUser(req, res);
-      return;
-    }
-
-    if (req.method === "GET" && req.url === "/api/auth/me") {
-      sendCurrentUser(req, res);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/auth/terms") {
-      await acceptTerms(req, res);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/create-checkout-session") {
-      await createCheckoutSession(req, res);
-      return;
-    }
-
-    if (req.method === "GET" && req.url?.startsWith("/api/checkout-session-status")) {
-      await sendCheckoutSessionStatus(req, res);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/stripe-webhook") {
-      await handleStripeWebhook(req, res);
-      return;
-    }
-
-    if (req.method === "GET" && req.url?.startsWith("/api/balance")) {
-      sendPlayerBalance(req, res);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/request-withdrawal") {
-      await requestWithdrawal(req, res);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/stripe-connect/onboard") {
-      await createStripeConnectOnboarding(req, res);
-      return;
-    }
-
-    if (req.method === "GET" && req.url?.startsWith("/api/stripe-connect/status")) {
-      await sendStripeConnectStatus(req, res);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/crypto-deposit-session") {
-      await createCryptoDepositSession(req, res);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/crypto-deposit-session/update") {
-      await updateCryptoDepositSession(req, res);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/crypto-deposit-session/confirm") {
-      await confirmCryptoDepositSession(req, res);
-      return;
-    }
-
-    if (req.method === "GET" && req.url?.startsWith("/api/crypto-deposit-status")) {
-      await sendCryptoDepositStatus(req, res);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/api/start-game") {
-      await startPaidGame(req, res);
-      return;
-    }
-
-    sendJson(res, 404, { error: "Not found" });
-  } catch (error) {
-    console.error(error);
-    sendJson(res, 500, { error: "Server error" });
-  }
-});
+const server = http.createServer();
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -141,1498 +11,87 @@ const io = new Server(server, {
   pingTimeout: 60000,
   pingInterval: 25000,
   maxHttpBufferSize: 1e8,
+  allowEIO3: true,
 });
 
-const WORLD_SIZE = 125;
+const WORLD_SIZE = 250;
 const HALF_WORLD = WORLD_SIZE / 2;
-const DEFAULT_STARTING_MASS_USD = 20;
-const MIN_BET_USD = 5;
-const TEMP_LOGIN_BALANCE_CENTS = 100_000;
-const BASE_SPEED = 5; // units per second
-const MIN_SPEED = 1.25;
-const SPEED_FALLOFF = 0.15;
-const MOVE_ACCELERATION = 8;
-const MOVE_DECELERATION = 12;
-const PLAYER_EAT_SIZE_RATIO = 1.15;
-const PLAYER_EAT_OVERLAP = 0.35;
-const PLAYER_MASS_TRANSFER = 0.9;
-const SPAWN_CLEARANCE = 4;
-const SPAWN_ATTEMPTS = 24;
-const ABILITY_COOLDOWN_MS = 30_000;
-const MAGNET_DURATION_MS = 8_000;
-const SPEED_DURATION_MS = 5_000;
-const SPEED_MULTIPLIER = 1.75;
-const PELLET_COUNT = 250000;
-const PELLET_MIN_RADIUS = 0.03;
-const PELLET_MAX_RADIUS = 0.04;
-const PELLET_GRID_SIZE = 4;
-const TICK_RATE = 30;
+const PLAYER_BASE_RADIUS = 0.75;
+const BASE_SPEED = 10; // units per second
+const PELLET_COUNT = 75000;
+const PELLET_GRID_SIZE = 8;
+const PELLET_MIN_RADIUS = 0.75;
+const PELLET_MAX_RADIUS = 1.0;
+const PELLET_DENSITY_CENTER_COUNT = 64;
+const PELLET_GAUSSIAN_CHANCE = 0.8;
+const PELLET_GAUSSIAN_SPREAD = 16;
+const POWERUP_INTERVAL = 24;
+const MAGNET_DURATION_MS = 8000;
+const PELLET_MAGNET_RANGE_MULTIPLIER = 4;
+const PELLET_MAGNET_SPEED = 27;
+const BULLET_MAGNET_RADIUS = 3.5;
+const TICK_RATE = 60;
 const TICK_INTERVAL = 1000 / TICK_RATE;
+const BULLET_RADIUS = 0.1;
+const BULLET_SPEED = 26;
+const BULLET_TTL_MS = 1600;
+const PLAYER_BULLET_TTL_MS = 8000;
+const BULLET_COOLDOWN_MS = 90;
+const PLAYER_MAX_HP = 5000;
+const BULLET_DAMAGE = 0.08;
+const BASE_VIEW_DISTANCE = 30;
+const VIEW_DISTANCE_PER_LEVEL = 6;
+const VIEW_DISTANCE_MAX_LEVEL = 10;
+const LASER_RANGE =
+  BASE_VIEW_DISTANCE + VIEW_DISTANCE_PER_LEVEL * VIEW_DISTANCE_MAX_LEVEL;
+const LASER_RADIUS = 0.18;
+const LASER_DAMAGE = 180;
+const LASER_HIT_SOUND_DELAY_MS = 70;
+const COMBAT_MODE_DURATION_MS = 12000;
+const BASE_HEALTH_REGEN_PER_SECOND = 10;
+const BASE_BODY_DAMAGE = 18;
+const BOT_COUNT = 5;
+const BOT_RENDER_DISTANCE = 45;
+const BOT_PELLET_SCAN_RADIUS = 18;
+const BOT_THINK_INTERVAL_MS = 450;
+const BOT_SHOOT_COOLDOWN_MS = 650;
+const BOT_RESPAWN_MS = 3000;
+const BOT_WANDER_RETARGET_MS = 2400;
+const BOT_MIN_SPAWN_DISTANCE = 28;
+const BOT_PLAYER_SHOOT_RANGE = 34;
+const BOT_BULLET_DODGE_RADIUS = 14;
+
+const UPGRADE_DEFS = {
+  playerSpeed: { label: "Player Speed", baseCost: 8, maxLevel: 10 },
+  viewDistance: {
+    label: "View Distance",
+    baseCost: 10,
+    maxLevel: VIEW_DISTANCE_MAX_LEVEL,
+  },
+  bulletSpeed: { label: "Bullet Speed", baseCost: 7, maxLevel: 10 },
+  bulletDelay: { label: "Bullet Delay", baseCost: 9, maxLevel: 10 },
+  maxHealth: { label: "Max Health", baseCost: 10, maxLevel: 10 },
+  healthRegenSpeed: { label: "Health Regen", baseCost: 8, maxLevel: 10 },
+  bulletDamage: { label: "Bullet Damage", baseCost: 9, maxLevel: 10 },
+  laserDamage: { label: "Laser Damage", baseCost: 10, maxLevel: 10 },
+  bodyDamage: { label: "Body Damage", baseCost: 8, maxLevel: 10 },
+  bulletPenetration: { label: "Bullet Penetration", baseCost: 12, maxLevel: 8 },
+};
 
 const pelletVolume = (4 / 3) * Math.PI * Math.pow(PELLET_MIN_RADIUS, 3);
+const bulletVolume = (4 / 3) * Math.PI * Math.pow(BULLET_RADIUS, 3);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    salt TEXT NOT NULL,
-    balance_cents INTEGER NOT NULL DEFAULT 0,
-    frozen INTEGER NOT NULL DEFAULT 0,
-    stripe_account_id TEXT,
-    terms_accepted_at TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS sessions (
-    token TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS ledger_entries (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    amount_cents INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    provider TEXT,
-    provider_reference TEXT,
-    notes TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS stripe_events (
-    id TEXT PRIMARY KEY,
-    type TEXT NOT NULL,
-    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS disputes (
-    id TEXT PRIMARY KEY,
-    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-    payment_intent TEXT,
-    amount_cents INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL,
-    reason TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS withdrawals (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    amount_cents INTEGER NOT NULL,
-    method TEXT NOT NULL,
-    destination TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
-    provider_reference TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS crypto_deposit_sessions (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    amount_cents INTEGER NOT NULL,
-    asset TEXT NOT NULL,
-    destination_address TEXT NOT NULL,
-    destination_chain TEXT NOT NULL,
-    destination_currency TEXT NOT NULL,
-    deposit_address TEXT,
-    relay_request_id TEXT,
-    provider_payload TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
-    credited_ledger_reference TEXT UNIQUE,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-function ensureColumn(tableName, columnName, definition) {
-  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
-  if (columns.some((column) => column.name === columnName)) return;
-  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
-}
-
-ensureColumn("users", "stripe_account_id", "TEXT");
-ensureColumn("withdrawals", "provider_reference", "TEXT");
-
-function setCorsHeaders(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Authorization,Content-Type,Stripe-Signature"
-  );
-}
-
-function sendJson(res, statusCode, payload = {}) {
-  setCorsHeaders(res);
-  res.writeHead(statusCode, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(payload));
-}
-
-function readRawBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
-}
-
-async function readJsonBody(req) {
-  const rawBody = await readRawBody(req);
-  if (!rawBody.length) return {};
-  return JSON.parse(rawBody.toString("utf8"));
-}
-
-function normalizeMoneyAmount(amount) {
-  const normalized = Math.round(Number(amount) * 100) / 100;
-  return Number.isFinite(normalized) && normalized > 0 ? normalized : null;
-}
-
-function dollarsToCents(amount) {
-  const normalized = normalizeMoneyAmount(amount);
-  return normalized ? Math.round(normalized * 100) : null;
-}
-
-function centsToDollars(cents) {
-  return Math.round(Number(cents || 0)) / 100;
-}
-
-function convertUsdCentsToPayoutCents(usdCents) {
-  if (!Number.isFinite(stripePayoutRate) || stripePayoutRate <= 0) {
-    return null;
-  }
-  return Math.round(Number(usdCents || 0) * stripePayoutRate);
-}
-
-function normalizeEmail(email) {
-  const normalized = `${email || ""}`.trim().toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
-}
-
-function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
-  const passwordHash = crypto
-    .pbkdf2Sync(`${password || ""}`, salt, 210000, 32, "sha512")
-    .toString("hex");
-  return { salt, passwordHash };
-}
-
-function verifyPassword(password, user) {
-  const { passwordHash } = hashPassword(password, user.salt);
-  return crypto.timingSafeEqual(
-    Buffer.from(passwordHash, "hex"),
-    Buffer.from(user.password_hash, "hex")
-  );
-}
-
-function publicUser(user) {
-  if (!user) return null;
-  return {
-    id: user.id,
-    email: user.email,
-    balance: centsToDollars(user.balance_cents),
-    frozen: Boolean(user.frozen),
-    stripeConnected: Boolean(user.stripe_account_id),
-    termsAccepted: Boolean(user.terms_accepted_at),
-  };
-}
-
-function createSession(userId) {
-  const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
-  db.prepare(
-    "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)"
-  ).run(token, userId, expiresAt);
-  return { token, expiresAt };
-}
-
-function getAuthToken(req) {
-  const header = req.headers.authorization || "";
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match?.[1] || null;
-}
-
-function getUserByToken(token) {
-  if (!token) return null;
-  const row = db.prepare(`
-    SELECT users.*
-    FROM sessions
-    JOIN users ON users.id = sessions.user_id
-    WHERE sessions.token = ? AND sessions.expires_at > CURRENT_TIMESTAMP
-  `).get(token);
-  return row || null;
-}
-
-function requireUser(req, res) {
-  const user = getUserByToken(getAuthToken(req));
-  if (!user) {
-    sendJson(res, 401, { error: "Authentication required." });
-    return null;
-  }
-  return user;
-}
-
-function getCheckoutReturnUrl(value) {
-  try {
-    const url = new URL(value || clientUrl);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return clientUrl;
-    }
-    return url.origin;
-  } catch {
-    return clientUrl;
-  }
-}
-
-function getClientOrigin(value = clientUrl) {
-  return getCheckoutReturnUrl(value);
-}
-
-async function getOrCreateStripeConnectedAccount(user) {
-  if (!stripe) return null;
-  if (user.stripe_account_id) {
-    return stripe.accounts.retrieve(user.stripe_account_id);
-  }
-  const account = await stripe.accounts.create({
-    type: "express",
-    email: user.email,
-    capabilities: {
-      transfers: { requested: true },
-    },
-    metadata: {
-      agar3d_user_id: user.id,
-    },
-  });
-  db.prepare("UPDATE users SET stripe_account_id = ? WHERE id = ?").run(
-    account.id,
-    user.id
-  );
-  return account;
-}
-
-async function createStripeConnectOnboardingLink(user, returnUrl = clientUrl) {
-  const account = await getOrCreateStripeConnectedAccount(user);
-  if (!account) return null;
-  const origin = getClientOrigin(returnUrl);
-  return stripe.accountLinks.create({
-    account: account.id,
-    refresh_url: `${origin}/?stripe-connect=refresh`,
-    return_url: `${origin}/?stripe-connect=return`,
-    type: "account_onboarding",
-  });
-}
-
-function stripeAccountCanReceiveWithdrawal(account) {
-  return Boolean(account?.details_submitted && account?.payouts_enabled);
-}
-
-function findStripeBalanceAmount(balanceRows, currency) {
-  return balanceRows
-    .filter((row) => row.currency === currency)
-    .reduce((total, row) => total + Number(row.amount || 0), 0);
-}
-
-async function createStripeConnectOnboarding(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  if (!stripe) {
-    sendJson(res, 503, { error: "Stripe is not configured." });
-    return;
-  }
-  const { returnUrl } = await readJsonBody(req);
-  const account = await getOrCreateStripeConnectedAccount(user);
-  const accountLink = await createStripeConnectOnboardingLink(user, returnUrl);
-  sendJson(res, 200, {
-    url: accountLink.url,
-    account: {
-      id: account.id,
-      detailsSubmitted: Boolean(account.details_submitted),
-      payoutsEnabled: Boolean(account.payouts_enabled),
-    },
-  });
-}
-
-async function sendStripeConnectStatus(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  if (!stripe) {
-    sendJson(res, 503, { error: "Stripe is not configured." });
-    return;
-  }
-  const account = await getOrCreateStripeConnectedAccount(user);
-  sendJson(res, 200, {
-    account: {
-      id: account.id,
-      detailsSubmitted: Boolean(account.details_submitted),
-      payoutsEnabled: Boolean(account.payouts_enabled),
-      chargesEnabled: Boolean(account.charges_enabled),
-      requirements: account.requirements || null,
-    },
-  });
-}
-
-function setUserFrozen(userId, frozen, note) {
-  db.prepare("UPDATE users SET frozen = ? WHERE id = ?").run(frozen ? 1 : 0, userId);
-  if (note) {
-    addLedgerEntry({
-      userId,
-      amountCents: 0,
-      type: frozen ? "account_frozen" : "account_unfrozen",
-      notes: note,
-    });
-  }
-}
-
-function addLedgerEntry({
-  userId,
-  amountCents,
-  type,
-  provider = null,
-  providerReference = null,
-  notes = null,
-}) {
-  db.prepare(`
-    INSERT INTO ledger_entries
-      (id, user_id, amount_cents, type, provider, provider_reference, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    crypto.randomUUID(),
-    userId,
-    amountCents,
-    type,
-    provider,
-    providerReference,
-    notes
-  );
-}
-
-function adjustUserBalance({
-  userId,
-  amountCents,
-  type,
-  provider = null,
-  providerReference = null,
-  notes = null,
-}) {
-  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
-  if (!user) return null;
-  const nextBalanceCents = Math.max(0, user.balance_cents + amountCents);
-  db.prepare("UPDATE users SET balance_cents = ? WHERE id = ?").run(
-    nextBalanceCents,
-    userId
-  );
-  addLedgerEntry({
-    userId,
-    amountCents,
-    type,
-    provider,
-    providerReference,
-    notes,
-  });
-  const balance = centsToDollars(nextBalanceCents);
-  io.emit("balance-updated", { userId, balance });
-  return balance;
-}
-
-function applyTemporaryLoginBalance(user) {
-  const adjustment = TEMP_LOGIN_BALANCE_CENTS - user.balance_cents;
-  if (adjustment !== 0) {
-    adjustUserBalance({
-      userId: user.id,
-      amountCents: adjustment,
-      type: "temporary_login_grant",
-      notes: "Temporary development balance set to $1,000 on login.",
-    });
-  }
-  return db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
-}
-
-function safeJson(value) {
-  try {
-    return JSON.stringify(value ?? null);
-  } catch {
-    return null;
-  }
-}
-
-function parseJson(value) {
-  try {
-    return value ? JSON.parse(value) : null;
-  } catch {
-    return null;
-  }
-}
-
-function getRelayHeaders() {
-  return {
-    Accept: "application/json",
-    ...(relayApiKey ? { Authorization: `Bearer ${relayApiKey}` } : {}),
-  };
-}
-
-function findRelayRequestPayload(payload) {
-  if (!payload) return null;
-  if (Array.isArray(payload.requests)) return payload.requests[0] || null;
-  if (Array.isArray(payload.data)) return payload.data[0] || null;
-  if (Array.isArray(payload.items)) return payload.items[0] || null;
-  if (payload.requestId || payload.id || payload.status) return payload;
-  return null;
-}
-
-function getRelayRequestId(payload) {
-  const request = findRelayRequestPayload(payload);
-  return request?.requestId || request?.id || payload?.requestId || payload?.id || null;
-}
-
-function getRelayStatus(payload) {
-  const request = findRelayRequestPayload(payload);
-  return `${request?.status || request?.state || payload?.status || ""}`.toLowerCase();
-}
-
-function isRelayFilledStatus(status) {
-  return ["filled", "complete", "completed", "success", "succeeded", "settled"].includes(status);
-}
-
-async function fetchRelayJson(path) {
-  const response = await fetch(`${relayApiBaseUrl}${path}`, {
-    headers: getRelayHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(`Relay request failed with ${response.status}`);
-  }
-  return response.json();
-}
-
-async function fetchRelayDepositSessionStatus(session) {
-  if (session.relay_request_id) {
-    const status = await fetchRelayJson(
-      `/intents/status/v3?requestId=${encodeURIComponent(session.relay_request_id)}`
-    );
-    return {
-      payload: status,
-      relayRequestId: getRelayRequestId(status) || session.relay_request_id,
-      status: getRelayStatus(status),
-    };
-  }
-
-  if (session.deposit_address) {
-    const requests = await fetchRelayJson(
-      `/requests/v2?depositAddress=${encodeURIComponent(
-        session.deposit_address
-      )}&includeChildRequests=true&sortBy=updatedAt&sortDirection=desc&limit=20`
-    );
-    const relayRequestId = getRelayRequestId(requests);
-    return {
-      payload: requests,
-      relayRequestId,
-      status: getRelayStatus(requests),
-    };
-  }
-
-  return null;
-}
-
-function creditCryptoDepositSession(session, providerReference, providerPayload) {
-  const ledgerReference = providerReference || session.relay_request_id || session.deposit_address;
-  if (!ledgerReference) return null;
-
-  const existing = db.prepare(`
-    SELECT id FROM ledger_entries
-    WHERE provider = 'crypto' AND provider_reference = ?
-    LIMIT 1
-  `).get(ledgerReference);
-  if (existing || session.credited_ledger_reference) {
-    return db.prepare("SELECT * FROM crypto_deposit_sessions WHERE id = ?").get(session.id);
-  }
-
-  adjustUserBalance({
-    userId: session.user_id,
-    amountCents: session.amount_cents,
-    type: "crypto_deposit",
-    provider: "crypto",
-    providerReference: ledgerReference,
-    notes: `Crypto deposit session ${session.id} confirmed.`,
-  });
-
-  db.prepare(`
-    UPDATE crypto_deposit_sessions
-    SET status = 'credited',
-      credited_ledger_reference = ?,
-      provider_payload = ?,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(ledgerReference, safeJson(providerPayload), session.id);
-
-  return db.prepare("SELECT * FROM crypto_deposit_sessions WHERE id = ?").get(session.id);
-}
-
-function normalizeAddress(value) {
-  return `${value || ""}`.trim().toLowerCase();
-}
-
-function hexToBigInt(value) {
-  if (!value || value === "0x") return 0n;
-  return BigInt(value);
-}
-
-function parseDecimalUnits(value, decimals) {
-  const normalized = `${value || "0"}`;
-  const [whole, fraction = ""] = normalized.split(".");
-  const paddedFraction = fraction.padEnd(decimals, "0").slice(0, decimals);
-  return BigInt(`${whole || "0"}${paddedFraction}`.replace(/^0+(?=\d)/, ""));
-}
-
-function formatUnitsToNumber(units, decimals) {
-  return Number(units) / 10 ** decimals;
-}
-
-async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    throw new Error(`Request failed with ${response.status}`);
-  }
-  return response.json();
-}
-
-async function fetchCryptoUsdPrice(asset) {
-  if (asset === "USDC") return 1;
-  const id = cryptoPriceIds[asset];
-  if (!id) throw new Error(`No price source configured for ${asset}.`);
-  const prices = await fetchJson(
-    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(id)}&vs_currencies=usd`
-  );
-  const price = Number(prices?.[id]?.usd);
-  if (!Number.isFinite(price) || price <= 0) {
-    throw new Error(`Could not fetch ${asset} price.`);
-  }
-  return price;
-}
-
-async function fetchEthereumRpc(method, params) {
-  const response = await fetch(ethereumRpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method,
-      params,
-    }),
-  });
-  const payload = await response.json();
-  if (!response.ok || payload.error) {
-    throw new Error(payload.error?.message || `Ethereum RPC failed with ${response.status}`);
-  }
-  return payload.result;
-}
-
-async function verifyBtcDeposit(session, txHash) {
-  const tx = await fetchJson(`${btcApiBaseUrl}/tx/${encodeURIComponent(txHash)}`);
-  if (!tx?.status?.confirmed) {
-    throw new Error("BTC transaction is not confirmed yet.");
-  }
-  const expectedAddress = session.destination_address;
-  const sats = (tx.vout || [])
-    .filter((output) => output.scriptpubkey_address === expectedAddress)
-    .reduce((sum, output) => sum + BigInt(output.value || 0), 0n);
-  if (sats <= 0n) throw new Error("BTC transaction does not pay the configured deposit address.");
-  return {
-    assetAmount: Number(sats) / 100_000_000,
-    payload: tx,
-  };
-}
-
-async function verifyEthDeposit(session, txHash) {
-  const tx = await fetchEthereumRpc("eth_getTransactionByHash", [txHash]);
-  const receipt = await fetchEthereumRpc("eth_getTransactionReceipt", [txHash]);
-  if (!tx || !receipt) throw new Error("ETH transaction was not found.");
-  if (receipt.status !== "0x1") throw new Error("ETH transaction failed.");
-  if (normalizeAddress(tx.to) !== normalizeAddress(session.destination_address)) {
-    throw new Error("ETH transaction does not pay the configured deposit address.");
-  }
-  return {
-    assetAmount: formatUnitsToNumber(hexToBigInt(tx.value), 18),
-    payload: { tx, receipt },
-  };
-}
-
-async function verifyUsdcEthereumDeposit(session, txHash) {
-  const receipt = await fetchEthereumRpc("eth_getTransactionReceipt", [txHash]);
-  if (!receipt) throw new Error("USDC transaction was not found.");
-  if (receipt.status !== "0x1") throw new Error("USDC transaction failed.");
-
-  const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-  const expectedAddressTopic = `0x${normalizeAddress(session.destination_address).replace(/^0x/, "").padStart(64, "0")}`;
-  const matchingLog = (receipt.logs || []).find((log) => (
-    normalizeAddress(log.address) === ethereumUsdcContract &&
-    normalizeAddress(log.topics?.[0]) === transferTopic &&
-    normalizeAddress(log.topics?.[2]) === expectedAddressTopic
-  ));
-  if (!matchingLog) {
-    throw new Error("USDC transaction does not pay the configured deposit address.");
-  }
-  return {
-    assetAmount: formatUnitsToNumber(hexToBigInt(matchingLog.data), 6),
-    payload: { receipt, log: matchingLog },
-  };
-}
-
-async function verifySolDeposit(session, signature) {
-  const payload = await fetchJson(solanaRpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "getTransaction",
-      params: [
-        signature,
-        {
-          encoding: "jsonParsed",
-          maxSupportedTransactionVersion: 0,
-        },
-      ],
-    }),
-  });
-  const tx = payload.result;
-  if (!tx) throw new Error("SOL transaction was not found.");
-  if (tx.meta?.err) throw new Error("SOL transaction failed.");
-  const destination = session.destination_address;
-  const transfer = (tx.transaction?.message?.instructions || []).find((instruction) => (
-    instruction.program === "system" &&
-    instruction.parsed?.type === "transfer" &&
-    instruction.parsed?.info?.destination === destination
-  ));
-  if (!transfer) {
-    throw new Error("SOL transaction does not pay the configured deposit address.");
-  }
-  return {
-    assetAmount: Number(transfer.parsed.info.lamports || 0) / 1_000_000_000,
-    payload: tx,
-  };
-}
-
-async function verifyCryptoDepositTransaction(session, txHash) {
-  const asset = `${session.asset || ""}`.toUpperCase();
-  if (asset === "BTC") return verifyBtcDeposit(session, txHash);
-  if (asset === "ETH") return verifyEthDeposit(session, txHash);
-  if (asset === "USDC") return verifyUsdcEthereumDeposit(session, txHash);
-  if (asset === "SOL") return verifySolDeposit(session, txHash);
-  throw new Error(`Unsupported crypto asset: ${asset}.`);
-}
-
-async function refreshCryptoDepositSession(session) {
-  if (!session || ["credited", "cancelled", "failed"].includes(session.status)) {
-    return session;
-  }
-  if (!session.relay_request_id) {
-    return session;
-  }
-
-  const relayStatus = await fetchRelayDepositSessionStatus(session);
-  if (!relayStatus) return session;
-
-  const nextStatus = relayStatus.status || session.status;
-  const relayRequestId = relayStatus.relayRequestId || session.relay_request_id;
-
-  db.prepare(`
-    UPDATE crypto_deposit_sessions
-    SET relay_request_id = COALESCE(?, relay_request_id),
-      status = ?,
-      provider_payload = ?,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(relayRequestId, nextStatus || session.status, safeJson(relayStatus.payload), session.id);
-
-  const updated = db.prepare("SELECT * FROM crypto_deposit_sessions WHERE id = ?").get(session.id);
-  if (isRelayFilledStatus(nextStatus)) {
-    return creditCryptoDepositSession(updated, relayRequestId, relayStatus.payload);
-  }
-  return updated;
-}
-
-function createWithdrawalRequest({
-  userId,
-  amountCents,
-  method,
-  destination = null,
-  status = "pending",
-  providerReference = null,
-}) {
-  const id = crypto.randomUUID();
-  db.prepare(`
-    INSERT INTO withdrawals
-      (id, user_id, amount_cents, method, destination, status, provider_reference)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, userId, amountCents, method, destination, status, providerReference);
-  return id;
-}
-
-async function requestWithdrawal(req, res) {
-  try {
-    const user = requireUser(req, res);
-    if (!user) return;
-    if (user.frozen) {
-      sendJson(res, 403, { error: "Account is frozen pending payment review." });
-      return;
-    }
-    if (!user.terms_accepted_at) {
-      sendJson(res, 403, { error: "Terms must be accepted before withdrawing." });
-      return;
-    }
-
-    const { amountUsd, method, destination, cryptoAsset } = await readJsonBody(req);
-    const amountCents = dollarsToCents(amountUsd);
-    if (!amountCents) {
-      sendJson(res, 400, { error: "Enter a valid withdrawal amount." });
-      return;
-    }
-    if (amountCents > user.balance_cents) {
-      sendJson(res, 402, { error: "Insufficient balance." });
-      return;
-    }
-
-    const normalizedMethod = `${method || ""}`.toLowerCase();
-    if (!["card", "crypto"].includes(normalizedMethod)) {
-      sendJson(res, 400, { error: "Choose Mastercard/card or crypto withdrawal." });
-      return;
-    }
-    const payoutMode = process.env[
-      normalizedMethod === "crypto" ? "CRYPTO_PAYOUT_MODE" : "CARD_PAYOUT_MODE"
-    ] || "manual";
-    if (payoutMode !== "manual") {
-      sendJson(res, 503, {
-        error:
-          "Automatic payouts are not configured. Set payout provider credentials before enabling this mode.",
-      });
-      return;
-    }
-    const payoutDestination =
-      normalizedMethod === "crypto"
-        ? `${cryptoAsset || "CRYPTO"}:${destination || ""}`.trim()
-        : `${destination || "card payout method on file"}`;
-    if (normalizedMethod === "crypto" && !destination) {
-      sendJson(res, 400, { error: "Enter a crypto wallet address." });
-      return;
-    }
-
-    let providerReference = null;
-    let withdrawalStatus = "pending";
-    if (normalizedMethod === "card") {
-      if (!stripe) {
-        sendJson(res, 503, { error: "Stripe is not configured." });
-        return;
-      }
-      const account = await getOrCreateStripeConnectedAccount(user);
-      if (!stripeAccountCanReceiveWithdrawal(account)) {
-        const accountLink = await createStripeConnectOnboardingLink(user, clientUrl);
-        sendJson(res, 409, {
-          error: "Complete Stripe payout onboarding before withdrawing.",
-          onboardingUrl: accountLink.url,
-          account: {
-            id: account.id,
-            detailsSubmitted: Boolean(account.details_submitted),
-            payoutsEnabled: Boolean(account.payouts_enabled),
-          },
-        });
-        return;
-      }
-      const payoutAmountCents = convertUsdCentsToPayoutCents(amountCents);
-      if (!payoutAmountCents) {
-        sendJson(res, 503, {
-          error: "Stripe payout conversion rate is not configured.",
-        });
-        return;
-      }
-      const stripeBalance = await stripe.balance.retrieve();
-      const availablePayoutCents = findStripeBalanceAmount(
-        stripeBalance.available || [],
-        stripePayoutCurrency
-      );
-      const pendingPayoutCents = findStripeBalanceAmount(
-        stripeBalance.pending || [],
-        stripePayoutCurrency
-      );
-      if (availablePayoutCents < payoutAmountCents) {
-        sendJson(res, 402, {
-          error: `Insufficient available Stripe ${stripePayoutCurrency.toUpperCase()} balance. Available: ${centsToDollars(
-            availablePayoutCents
-          )} ${stripePayoutCurrency.toUpperCase()}. Pending: ${centsToDollars(
-            pendingPayoutCents
-          )} ${stripePayoutCurrency.toUpperCase()}. This ${centsToDollars(
-            amountCents
-          )} USD withdrawal needs ${centsToDollars(
-            payoutAmountCents
-          )} ${stripePayoutCurrency.toUpperCase()}.`,
-          availableStripeBalance: centsToDollars(availablePayoutCents),
-          pendingStripeBalance: centsToDollars(pendingPayoutCents),
-          stripePayoutCurrency,
-          stripePayoutAmount: centsToDollars(payoutAmountCents),
-        });
-        return;
-      }
-      let transfer;
-      try {
-        transfer = await stripe.transfers.create({
-          amount: payoutAmountCents,
-          currency: stripePayoutCurrency,
-          destination: account.id,
-          metadata: {
-            agar3d_user_id: user.id,
-            withdrawal_amount_usd: centsToDollars(amountCents).toFixed(2),
-            payout_amount: centsToDollars(payoutAmountCents).toFixed(2),
-            payout_currency: stripePayoutCurrency,
-            payout_rate: String(stripePayoutRate),
-            withdrawal_method: "card",
-          },
-        });
-      } catch (error) {
-        console.error("Stripe transfer failed:", {
-          message: error?.message,
-          code: error?.code,
-          type: error?.type,
-          declineCode: error?.decline_code,
-        });
-        sendJson(res, 502, {
-          error:
-            error?.message ||
-            "Stripe could not create the withdrawal transfer. Check your Stripe balance and Connect setup.",
-          code: error?.code || null,
-        });
-        return;
-      }
-      providerReference = transfer.id;
-      withdrawalStatus = "processing";
-    }
-
-    const withdrawalId = createWithdrawalRequest({
-      userId: user.id,
-      amountCents,
-      method: normalizedMethod,
-      destination: payoutDestination,
-      status: withdrawalStatus,
-      providerReference,
-    });
-    const previousBalance = centsToDollars(user.balance_cents);
-    const debitApplied = withdrawalStatus !== "pending";
-    const amountDebited = debitApplied ? centsToDollars(amountCents) : 0;
-    const balance = debitApplied
-      ? adjustUserBalance({
-          userId: user.id,
-          amountCents: -amountCents,
-          type: "withdrawal_accepted",
-          provider: normalizedMethod,
-          providerReference: withdrawalId,
-          notes: `Withdrawal accepted via ${normalizedMethod}.`,
-        })
-      : previousBalance;
-
-    console.log("Withdrawal request handled:", {
-      withdrawalId,
-      userId: user.id,
-      method: normalizedMethod,
-      status: withdrawalStatus,
-      providerReference,
-      previousBalance,
-      amountDebited,
-      balance,
-      debitApplied,
-    });
-
-    sendJson(res, 200, {
-      balance,
-      previousBalance,
-      amountDebited,
-      debitApplied,
-      withdrawal: {
-        id: withdrawalId,
-        amount: centsToDollars(amountCents),
-        method: normalizedMethod,
-        status: withdrawalStatus,
-        providerReference,
-        payout:
-          normalizedMethod === "card"
-            ? {
-                amount: centsToDollars(convertUsdCentsToPayoutCents(amountCents)),
-                currency: stripePayoutCurrency.toUpperCase(),
-                rate: stripePayoutRate,
-              }
-            : null,
-      },
-    });
-  } catch (error) {
-    console.error("Withdrawal request failed:", {
-      message: error?.message,
-      code: error?.code,
-      type: error?.type,
-      stack: error?.stack,
-    });
-    sendJson(res, 502, {
-      error: error?.message || "Withdrawal failed before it could be submitted.",
-      code: error?.code || null,
-    });
-  }
-}
-
-async function createCryptoDepositSession(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  if (user.frozen) {
-    sendJson(res, 403, { error: "Account is frozen pending payment review." });
-    return;
-  }
-  if (!user.terms_accepted_at) {
-    sendJson(res, 403, { error: "Terms must be accepted before depositing." });
-    return;
-  }
-
-  const {
-    amountUsd,
-    asset = "USDC",
-    destinationAddress,
-    destinationChain,
-    destinationCurrency,
-  } = await readJsonBody(req);
-  const amountCents = dollarsToCents(amountUsd);
-  if (!amountCents) {
-    sendJson(res, 400, { error: "Enter a valid deposit amount." });
-    return;
-  }
-  if (!destinationAddress || !destinationChain) {
-    sendJson(res, 400, { error: "Crypto deposit destination is not configured." });
-    return;
-  }
-
-  const id = crypto.randomUUID();
-  db.prepare(`
-    INSERT INTO crypto_deposit_sessions (
-      id,
-      user_id,
-      amount_cents,
-      asset,
-      destination_address,
-      destination_chain,
-      destination_currency
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    user.id,
-    amountCents,
-    `${asset}`.toUpperCase(),
-    `${destinationAddress}`,
-    `${destinationChain}`,
-    `${destinationCurrency || asset}`
-  );
-
-  sendJson(res, 201, {
-    depositSession: {
-      id,
-      amount: centsToDollars(amountCents),
-      asset: `${asset}`.toUpperCase(),
-      status: "pending",
-    },
-  });
-}
-
-async function updateCryptoDepositSession(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  const {
-    id,
-    depositAddress,
-    relayRequestId,
-    providerPayload,
-  } = await readJsonBody(req);
-  const session = db.prepare(`
-    SELECT * FROM crypto_deposit_sessions
-    WHERE id = ? AND user_id = ?
-  `).get(id, user.id);
-  if (!session) {
-    sendJson(res, 404, { error: "Deposit session not found." });
-    return;
-  }
-
-  db.prepare(`
-    UPDATE crypto_deposit_sessions
-    SET deposit_address = COALESCE(?, deposit_address),
-      relay_request_id = COALESCE(?, relay_request_id),
-      provider_payload = COALESCE(?, provider_payload),
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(
-    depositAddress || null,
-    relayRequestId || null,
-    providerPayload ? safeJson(providerPayload) : null,
-    session.id
-  );
-
-  const updated = db.prepare("SELECT * FROM crypto_deposit_sessions WHERE id = ?").get(session.id);
-  sendJson(res, 200, { depositSession: publicCryptoDepositSession(updated) });
-}
-
-async function confirmCryptoDepositSession(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  const { id, txHash } = await readJsonBody(req);
-  const normalizedTxHash = `${txHash || ""}`.trim();
-  if (!id || !normalizedTxHash) {
-    sendJson(res, 400, { error: "Deposit session and transaction hash are required." });
-    return;
-  }
-
-  const session = db.prepare(`
-    SELECT * FROM crypto_deposit_sessions
-    WHERE id = ? AND user_id = ?
-  `).get(id, user.id);
-  if (!session) {
-    sendJson(res, 404, { error: "Deposit session not found." });
-    return;
-  }
-  if (session.status === "credited") {
-    const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
-    sendJson(res, 200, {
-      depositSession: publicCryptoDepositSession(session),
-      balance: centsToDollars(updatedUser.balance_cents),
-      user: publicUser(updatedUser),
-    });
-    return;
-  }
-
-  try {
-    const verification = await verifyCryptoDepositTransaction(session, normalizedTxHash);
-    const priceUsd = await fetchCryptoUsdPrice(session.asset);
-    const receivedUsdCents = Math.floor(verification.assetAmount * priceUsd * 100);
-    if (receivedUsdCents < session.amount_cents) {
-      sendJson(res, 400, {
-        error: `Transaction value is too low. Received about ${centsToDollars(receivedUsdCents)} USD, expected ${centsToDollars(session.amount_cents)} USD.`,
-      });
-      return;
-    }
-
-    const credited = creditCryptoDepositSession(session, normalizedTxHash, {
-      txHash: normalizedTxHash,
-      assetAmount: verification.assetAmount,
-      priceUsd,
-      receivedUsd: centsToDollars(receivedUsdCents),
-      verification: verification.payload,
-    });
-    const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
-    sendJson(res, 200, {
-      depositSession: publicCryptoDepositSession(credited),
-      balance: centsToDollars(updatedUser.balance_cents),
-      user: publicUser(updatedUser),
-    });
-  } catch (error) {
-    console.error("Crypto deposit confirmation failed:", error.message);
-    sendJson(res, 400, { error: error.message || "Could not verify crypto transaction." });
-  }
-}
-
-function publicCryptoDepositSession(session) {
-  if (!session) return null;
-  return {
-    id: session.id,
-    amount: centsToDollars(session.amount_cents),
-    asset: session.asset,
-    status: session.status,
-    depositAddress: session.deposit_address,
-    relayRequestId: session.relay_request_id,
-    createdAt: session.created_at,
-    updatedAt: session.updated_at,
-  };
-}
-
-async function sendCryptoDepositStatus(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  const url = new URL(req.url, "http://localhost");
-  const id = url.searchParams.get("id");
-  const session = db.prepare(`
-    SELECT * FROM crypto_deposit_sessions
-    WHERE id = ? AND user_id = ?
-  `).get(id, user.id);
-  if (!session) {
-    sendJson(res, 404, { error: "Deposit session not found." });
-    return;
-  }
-
-  let refreshed = session;
-  try {
-    refreshed = await refreshCryptoDepositSession(session);
-  } catch (error) {
-    console.error("Crypto deposit status refresh failed:", error.message);
-  }
-  const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
-  sendJson(res, 200, {
-    depositSession: publicCryptoDepositSession(refreshed),
-    balance: centsToDollars(updatedUser.balance_cents),
-    user: publicUser(updatedUser),
-  });
-}
-
-async function registerUser(req, res) {
-  const { email, password, acceptTerms } = await readJsonBody(req);
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail || `${password || ""}`.length < 8) {
-    sendJson(res, 400, { error: "Valid email and 8+ character password required." });
-    return;
-  }
-  if (!acceptTerms) {
-    sendJson(res, 400, { error: "Terms must be accepted before creating an account." });
-    return;
-  }
-
-  const { salt, passwordHash } = hashPassword(password);
-  const userId = crypto.randomUUID();
-  try {
-    db.prepare(`
-      INSERT INTO users (id, email, password_hash, salt, terms_accepted_at)
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(userId, normalizedEmail, passwordHash, salt);
-  } catch {
-    sendJson(res, 409, { error: "An account with that email already exists." });
-    return;
-  }
-
-  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
-  const session = createSession(user.id);
-  sendJson(res, 201, { user: publicUser(user), token: session.token });
-}
-
-async function loginUser(req, res) {
-  const { email, password } = await readJsonBody(req);
-  const normalizedEmail = normalizeEmail(email);
-  const user = normalizedEmail
-    ? db.prepare("SELECT * FROM users WHERE email = ?").get(normalizedEmail)
-    : null;
-  if (!user || !verifyPassword(password, user)) {
-    sendJson(res, 401, { error: "Invalid email or password." });
-    return;
-  }
-
-  const updatedUser = applyTemporaryLoginBalance(user);
-  const session = createSession(updatedUser.id);
-  sendJson(res, 200, {
-    user: publicUser(updatedUser),
-    token: session.token,
-  });
-}
-
-function sendCurrentUser(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  sendJson(res, 200, { user: publicUser(user) });
-}
-
-async function acceptTerms(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  db.prepare("UPDATE users SET terms_accepted_at = CURRENT_TIMESTAMP WHERE id = ?").run(
-    user.id
-  );
-  const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
-  sendJson(res, 200, { user: publicUser(updatedUser) });
-}
-
-async function createCheckoutSession(req, res) {
-  if (!stripe) {
-    sendJson(res, 503, { error: "Stripe is not configured." });
-    return;
-  }
-
-  const user = requireUser(req, res);
-  if (!user) return;
-  if (user.frozen) {
-    sendJson(res, 403, { error: "Account is frozen pending payment review." });
-    return;
-  }
-  if (!user.terms_accepted_at) {
-    sendJson(res, 403, { error: "Terms must be accepted before depositing." });
-    return;
-  }
-
-  const {
-    amountUsd,
-    paymentMethod = "auto",
-    returnUrl,
-  } = await readJsonBody(req);
-  const normalizedAmount = normalizeMoneyAmount(amountUsd);
-  if (!normalizedAmount) {
-    sendJson(res, 400, { error: "amountUsd is required." });
-    return;
-  }
-
-  const checkoutReturnUrl = getCheckoutReturnUrl(returnUrl);
-
-  try {
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      success_url: `${checkoutReturnUrl}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${checkoutReturnUrl}?payment=cancelled`,
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "usd",
-            unit_amount: Math.round(normalizedAmount * 100),
-            product_data: {
-              name: "Agar3D USD balance",
-              description: "Funds usable as in-game mass.",
-            },
-          },
-        },
-      ],
-      metadata: {
-        userId: user.id,
-        amountUsd: `${normalizedAmount}`,
-      },
-    });
-
-    sendJson(res, 200, { url: session.url });
-  } catch (error) {
-    console.error("Stripe checkout session failed:", error);
-    sendJson(res, 502, {
-      error: error?.message || "Stripe could not create a checkout session.",
-    });
-  }
-}
-
-function creditStripeCheckoutSession(session) {
-  if (session.payment_status !== "paid") return null;
-
-  const userId = session.metadata?.userId;
-  const amountUsd = normalizeMoneyAmount(session.metadata?.amountUsd);
-  const providerReference = session.payment_intent || session.id;
-  if (!userId || !amountUsd || !providerReference) return null;
-
-  const existingEntry = db.prepare(`
-    SELECT id FROM ledger_entries
-    WHERE provider = 'stripe' AND provider_reference = ?
-    LIMIT 1
-  `).get(providerReference);
-  if (existingEntry) {
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
-    return centsToDollars(user?.balance_cents || 0);
-  }
-
-  return adjustUserBalance({
-    userId,
-    amountCents: Math.round(amountUsd * 100),
-    type: "deposit",
-    provider: "stripe",
-    providerReference,
-    notes: `Stripe checkout session ${session.id}`,
-  });
-}
-
-async function sendCheckoutSessionStatus(req, res) {
-  if (!stripe) {
-    sendJson(res, 503, { error: "Stripe is not configured." });
-    return;
-  }
-
-  const user = requireUser(req, res);
-  if (!user) return;
-
-  const url = new URL(req.url, "http://localhost");
-  const sessionId = url.searchParams.get("session_id");
-  if (!sessionId) {
-    sendJson(res, 400, { error: "session_id is required." });
-    return;
-  }
-
-  const session = await stripe.checkout.sessions.retrieve(sessionId);
-  if (session.metadata?.userId !== user.id) {
-    sendJson(res, 403, { error: "Checkout session does not belong to this account." });
-    return;
-  }
-
-  const balance = creditStripeCheckoutSession(session);
-  const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
-  sendJson(res, 200, {
-    paid: session.payment_status === "paid",
-    balance: balance ?? centsToDollars(updatedUser.balance_cents),
-    user: publicUser(updatedUser),
-  });
-}
-
-async function handleStripeWebhook(req, res) {
-  if (!stripe || !stripeWebhookSecret) {
-    sendJson(res, 503, { error: "Stripe webhook is not configured." });
-    return;
-  }
-
-  const rawBody = await readRawBody(req);
-  const signature = req.headers["stripe-signature"];
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(
-      rawBody,
-      signature,
-      stripeWebhookSecret
-    );
-  } catch (error) {
-    sendJson(res, 400, { error: `Webhook signature failed: ${error.message}` });
-    return;
-  }
-
-  if (db.prepare("SELECT id FROM stripe_events WHERE id = ?").get(event.id)) {
-    sendJson(res, 200, { received: true, duplicate: true });
-    return;
-  }
-
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
-    creditStripeCheckoutSession(session);
-  } else if (event.type === "charge.dispute.created") {
-    handleStripeDispute(event.data.object);
-  } else if (event.type === "charge.dispute.closed") {
-    handleStripeDisputeClosed(event.data.object);
-  }
-
-  db.prepare("INSERT INTO stripe_events (id, type) VALUES (?, ?)").run(
-    event.id,
-    event.type
-  );
-  sendJson(res, 200, { received: true });
-}
-
-function handleStripeDispute(dispute) {
-  const paymentIntent = dispute.payment_intent;
-  const ledgerEntry = paymentIntent
-    ? db.prepare(`
-        SELECT * FROM ledger_entries
-        WHERE provider = 'stripe' AND provider_reference = ?
-        ORDER BY created_at DESC
-        LIMIT 1
-      `).get(paymentIntent)
-    : null;
-  const userId = ledgerEntry?.user_id || null;
-
-  db.prepare(`
-    INSERT INTO disputes (id, user_id, payment_intent, amount_cents, status, reason)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      status = excluded.status,
-      reason = excluded.reason,
-      updated_at = CURRENT_TIMESTAMP
-  `).run(
-    dispute.id,
-    userId,
-    paymentIntent,
-    dispute.amount || 0,
-    dispute.status || "needs_response",
-    dispute.reason || null
-  );
-
-  if (userId) {
-    adjustUserBalance({
-      userId,
-      amountCents: -Math.abs(dispute.amount || ledgerEntry.amount_cents || 0),
-      type: "chargeback_hold",
-      provider: "stripe",
-      providerReference: dispute.id,
-      notes: "Stripe dispute opened; balance debited pending review.",
-    });
-    setUserFrozen(userId, true, "Stripe dispute opened.");
-  }
-}
-
-function handleStripeDisputeClosed(dispute) {
-  db.prepare(`
-    UPDATE disputes
-    SET status = ?, reason = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(dispute.status || "closed", dispute.reason || null, dispute.id);
-
-  const storedDispute = db.prepare("SELECT * FROM disputes WHERE id = ?").get(dispute.id);
-  if (!storedDispute?.user_id) return;
-
-  if (dispute.status === "won") {
-    adjustUserBalance({
-      userId: storedDispute.user_id,
-      amountCents: Math.abs(storedDispute.amount_cents),
-      type: "chargeback_reversal",
-      provider: "stripe",
-      providerReference: dispute.id,
-      notes: "Stripe dispute won; held balance restored.",
-    });
-    setUserFrozen(storedDispute.user_id, false, "Stripe dispute closed as won.");
-  }
-}
-
-function sendPlayerBalance(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  sendJson(res, 200, { user: publicUser(user), balance: centsToDollars(user.balance_cents) });
-}
-
-function normalizeBetUsd(value) {
-  const normalized = Math.round(Number(value) * 100) / 100;
-  return Number.isFinite(normalized) ? normalized : DEFAULT_STARTING_MASS_USD;
-}
-
-async function startPaidGame(req, res) {
-  const user = requireUser(req, res);
-  if (!user) return;
-  if (user.frozen) {
-    sendJson(res, 403, { error: "Account is frozen pending payment review." });
-    return;
-  }
-  if (!user.terms_accepted_at) {
-    sendJson(res, 403, { error: "Terms must be accepted before playing." });
-    return;
-  }
-
-  const { betUsd } = await readJsonBody(req);
-  const startingMass = normalizeBetUsd(betUsd);
-  if (startingMass < MIN_BET_USD) {
-    sendJson(res, 400, { error: "Minimum bet is $5 USD." });
-    return;
-  }
-
-  const startCostCents = Math.round(startingMass * 100);
-  if (user.balance_cents < startCostCents) {
-    sendJson(res, 402, { error: "Insufficient balance." });
-    return;
-  }
-
-  const balance = adjustUserBalance({
-    userId: user.id,
-    amountCents: -startCostCents,
-    type: "game_entry",
-    notes: `Game entry converted to ${startingMass} starting mass.`,
-  });
-  const gameTicket = createGameTicket({ userId: user.id, startingMass });
-  sendJson(res, 200, { balance, startingMass, gameTicket });
+function radiusToMass(radius) {
+  return volumeFromRadius(radius) / pelletVolume;
 }
 
 function volumeFromRadius(radius) {
   return (4 / 3) * Math.PI * Math.pow(radius, 3);
 }
 
-function radiusToMass(radius) {
-  const volume = volumeFromRadius(radius);
-  return volume / pelletVolume;
-}
-
-function massToRadius(mass) {
-  const volume = mass * pelletVolume;
+function radiusFromVolume(volume) {
   return Math.cbrt((3 * volume) / (4 * Math.PI));
 }
-
-function pelletMassFromRadius(radius) {
-  return volumeFromRadius(radius) / pelletVolume;
-}
-
-const PLAYER_BASE_RADIUS = massToRadius(DEFAULT_STARTING_MASS_USD);
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -1652,101 +111,93 @@ function randomPosition(radius = PLAYER_BASE_RADIUS) {
   };
 }
 
-function getSpawnClearance(position, radius) {
-  let minimumClearance = Infinity;
-  players.forEach((other) => {
-    const dx = position.x - other.position.x;
-    const dy = position.y - other.position.y;
-    const dz = position.z - other.position.z;
-    const centerDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    minimumClearance = Math.min(
-      minimumClearance,
-      centerDistance - radius - other.radius
-    );
-  });
-  return minimumClearance;
-}
+function randomSeparatedPosition(radius = PLAYER_BASE_RADIUS, minDistance = BOT_MIN_SPAWN_DISTANCE) {
+  const minDistanceSq = minDistance * minDistance;
 
-function findSafePlayerSpawn(radius) {
-  if (players.size === 0) return randomPosition(radius);
-
-  let bestPosition = randomPosition(radius);
-  let bestClearance = getSpawnClearance(bestPosition, radius);
-
-  for (let attempt = 1; attempt < SPAWN_ATTEMPTS; attempt++) {
-    const candidate = randomPosition(radius);
-    const clearance = getSpawnClearance(candidate, radius);
-    if (clearance >= SPAWN_CLEARANCE) return candidate;
-    if (clearance > bestClearance) {
-      bestPosition = candidate;
-      bestClearance = clearance;
-    }
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const position = randomPosition(radius);
+    let clear = true;
+    players.forEach((player) => {
+      if (!clear) return;
+      const requiredDistance = minDistance + player.radius + radius;
+      if (distanceSq(position, player.position) < requiredDistance * requiredDistance) {
+        clear = false;
+      }
+    });
+    if (clear) return position;
   }
 
-  return bestPosition;
+  return randomPosition(radius);
+}
+
+function distanceSq(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const dz = a.z - b.z;
+  return dx * dx + dy * dy + dz * dz;
+}
+
+function directionBetween(from, to) {
+  return normalizeVector({
+    x: to.x - from.x,
+    y: to.y - from.y,
+    z: to.z - from.z,
+  });
+}
+
+function directionToRotation(direction) {
+  return {
+    yaw: Math.atan2(-direction.x, -direction.z),
+    pitch: Math.asin(clamp(-direction.y, -1, 1)),
+  };
+}
+
+function randomGaussian() {
+  const u = Math.max(Number.EPSILON, Math.random());
+  const v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+const pelletDensityCenters = Array.from(
+  { length: PELLET_DENSITY_CENTER_COUNT },
+  () => randomPosition(PELLET_GAUSSIAN_SPREAD)
+);
+
+function randomPelletPosition(radius = PELLET_MIN_RADIUS) {
+  if (Math.random() > PELLET_GAUSSIAN_CHANCE) {
+    return randomPosition(radius);
+  }
+
+  const center =
+    pelletDensityCenters[Math.floor(Math.random() * pelletDensityCenters.length)];
+  return clampPosition(
+    {
+      x: center.x + randomGaussian() * PELLET_GAUSSIAN_SPREAD,
+      y: center.y + randomGaussian() * PELLET_GAUSSIAN_SPREAD,
+      z: center.z + randomGaussian() * PELLET_GAUSSIAN_SPREAD,
+    },
+    radius
+  );
+}
+
+function isPowerUpIndex(index) {
+  return index % POWERUP_INTERVAL === 0;
 }
 
 function createPellet(index) {
   const size = randomBetween(PELLET_MIN_RADIUS, PELLET_MAX_RADIUS);
-  const position = randomPosition(size);
-  const bombRoll = Math.random();
+  const position = randomPelletPosition(size);
+  const isPowerUp = isPowerUpIndex(index);
+  const maxHp = getPelletMaxHp(size);
   return {
     index,
     position,
     size,
-    isPowerUp: false,
-    bombRoll,
+    maxHp,
+    hp: maxHp,
+    isPowerUp,
     active: true,
   };
-}
-
-function getPelletGridKey(position) {
-  const x = Math.floor((position.x + HALF_WORLD) / PELLET_GRID_SIZE);
-  const y = Math.floor((position.y + HALF_WORLD) / PELLET_GRID_SIZE);
-  const z = Math.floor((position.z + HALF_WORLD) / PELLET_GRID_SIZE);
-  return `${x},${y},${z}`;
-}
-
-function addPelletToGrid(pellet) {
-  const key = getPelletGridKey(pellet.position);
-  pellet.gridKey = key;
-  if (!pelletGrid.has(key)) {
-    pelletGrid.set(key, new Set());
-  }
-  pelletGrid.get(key).add(pellet.index);
-}
-
-function removePelletFromGrid(pellet) {
-  if (!pellet.gridKey) return;
-  const bucket = pelletGrid.get(pellet.gridKey);
-  if (!bucket) return;
-  bucket.delete(pellet.index);
-  if (bucket.size === 0) {
-    pelletGrid.delete(pellet.gridKey);
-  }
-}
-
-function getNearbyPelletIndices(position, radius) {
-  const searchRadius = radius + PELLET_MAX_RADIUS;
-  const minX = Math.floor((position.x + HALF_WORLD - searchRadius) / PELLET_GRID_SIZE);
-  const maxX = Math.floor((position.x + HALF_WORLD + searchRadius) / PELLET_GRID_SIZE);
-  const minY = Math.floor((position.y + HALF_WORLD - searchRadius) / PELLET_GRID_SIZE);
-  const maxY = Math.floor((position.y + HALF_WORLD + searchRadius) / PELLET_GRID_SIZE);
-  const minZ = Math.floor((position.z + HALF_WORLD - searchRadius) / PELLET_GRID_SIZE);
-  const maxZ = Math.floor((position.z + HALF_WORLD + searchRadius) / PELLET_GRID_SIZE);
-  const nearby = [];
-
-  for (let x = minX; x <= maxX; x++) {
-    for (let y = minY; y <= maxY; y++) {
-      for (let z = minZ; z <= maxZ; z++) {
-        const bucket = pelletGrid.get(`${x},${y},${z}`);
-        if (!bucket) continue;
-        bucket.forEach((index) => nearby.push(index));
-      }
-    }
-  }
-
-  return nearby;
 }
 
 function serializePelletState(pellets) {
@@ -1755,6 +206,8 @@ function serializePelletState(pellets) {
     sizes: pellets.map((pellet) => pellet.size),
     active: pellets.map((pellet) => pellet.active),
     powerUps: pellets.map((pellet) => pellet.isPowerUp),
+    hp: pellets.map((pellet) => pellet.hp),
+    maxHp: pellets.map((pellet) => pellet.maxHp),
   };
 }
 
@@ -1780,284 +233,1026 @@ function clampPosition(position, radius) {
   return position;
 }
 
-function clampPlayerPosition(player) {
-  const minBound = -HALF_WORLD + player.radius;
-  const maxBound = HALF_WORLD - player.radius;
-
-  if (player.position.x <= minBound && player.velocity.x < 0) player.velocity.x = 0;
-  if (player.position.x >= maxBound && player.velocity.x > 0) player.velocity.x = 0;
-  if (player.position.y <= minBound && player.velocity.y < 0) player.velocity.y = 0;
-  if (player.position.y >= maxBound && player.velocity.y > 0) player.velocity.y = 0;
-  if (player.position.z <= minBound && player.velocity.z < 0) player.velocity.z = 0;
-  if (player.position.z >= maxBound && player.velocity.z > 0) player.velocity.z = 0;
-
-  clampPosition(player.position, player.radius);
-}
-
-const pelletGrid = new Map();
 const pellets = Array.from({ length: PELLET_COUNT }, (_, i) => createPellet(i));
-pellets.forEach(addPelletToGrid);
 const pelletState = serializePelletState(pellets);
+const pelletGrid = new Map();
+const movedPelletIndexes = new Set();
 
 const players = new Map();
-const gameTickets = new Map();
+const bullets = new Map();
+const botRespawnTimers = new Map();
 let lastTick = Date.now();
-let cryptoDepositPollerRunning = false;
+let nextBulletId = 1;
 
-function getPlayerSpeed(mass) {
-  const slowFactor = 1 + SPEED_FALLOFF * Math.cbrt(mass);
-  return Math.max(MIN_SPEED, BASE_SPEED / slowFactor);
+function removeBullet(id, reason = "removed") {
+  if (!bullets.delete(id)) return false;
+  io.emit("bullet-removed", { id, reason });
+  return true;
 }
 
-function dampingFactor(rate, delta) {
-  return 1 - Math.exp(-rate * delta);
+function pelletGridCoord(value) {
+  return Math.floor((value + HALF_WORLD) / PELLET_GRID_SIZE);
 }
 
-function createGameTicket({ userId, startingMass }) {
-  const ticket = crypto.randomUUID();
-  gameTickets.set(ticket, {
-    userId,
-    startingMass,
-    entryCharged: true,
-    expiresAt: Date.now() + 60_000,
-  });
-  return ticket;
+function pelletGridKeyFromCoords(x, y, z) {
+  return `${x},${y},${z}`;
 }
 
-function consumeGameTicket(ticket) {
-  if (!ticket || !gameTickets.has(ticket)) return null;
-  const gameTicket = gameTickets.get(ticket);
-  gameTickets.delete(ticket);
-  if (gameTicket.expiresAt < Date.now()) return null;
-  return gameTicket;
+function pelletGridKey(position) {
+  return pelletGridKeyFromCoords(
+    pelletGridCoord(position.x),
+    pelletGridCoord(position.y),
+    pelletGridCoord(position.z)
+  );
 }
 
-function isLocalSocket(socket) {
-  const origin = socket.handshake.headers.origin || "";
-  return origin.includes("localhost") || origin.includes("127.0.0.1");
+function addPelletToGrid(pellet) {
+  if (!pellet.active) return;
+  const key = pelletGridKey(pellet.position);
+  let bucket = pelletGrid.get(key);
+  if (!bucket) {
+    bucket = new Set();
+    pelletGrid.set(key, bucket);
+  }
+  bucket.add(pellet.index);
+  pellet.gridKey = key;
 }
 
-function respawnPellet(pellet) {
-  removePelletFromGrid(pellet);
-  pellet.position = randomPosition(pellet.size);
-  addPelletToGrid(pellet);
-  pellet.active = true;
-  pellet.bombRoll = Math.random();
-  pelletState.positions[pellet.index] = pellet.position;
-  pelletState.active[pellet.index] = true;
-  pelletState.powerUps[pellet.index] = pellet.isPowerUp;
-  io.emit("pellet-respawn", {
-    index: pellet.index,
-    position: pellet.position,
-    size: pellet.size,
-    isPowerUp: pellet.isPowerUp,
-  });
+function removePelletFromGrid(pellet) {
+  if (!pellet.gridKey) return;
+  const bucket = pelletGrid.get(pellet.gridKey);
+  if (bucket) {
+    bucket.delete(pellet.index);
+    if (bucket.size === 0) pelletGrid.delete(pellet.gridKey);
+  }
+  pellet.gridKey = null;
 }
 
-function settlePlayerDeath(player) {
-  if (!player?.userId || player.entryCharged) return;
-  const entryCents = Math.max(0, Math.round((player.startingMass || 0) * 100));
-  if (!entryCents) return;
-  adjustUserBalance({
-    userId: player.userId,
-    amountCents: -entryCents,
-    type: "game_death_loss",
-    notes: `Lost ${player.startingMass} entry mass on death.`,
-  });
-  player.entryCharged = true;
-}
+function queryPelletsInBounds(minX, minY, minZ, maxX, maxY, maxZ) {
+  const minCellX = pelletGridCoord(minX);
+  const minCellY = pelletGridCoord(minY);
+  const minCellZ = pelletGridCoord(minZ);
+  const maxCellX = pelletGridCoord(maxX);
+  const maxCellY = pelletGridCoord(maxY);
+  const maxCellZ = pelletGridCoord(maxZ);
+  const found = [];
+  const seen = new Set();
 
-function hasMinimumPelletVolumeOverlap(
-  eaterRadius,
-  pelletRadius,
-  distanceSquared,
-  minimumPelletFraction = 0.25
-) {
-  const combinedRadius = eaterRadius + pelletRadius;
-  if (distanceSquared >= combinedRadius * combinedRadius) return false;
-
-  const radiusDifference = Math.abs(eaterRadius - pelletRadius);
-  const pelletVolume = (4 / 3) * Math.PI * pelletRadius ** 3;
-
-  if (distanceSquared <= radiusDifference * radiusDifference) {
-    const containedRadius = Math.min(eaterRadius, pelletRadius);
-    const containedVolume = (4 / 3) * Math.PI * containedRadius ** 3;
-    return containedVolume >= pelletVolume * minimumPelletFraction;
+  for (let x = minCellX; x <= maxCellX; x++) {
+    for (let y = minCellY; y <= maxCellY; y++) {
+      for (let z = minCellZ; z <= maxCellZ; z++) {
+        const bucket = pelletGrid.get(pelletGridKeyFromCoords(x, y, z));
+        if (!bucket) continue;
+        for (const index of bucket) {
+          if (seen.has(index)) continue;
+          seen.add(index);
+          found.push(pellets[index]);
+        }
+      }
+    }
   }
 
-  const distance = Math.sqrt(distanceSquared);
-  const overlapHeight = combinedRadius - distance;
-  const radiusDelta = pelletRadius - eaterRadius;
-  const intersectionVolume =
-    (Math.PI *
-      overlapHeight ** 2 *
-      (distance ** 2 +
-        2 * distance * combinedRadius -
-        3 * radiusDelta ** 2)) /
-    (12 * distance);
-
-  return intersectionVolume >= pelletVolume * minimumPelletFraction;
+  return found;
 }
 
-function handlePelletCollisions(player) {
-  const magnetActive = player.magnetUntil > Date.now();
-  const collectionRadius = magnetActive ? player.radius * 4 : player.radius;
-  const nearbyPelletIndices = getNearbyPelletIndices(
-    player.position,
-    collectionRadius
+function queryNearbyPellets(position, radius) {
+  const padding = radius + PELLET_MAX_RADIUS;
+  return queryPelletsInBounds(
+    position.x - padding,
+    position.y - padding,
+    position.z - padding,
+    position.x + padding,
+    position.y + padding,
+    position.z + padding
   );
-  for (let i = 0; i < nearbyPelletIndices.length; i++) {
-    const pellet = pellets[nearbyPelletIndices[i]];
+}
+
+function queryPelletsAlongSegment(start, end, radius) {
+  const padding = radius + PELLET_MAX_RADIUS;
+  return queryPelletsInBounds(
+    Math.min(start.x, end.x) - padding,
+    Math.min(start.y, end.y) - padding,
+    Math.min(start.z, end.z) - padding,
+    Math.max(start.x, end.x) + padding,
+    Math.max(start.y, end.y) + padding,
+    Math.max(start.z, end.z) + padding
+  );
+}
+
+pellets.forEach(addPelletToGrid);
+
+function updateMagnetizedPellets(player, delta, now) {
+  if (player.magnetUntil <= now) return;
+
+  const range = player.radius * PELLET_MAGNET_RANGE_MULTIPLIER;
+  const rangeSq = range * range;
+  const maxStep = PELLET_MAGNET_SPEED * delta;
+  const nearbyPellets = queryNearbyPellets(player.position, range);
+
+  for (const pellet of nearbyPellets) {
     if (!pellet.active) continue;
     const dx = player.position.x - pellet.position.x;
     const dy = player.position.y - pellet.position.y;
     const dz = player.position.z - pellet.position.z;
-    const distanceSquared = dx * dx + dy * dy + dz * dz;
-    if (
-      hasMinimumPelletVolumeOverlap(
-        collectionRadius,
-        pellet.size,
-        distanceSquared
-      )
-    ) {
-      pellet.active = false;
-      removePelletFromGrid(pellet);
-      pelletState.active[pellet.index] = false;
-      const gainedMass = pelletMassFromRadius(pellet.size);
-      const bombChance = Math.min(
-        1,
-        gainedMass / Math.max(1, player.startingMass || DEFAULT_STARTING_MASS_USD)
-      );
-      if (pellet.bombRoll < bombChance) {
-        settlePlayerDeath(player);
-        players.delete(player.id);
-        io.emit("pellet-eaten", { index: pellet.index, playerId: player.id });
-        io.emit("player-killed", { id: player.id, reason: "bomb" });
-        setTimeout(() => respawnPellet(pellet), 2500);
+    const distanceSq = dx * dx + dy * dy + dz * dz;
+    if (distanceSq > rangeSq || distanceSq <= Number.EPSILON) continue;
+
+    const distance = Math.sqrt(distanceSq);
+    const step = Math.min(maxStep, distance);
+    removePelletFromGrid(pellet);
+    pellet.position.x += (dx / distance) * step;
+    pellet.position.y += (dy / distance) * step;
+    pellet.position.z += (dz / distance) * step;
+    addPelletToGrid(pellet);
+    movedPelletIndexes.add(pellet.index);
+  }
+}
+
+function getUpgradeLevel(player, key) {
+  return player?.upgrades?.[key] || 0;
+}
+
+function getUpgradeCost(player, key) {
+  const def = UPGRADE_DEFS[key];
+  if (!def) return Infinity;
+  const level = getUpgradeLevel(player, key);
+  return Math.ceil(def.baseCost * Math.pow(1.7, level));
+}
+
+function createUpgradeState() {
+  return Object.keys(UPGRADE_DEFS).reduce((state, key) => {
+    state[key] = 0;
+    return state;
+  }, {});
+}
+
+function getPlayerMaxHp(player) {
+  return PLAYER_MAX_HP + getUpgradeLevel(player, "maxHealth") * 500;
+}
+
+function getViewDistance(player) {
+  return (
+    BASE_VIEW_DISTANCE +
+    getUpgradeLevel(player, "viewDistance") * VIEW_DISTANCE_PER_LEVEL
+  );
+}
+
+function getHealthRegen(player, isInCombat) {
+  const regenPerSecond =
+    BASE_HEALTH_REGEN_PER_SECOND +
+    getUpgradeLevel(player, "healthRegenSpeed") * 1.4;
+  return isInCombat ? regenPerSecond : regenPerSecond * 5;
+}
+
+function getBulletDamage(player) {
+  return BULLET_DAMAGE + getUpgradeLevel(player, "bulletDamage") * 0.035;
+}
+
+function getLaserDamage(player) {
+  return LASER_DAMAGE + getUpgradeLevel(player, "laserDamage") * 35;
+}
+
+function getLaserThickness(player) {
+  return 1 + getUpgradeLevel(player, "laserDamage") * 0.12;
+}
+
+function getBodyDamage(player) {
+  return BASE_BODY_DAMAGE + getUpgradeLevel(player, "bodyDamage") * 4;
+}
+
+function getBulletSpeed(player) {
+  return BULLET_SPEED * (1 + getUpgradeLevel(player, "bulletSpeed") * 0.1);
+}
+
+function getBulletCooldown(player) {
+  if (player?.isBot) return BOT_SHOOT_COOLDOWN_MS;
+  return Math.max(28, BULLET_COOLDOWN_MS * Math.pow(0.88, getUpgradeLevel(player, "bulletDelay")));
+}
+
+function getBulletPenetration(player) {
+  return 1 + getUpgradeLevel(player, "bulletPenetration");
+}
+
+function getPlayerSpeed(player) {
+  const upgradeMultiplier =
+    typeof player === "number" ? 1 : 1 + getUpgradeLevel(player, "playerSpeed") * 0.08;
+  return BASE_SPEED * upgradeMultiplier;
+}
+
+function getPelletMaxHp(size) {
+  return volumeFromRadius(size);
+}
+
+function getPelletContactDamage(pellet) {
+  return Math.max(65, Math.ceil((pellet.maxHp / pelletVolume) * 65));
+}
+
+function buildUpgradePayload(player) {
+  const upgrades = {};
+  for (const [key, def] of Object.entries(UPGRADE_DEFS)) {
+    const level = getUpgradeLevel(player, key);
+    upgrades[key] = {
+      label: def.label,
+      level,
+      maxLevel: def.maxLevel,
+      cost: level >= def.maxLevel ? null : getUpgradeCost(player, key),
+    };
+  }
+  return {
+    mass: player.mass,
+    hp: player.hp,
+    maxHp: getPlayerMaxHp(player),
+    viewDistance: getViewDistance(player),
+    upgrades,
+  };
+}
+
+function emitUpgradeState(player) {
+  if (player.isBot) return;
+  io.to(player.id).emit("upgrade-state", buildUpgradePayload(player));
+}
+
+function createPlayerState({ id, name, isBot = false, position = null }) {
+  const mass = Math.floor(radiusToMass(PLAYER_BASE_RADIUS));
+  const player = {
+    id,
+    name,
+    isBot,
+    position: position || randomPosition(PLAYER_BASE_RADIUS),
+    radius: PLAYER_BASE_RADIUS,
+    mass,
+    upgrades: createUpgradeState(),
+    speed: BASE_SPEED,
+    hp: PLAYER_MAX_HP,
+    magnetUntil: 0,
+    bulletMagnetUntil: 0,
+    nextShootAt: 0,
+    nextLaserHitSoundAt: 0,
+    combatUntil: 0,
+    activeLaser: null,
+    input: {
+      forward: false,
+      movement: {},
+      rotation: { yaw: 0, pitch: 0 },
+      aim: null,
+      shoot: false,
+      weaponMode: isBot ? "laser" : "bullet",
+    },
+  };
+  player.speed = getPlayerSpeed(player);
+  return player;
+}
+
+function respawnPellet(pellet) {
+  removePelletFromGrid(pellet);
+  pellet.size = randomBetween(PELLET_MIN_RADIUS, PELLET_MAX_RADIUS);
+  pellet.position = randomPelletPosition(pellet.size);
+  pellet.maxHp = getPelletMaxHp(pellet.size);
+  pellet.hp = pellet.maxHp;
+  pellet.active = true;
+  addPelletToGrid(pellet);
+  pelletState.positions[pellet.index] = pellet.position;
+  pelletState.sizes[pellet.index] = pellet.size;
+  pelletState.active[pellet.index] = true;
+  pelletState.powerUps[pellet.index] = pellet.isPowerUp;
+  pelletState.hp[pellet.index] = pellet.hp;
+  pelletState.maxHp[pellet.index] = pellet.maxHp;
+  io.emit("pellet-respawn", {
+    index: pellet.index,
+    position: pellet.position,
+    size: pellet.size,
+    hp: pellet.hp,
+    maxHp: pellet.maxHp,
+    isPowerUp: pellet.isPowerUp,
+  });
+}
+
+function rotationToRight(rotation = { yaw: 0 }) {
+  const yaw = rotation.yaw || 0;
+  return {
+    x: Math.cos(yaw),
+    y: 0,
+    z: -Math.sin(yaw),
+  };
+}
+
+function normalizeVector(vector) {
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+  if (length <= 0) return vector;
+  vector.x /= length;
+  vector.y /= length;
+  vector.z /= length;
+  return vector;
+}
+
+function segmentSphereIntersects(start, end, center, radius) {
+  const sx = start.x - center.x;
+  const sy = start.y - center.y;
+  const sz = start.z - center.z;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const dz = end.z - start.z;
+  const lengthSq = dx * dx + dy * dy + dz * dz;
+
+  if (lengthSq <= 0) {
+    return sx * sx + sy * sy + sz * sz <= radius * radius;
+  }
+
+  const t = clamp(-(sx * dx + sy * dy + sz * dz) / lengthSq, 0, 1);
+  const closestX = sx + dx * t;
+  const closestY = sy + dy * t;
+  const closestZ = sz + dz * t;
+  return closestX * closestX + closestY * closestY + closestZ * closestZ <= radius * radius;
+}
+
+function handlePelletCollisions(player) {
+  const pickupRadius = player.radius;
+  const pickupRadiusSq = pickupRadius * pickupRadius;
+
+  const nearbyPellets = queryNearbyPellets(player.position, pickupRadius);
+  for (const pellet of nearbyPellets) {
+    if (!pellet.active) continue;
+    const dx = player.position.x - pellet.position.x;
+    const dy = player.position.y - pellet.position.y;
+    const dz = player.position.z - pellet.position.z;
+    if (dx * dx + dy * dy + dz * dz <= pickupRadiusSq) {
+      const contactDamage = getPelletContactDamage(pellet);
+      if (player.hp <= contactDamage) {
+        player.hp = 0;
+        defeatPlayer(player, "pellet");
         return;
       }
-      player.mass += gainedMass;
-      player.radius = massToRadius(player.mass);
-      player.speed = getPlayerSpeed(player.mass);
-      io.emit("pellet-eaten", {
-        index: pellet.index,
-        playerId: player.id,
-        size: pellet.size,
+
+      player.hp = Math.max(0, player.hp - contactDamage);
+      contactConsumePellet(player, pellet);
+    }
+  }
+}
+
+function parseVector(value) {
+  if (!value) return null;
+  const x = Number(value.x);
+  const y = Number(value.y);
+  const z = Number(value.z);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+    return null;
+  }
+  return { x, y, z };
+}
+
+function getAimRay(player) {
+  const fallbackDirection = rotationToForward(player.input.rotation);
+  const aimOrigin = parseVector(player.input.aim?.origin);
+  const aimDirection = parseVector(player.input.aim?.direction);
+
+  if (!aimOrigin || !aimDirection) {
+    return player.isBot
+      ? {
+          origin: { ...player.position },
+          direction: fallbackDirection,
+        }
+      : null;
+  }
+
+  normalizeVector(aimDirection);
+  if (Math.hypot(aimDirection.x, aimDirection.y, aimDirection.z) <= 0) {
+    return player.isBot
+      ? {
+          origin: { ...player.position },
+          direction: fallbackDirection,
+        }
+      : null;
+  }
+
+  const dx = aimOrigin.x - player.position.x;
+  const dy = aimOrigin.y - player.position.y;
+  const dz = aimOrigin.z - player.position.z;
+  const maxCameraDistance = getViewDistance(player) + player.radius + 2;
+  if (dx * dx + dy * dy + dz * dz > maxCameraDistance * maxCameraDistance) {
+    return null;
+  }
+
+  return {
+    origin: aimOrigin,
+    direction: aimDirection,
+  };
+}
+
+function raySphereIntersectionDistance(origin, direction, center, radius) {
+  const ox = origin.x - center.x;
+  const oy = origin.y - center.y;
+  const oz = origin.z - center.z;
+  const b = ox * direction.x + oy * direction.y + oz * direction.z;
+  const c = ox * ox + oy * oy + oz * oz - radius * radius;
+  const discriminant = b * b - c;
+  if (discriminant < 0) return null;
+
+  const sqrtDiscriminant = Math.sqrt(discriminant);
+  const near = -b - sqrtDiscriminant;
+  const far = -b + sqrtDiscriminant;
+  if (far < 0) return null;
+  return near >= 0 ? near : far;
+}
+
+function applyAimRayPlayerHits(owner, origin, direction) {
+  const hits = [];
+  players.forEach((target) => {
+    if (target.id === owner.id) return;
+    const distance = raySphereIntersectionDistance(
+      origin,
+      direction,
+      target.position,
+      target.radius
+    );
+    if (distance === null) return;
+    hits.push({ target, distance });
+  });
+
+  hits.sort((a, b) => a.distance - b.distance);
+  for (const hit of hits) {
+    if (!players.has(hit.target.id)) continue;
+    applyBulletPlayerHit(
+      {
+        ownerId: owner.id,
+        damage: getBulletDamage(owner),
+      },
+      hit.target
+    );
+    return true;
+  }
+  return false;
+}
+
+function shootBullet(player) {
+  const aimRay = getAimRay(player);
+  if (!aimRay) return;
+
+  const now = Date.now();
+  if (player.nextShootAt && player.nextShootAt > now) return;
+  player.nextShootAt = now + getBulletCooldown(player);
+
+  const { origin, direction } = aimRay;
+  const id = String(nextBulletId++);
+  const bulletSpeed = getBulletSpeed(player);
+  const penetration = getBulletPenetration(player);
+
+  bullets.set(id, {
+    id,
+    ownerId: player.id,
+    ownerIsBot: Boolean(player.isBot),
+    damage: getBulletDamage(player),
+    penetrationLeft: penetration,
+    hitPlayerIds: new Set(),
+    hitPelletIndexes: new Set(),
+    canHitPlayers: true,
+    magnetRadius: player.bulletMagnetUntil > now ? BULLET_MAGNET_RADIUS : 0,
+    radius: BULLET_RADIUS,
+    position: {
+      x: origin.x,
+      y: origin.y,
+      z: origin.z,
+    },
+    velocity: {
+      x: direction.x * bulletSpeed,
+      y: direction.y * bulletSpeed,
+      z: direction.z * bulletSpeed,
+    },
+    expiresAt: now + (player.isBot ? BULLET_TTL_MS : PLAYER_BULLET_TTL_MS),
+  });
+}
+
+function getRayEnd(origin, direction, range = LASER_RANGE) {
+  return {
+    x: origin.x + direction.x * range,
+    y: origin.y + direction.y * range,
+    z: origin.z + direction.z * range,
+  };
+}
+
+function findNearestLaserTarget(owner, origin, direction, end) {
+  let nearest = null;
+
+  players.forEach((target) => {
+    if (target.id === owner.id) return;
+    const distance = raySphereIntersectionDistance(
+      origin,
+      direction,
+      target.position,
+      target.radius + LASER_RADIUS
+    );
+    if (distance === null || distance > LASER_RANGE) return;
+    if (!nearest || distance < nearest.distance) {
+      nearest = { type: "player", target, distance };
+    }
+  });
+
+  const nearbyPellets = queryPelletsAlongSegment(origin, end, LASER_RADIUS);
+  for (const pellet of nearbyPellets) {
+    if (!pellet.active) continue;
+    const distance = raySphereIntersectionDistance(
+      origin,
+      direction,
+      pellet.position,
+      pellet.size + LASER_RADIUS
+    );
+    if (distance === null || distance > LASER_RANGE) continue;
+    if (!nearest || distance < nearest.distance) {
+      nearest = { type: "pellet", target: pellet, distance };
+    }
+  }
+
+  return nearest;
+}
+
+function applyLaserTargetHit(owner, hit, delta, now) {
+  if (hit.type === "player") {
+    setPlayersInCombat(owner, hit.target, now);
+    hit.target.hp = Math.max(
+      0,
+      hit.target.hp - getLaserDamage(owner) * delta
+    );
+    if (owner.nextLaserHitSoundAt <= now) {
+      owner.nextLaserHitSoundAt = now + LASER_HIT_SOUND_DELAY_MS;
+      io.to(owner.id).emit("world-sound", {
+        type: "laser-hit",
+        position: hit.target.position,
       });
-      setTimeout(() => respawnPellet(pellet), 2500);
     }
-  }
-}
-
-function canConsumePlayer(predator, prey) {
-  if (predator.radius < prey.radius * PLAYER_EAT_SIZE_RATIO) return false;
-  const dx = predator.position.x - prey.position.x;
-  const dy = predator.position.y - prey.position.y;
-  const dz = predator.position.z - prey.position.z;
-  const distanceSq = dx * dx + dy * dy + dz * dz;
-  const eatDistance = Math.max(
-    predator.radius * 0.25,
-    predator.radius - prey.radius * PLAYER_EAT_OVERLAP
-  );
-  return distanceSq <= eatDistance * eatDistance;
-}
-
-function consumePlayer(predator, prey) {
-  predator.mass += prey.mass * PLAYER_MASS_TRANSFER;
-  predator.radius = massToRadius(predator.mass);
-  predator.speed = getPlayerSpeed(predator.mass);
-  players.delete(prey.id);
-
-  io.emit("player-killed", {
-    id: prey.id,
-    reason: "player",
-    killerName: predator.name,
-  });
-  io.to(predator.id).emit("player-consumed", {
-    mass: prey.mass,
-  });
-}
-
-function handlePlayerCollisions() {
-  const playerList = Array.from(players.values());
-  for (let i = 0; i < playerList.length; i++) {
-    const first = playerList[i];
-    if (!players.has(first.id)) continue;
-
-    for (let j = i + 1; j < playerList.length; j++) {
-      const second = playerList[j];
-      if (!players.has(second.id)) continue;
-
-      if (canConsumePlayer(first, second)) {
-        consumePlayer(first, second);
-        continue;
-      }
-      if (canConsumePlayer(second, first)) {
-        consumePlayer(second, first);
-        break;
-      }
+    if (hit.target.hp <= 0) {
+      awardVictimMass(owner, hit.target);
+      io.to(owner.id).emit("shot-confirmed", { target: "player" });
+      defeatPlayer(hit.target, "player");
     }
-  }
-}
-
-function cashInPlayer(socket, player) {
-  if (!player?.userId) {
-    socket.emit("cash-in-result", {
-      ok: false,
-      error: "Cash-in requires a paid account session.",
-    });
     return;
   }
-  const amountCents = Math.max(0, Math.round(player.mass * 100));
-  const balance = adjustUserBalance({
-    userId: player.userId,
-    amountCents,
-    type: "game_cash_in",
-    notes: `Cashed in ${player.mass.toFixed(2)} mass.`,
+
+  applyBulletPelletHit(
+    {
+      ownerId: owner.id,
+      damage: (getLaserDamage(owner) * delta) / 125,
+    },
+    hit.target
+  );
+}
+
+function updatePlayerLaser(player, delta) {
+  player.activeLaser = null;
+  if (player.input.weaponMode !== "laser" || !player.input.shoot) {
+    player.nextLaserHitSoundAt = 0;
+    return;
+  }
+
+  const aimRay = getAimRay(player);
+  if (!aimRay) {
+    player.nextLaserHitSoundAt = 0;
+    return;
+  }
+
+  const { origin, direction } = aimRay;
+  const end = getRayEnd(origin, direction);
+  const hit = findNearestLaserTarget(player, origin, direction, end);
+  const now = Date.now();
+
+  if (hit) applyLaserTargetHit(player, hit, delta, now);
+
+  player.activeLaser = {
+    origin,
+    end,
+    hitPlayerId: hit?.type === "player" ? hit.target.id : null,
+    thickness: getLaserThickness(player),
+  };
+}
+
+function tryActivatePelletMagnet(player, pellet) {
+  if (!pellet.isPowerUp || Math.random() >= 1 / 8) return;
+  player.magnetUntil = Date.now() + MAGNET_DURATION_MS;
+  io.to(player.id).emit("powerup-activated", {
+    durationMs: MAGNET_DURATION_MS,
   });
-  players.delete(player.id);
-  io.emit("player-left", player.id);
-  socket.emit("cash-in-result", {
-    ok: true,
-    balance,
-    amount: centsToDollars(amountCents),
+}
+
+function awardMassCurrency(player, amount) {
+  const gainedMass = Math.max(1, Math.round(amount));
+  player.mass += gainedMass;
+  player.speed = getPlayerSpeed(player);
+  emitUpgradeState(player);
+  if (!player.isBot) {
+    io.to(player.id).emit("mass-gained", { amount: gainedMass });
+  }
+}
+
+function eatPellet(player, pellet) {
+  removePelletFromGrid(pellet);
+  pellet.active = false;
+  pelletState.active[pellet.index] = false;
+  awardMassCurrency(
+    player,
+    Math.pow(pellet.size / PELLET_MIN_RADIUS, 3)
+  );
+  io.emit("pellet-eaten", {
+    index: pellet.index,
+    position: pellet.position,
+  });
+  tryActivatePelletMagnet(player, pellet);
+  setTimeout(() => respawnPellet(pellet), pellet.isPowerUp ? 5000 : 2500);
+}
+
+function contactConsumePellet(player, pellet) {
+  removePelletFromGrid(pellet);
+  pellet.active = false;
+  pelletState.active[pellet.index] = false;
+  io.emit("pellet-eaten", {
+    index: pellet.index,
+    position: pellet.position,
+  });
+
+  awardMassCurrency(
+    player,
+    Math.pow(pellet.size / PELLET_MIN_RADIUS, 3)
+  );
+  tryActivatePelletMagnet(player, pellet);
+
+  setTimeout(() => respawnPellet(pellet), pellet.isPowerUp ? 5000 : 2500);
+}
+
+function defeatPlayer(player, reason = "defeated") {
+  if (!players.has(player.id)) return;
+  removePlayer(player.id);
+  io.to(player.id).emit("player-died", { reason });
+}
+
+function awardVictimMass(killer, victim) {
+  if (!killer || !victim || killer.id === victim.id || !players.has(killer.id)) return;
+  awardMassCurrency(killer, victim.mass);
+}
+
+function setPlayersInCombat(attacker, victim, now = Date.now()) {
+  if (!attacker || !victim) return;
+  const combatUntil = now + COMBAT_MODE_DURATION_MS;
+  attacker.combatUntil = combatUntil;
+  victim.combatUntil = combatUntil;
+}
+
+function applyBulletPlayerHit(bullet, target) {
+  setPlayersInCombat(players.get(bullet.ownerId), target);
+  target.hp = Math.max(0, target.hp - bullet.damage * 125);
+  io.to(bullet.ownerId).emit("world-sound", {
+    type: "player-hit",
+    position: target.position,
+  });
+  if (target.hp <= 0) {
+    awardVictimMass(players.get(bullet.ownerId), target);
+    io.to(bullet.ownerId).emit("shot-confirmed", { target: "player" });
+    defeatPlayer(target, "player");
+  } else {
+    io.to(bullet.ownerId).emit("shot-hit", { target: "player" });
+  }
+}
+
+function applyBulletPelletHit(bullet, pellet) {
+  const owner = players.get(bullet.ownerId);
+  pellet.hp = Math.max(0, pellet.hp - bullet.damage);
+  pelletState.hp[pellet.index] = pellet.hp;
+  pelletState.maxHp[pellet.index] = pellet.maxHp;
+
+  if (pellet.hp <= 0) {
+    if (owner) {
+      awardMassCurrency(owner, pellet.maxHp / pelletVolume);
+    }
+    removePelletFromGrid(pellet);
+    pellet.active = false;
+    pelletState.active[pellet.index] = false;
+    io.to(bullet.ownerId).emit("shot-confirmed", { target: "pellet" });
+    io.to(bullet.ownerId).emit("world-sound", {
+      type: "pellet-hit",
+      position: pellet.position,
+    });
+    io.emit("pellet-depleted", { index: pellet.index });
+    setTimeout(() => respawnPellet(pellet), pellet.isPowerUp ? 5000 : 2500);
+    return;
+  }
+
+  io.emit("pellet-damaged", {
+    index: pellet.index,
+    size: pellet.size,
+    hp: pellet.hp,
+    maxHp: pellet.maxHp,
+  });
+}
+
+function findNearestHumanPlayer(bot) {
+  const maxDistanceSq = BOT_PLAYER_SHOOT_RANGE * BOT_PLAYER_SHOOT_RANGE;
+  let nearest = null;
+  let nearestDistanceSq = maxDistanceSq;
+
+  players.forEach((player) => {
+    if (player.id === bot.id || player.isBot) return;
+    const currentDistanceSq = distanceSq(bot.position, player.position);
+    if (currentDistanceSq >= nearestDistanceSq) return;
+    nearest = player;
+    nearestDistanceSq = currentDistanceSq;
+  });
+
+  return nearest;
+}
+
+function findNearestBotPellet(bot) {
+  const nearbyPellets = queryNearbyPellets(bot.position, BOT_PELLET_SCAN_RADIUS);
+  let nearest = null;
+  let nearestDistanceSq = BOT_PELLET_SCAN_RADIUS * BOT_PELLET_SCAN_RADIUS;
+
+  for (const pellet of nearbyPellets) {
+    if (!pellet.active) continue;
+    const currentDistanceSq = distanceSq(bot.position, pellet.position);
+    if (currentDistanceSq >= nearestDistanceSq) continue;
+    nearest = pellet;
+    nearestDistanceSq = currentDistanceSq;
+  }
+
+  return nearest;
+}
+
+function setBotAim(bot, targetPosition) {
+  const direction = directionBetween(bot.position, targetPosition);
+  if (Math.hypot(direction.x, direction.y, direction.z) <= 0) return false;
+
+  bot.input.rotation = directionToRotation(direction);
+  bot.input.aim = {
+    origin: { ...bot.position },
+    direction,
+  };
+  return true;
+}
+
+function findIncomingBulletThreat(bot) {
+  let nearest = null;
+  let nearestDistanceSq = BOT_BULLET_DODGE_RADIUS * BOT_BULLET_DODGE_RADIUS;
+
+  bullets.forEach((bullet) => {
+    if (bullet.ownerId === bot.id) return;
+    const owner = players.get(bullet.ownerId);
+    if (!owner || owner.isBot) return;
+
+    const toBot = {
+      x: bot.position.x - bullet.position.x,
+      y: bot.position.y - bullet.position.y,
+      z: bot.position.z - bullet.position.z,
+    };
+    const currentDistanceSq = toBot.x * toBot.x + toBot.y * toBot.y + toBot.z * toBot.z;
+    if (currentDistanceSq >= nearestDistanceSq) return;
+
+    const closingSpeed =
+      bullet.velocity.x * toBot.x +
+      bullet.velocity.y * toBot.y +
+      bullet.velocity.z * toBot.z;
+    if (closingSpeed <= 0) return;
+
+    nearest = bullet;
+    nearestDistanceSq = currentDistanceSq;
+  });
+
+  return nearest;
+}
+
+function setBotEvasiveMovement(bot, playerTarget, threat, now) {
+  const movement = {};
+  const right = rotationToRight(bot.input.rotation);
+  const strafeRight = threat
+    ? threat.velocity.x * right.x + threat.velocity.z * right.z <= 0
+    : Math.floor((now / 900 + Number(bot.id.replace("bot-", ""))) % 2) === 0;
+
+  if (strafeRight) {
+    movement.right = true;
+  } else {
+    movement.left = true;
+  }
+
+  const playerDistanceSq = distanceSq(bot.position, playerTarget.position);
+  const backoffDistance = bot.radius + playerTarget.radius + 10;
+  if (playerDistanceSq < backoffDistance * backoffDistance) {
+    movement.backward = true;
+  } else if (!threat) {
+    movement.forward = true;
+  }
+
+  bot.input.movement = movement;
+}
+
+function pickBotWanderTarget(bot, now) {
+  if (bot.wanderTarget && bot.wanderTargetUntil > now) return bot.wanderTarget;
+
+  bot.wanderTarget = randomPosition(bot.radius);
+  bot.wanderTargetUntil = now + BOT_WANDER_RETARGET_MS + randomBetween(0, 1200);
+  return bot.wanderTarget;
+}
+
+function updateBotIntent(bot, now) {
+  if (bot.nextThinkAt && bot.nextThinkAt > now) return;
+  bot.nextThinkAt = now + BOT_THINK_INTERVAL_MS + randomBetween(0, 80);
+  bot.input.weaponMode = "laser";
+  bot.input.shoot = false;
+
+  const playerTarget = findNearestHumanPlayer(bot);
+  const pelletTarget = findNearestBotPellet(bot);
+  let targetPosition = pelletTarget?.position || pickBotWanderTarget(bot, now);
+
+  setBotAim(bot, targetPosition);
+  bot.input.movement = { forward: true };
+
+  if (playerTarget && setBotAim(bot, playerTarget.position)) {
+    setBotEvasiveMovement(bot, playerTarget, findIncomingBulletThreat(bot), now);
+    bot.input.shoot = true;
+  }
+}
+
+function updateBullets(delta) {
+  const now = Date.now();
+
+  bullets.forEach((bullet, id) => {
+    const previousPosition = { ...bullet.position };
+    bullet.position.x += bullet.velocity.x * delta;
+    bullet.position.y += bullet.velocity.y * delta;
+    bullet.position.z += bullet.velocity.z * delta;
+
+    const outsideWorld =
+      Math.abs(bullet.position.x) > HALF_WORLD ||
+      Math.abs(bullet.position.y) > HALF_WORLD ||
+      Math.abs(bullet.position.z) > HALF_WORLD;
+
+    if (outsideWorld || bullet.expiresAt <= now) {
+      removeBullet(id, outsideWorld ? "outside-world" : "expired");
+      return;
+    }
+
+    let hitPlayer = false;
+    players.forEach((player) => {
+      if (!bullet.canHitPlayers) return;
+      if (hitPlayer || player.id === bullet.ownerId) return;
+      if (bullet.hitPlayerIds.has(player.id)) return;
+      const hitDistance = player.radius + bullet.radius;
+
+      if (
+        segmentSphereIntersects(
+          previousPosition,
+          bullet.position,
+          player.position,
+          hitDistance
+        )
+      ) {
+        bullet.hitPlayerIds.add(player.id);
+        applyBulletPlayerHit(bullet, player);
+        bullet.penetrationLeft -= 1;
+        if (bullet.penetrationLeft <= 0) removeBullet(id, "player-hit");
+        hitPlayer = true;
+      }
+    });
+    if (hitPlayer && !bullets.has(id)) return;
+
+    const nearbyPellets = queryPelletsAlongSegment(
+      previousPosition,
+      bullet.position,
+      bullet.radius + (bullet.magnetRadius || 0)
+    );
+    for (const pellet of nearbyPellets) {
+      if (!pellet.active) continue;
+      if (bullet.hitPelletIndexes.has(pellet.index)) continue;
+
+      const hitDistance = pellet.size + bullet.radius + (bullet.magnetRadius || 0);
+
+      if (
+        segmentSphereIntersects(
+          previousPosition,
+          bullet.position,
+          pellet.position,
+          hitDistance
+        )
+      ) {
+        bullet.hitPelletIndexes.add(pellet.index);
+        applyBulletPelletHit(bullet, pellet);
+        bullet.penetrationLeft -= 1;
+        if (bullet.penetrationLeft <= 0) removeBullet(id, "pellet-hit");
+        return;
+      }
+    }
+  });
+}
+
+function handlePlayerCollisions(player) {
+  if (!players.has(player.id)) return;
+  players.forEach((other) => {
+    if (!players.has(player.id) || !players.has(other.id)) return;
+    if (other.id === player.id || other.radius <= 0 || player.radius <= 0)
+      return;
+    const dx = player.position.x - other.position.x;
+    const dy = player.position.y - other.position.y;
+    const dz = player.position.z - other.position.z;
+    const distanceSq = dx * dx + dy * dy + dz * dz;
+    const minDistance = player.radius + other.radius * 0.85;
+    if (distanceSq > minDistance * minDistance) return;
+    if (player.radius <= other.radius * 1.1) return;
+
+    if (player.hp === other.hp) {
+      player.hp = 0;
+      other.hp = 0;
+      defeatPlayer(player, "body");
+      defeatPlayer(other, "body");
+      return;
+    }
+
+    const winner = player.hp > other.hp ? player : other;
+    const loser = winner === player ? other : player;
+
+    winner.hp = Math.max(1, winner.hp - loser.hp);
+    awardVictimMass(winner, loser);
+    defeatPlayer(loser, "body");
   });
 }
 
 function updatePlayers(delta) {
+  const now = Date.now();
   players.forEach((player) => {
-    const direction = rotationToForward(player.input.rotation);
-    const speedMultiplier =
-      player.speedBoostUntil > Date.now() ? SPEED_MULTIPLIER : 1;
-    const targetSpeed = player.input.forward
-      ? player.speed * speedMultiplier
-      : 0;
-    const movementDamping = dampingFactor(
-      player.input.forward ? MOVE_ACCELERATION : MOVE_DECELERATION,
-      delta
-    );
-    const targetVelocityX = direction.x * targetSpeed;
-    const targetVelocityY = direction.y * targetSpeed;
-    const targetVelocityZ = direction.z * targetSpeed;
-
-    player.velocity.x +=
-      (targetVelocityX - player.velocity.x) * movementDamping;
-    player.velocity.y +=
-      (targetVelocityY - player.velocity.y) * movementDamping;
-    player.velocity.z +=
-      (targetVelocityZ - player.velocity.z) * movementDamping;
-
-    player.position.x += player.velocity.x * delta;
-    player.position.y += player.velocity.y * delta;
-    player.position.z += player.velocity.z * delta;
-    clampPlayerPosition(player);
-    handlePelletCollisions(player);
+    if (player.isBot) updateBotIntent(player, now);
   });
 
-  handlePlayerCollisions();
+  players.forEach((player) => {
+    // The server is authoritative: clients send input, but this function is
+    // where movement actually changes the shared multiplayer state.
+    const movement = player.input.movement || {};
+    if (
+      movement.forward ||
+      movement.backward ||
+      movement.left ||
+      movement.right ||
+      movement.up ||
+      movement.down
+    ) {
+      const forward = rotationToForward(player.input.rotation);
+      const right = rotationToRight(player.input.rotation);
+      const direction = { x: 0, y: 0, z: 0 };
+
+      if (movement.forward) {
+        direction.x += forward.x;
+        direction.y += forward.y;
+        direction.z += forward.z;
+      }
+      if (movement.backward) {
+        direction.x -= forward.x;
+        direction.y -= forward.y;
+        direction.z -= forward.z;
+      }
+      if (movement.right) {
+        direction.x += right.x;
+        direction.z += right.z;
+      }
+      if (movement.left) {
+        direction.x -= right.x;
+        direction.z -= right.z;
+      }
+      if (movement.up) direction.y += 1;
+      if (movement.down) direction.y -= 1;
+
+      normalizeVector(direction);
+      player.position.x += direction.x * player.speed * delta;
+      player.position.y += direction.y * player.speed * delta;
+      player.position.z += direction.z * player.speed * delta;
+      clampPosition(player.position, player.radius);
+    }
+    updateMagnetizedPellets(player, delta, now);
+    handlePelletCollisions(player);
+    if (!players.has(player.id)) return;
+    const isInCombat = player.combatUntil > now;
+    player.hp = Math.min(
+      getPlayerMaxHp(player),
+      player.hp + getHealthRegen(player, isInCombat) * delta
+    );
+  });
+
+  players.forEach((player) => {
+    updatePlayerLaser(player, delta);
+  });
+
+  players.forEach((player) => {
+    handlePlayerCollisions(player);
+  });
 }
 
 function broadcastWorldState() {
+  const movedPellets = Array.from(movedPelletIndexes, (index) => ({
+    index,
+    position: pellets[index].position,
+  }));
+  const laserPayload = Array.from(players.values())
+    .filter((player) => player.activeLaser)
+    .map((player) => ({
+      id: player.id,
+      origin: player.activeLaser.origin,
+      end: player.activeLaser.end,
+      hitPlayerId: player.activeLaser.hitPlayerId,
+      thickness: player.activeLaser.thickness,
+    }));
+  const laseredPlayerIds = new Set(
+    laserPayload.map((laser) => laser.hitPlayerId).filter(Boolean)
+  );
   const payload = [];
   players.forEach((player) => {
     payload.push({
@@ -2068,101 +1263,136 @@ function broadcastWorldState() {
       z: player.position.z,
       radius: player.radius,
       mass: player.mass,
-      vx: player.velocity.x,
-      vy: player.velocity.y,
-      vz: player.velocity.z,
+      hp: player.hp,
+      maxHp: getPlayerMaxHp(player),
+      viewDistance: getViewDistance(player),
+      isBot: Boolean(player.isBot),
+      isInCombat: player.combatUntil > Date.now(),
+      isBeingLasered: laseredPlayerIds.has(player.id),
     });
   });
-  io.emit("world-update", { players: payload });
+  const bulletPayload = Array.from(bullets.values()).map((bullet) => ({
+    id: bullet.id,
+    x: bullet.position.x,
+    y: bullet.position.y,
+    z: bullet.position.z,
+    vx: bullet.velocity.x,
+    vy: bullet.velocity.y,
+    vz: bullet.velocity.z,
+    magnetRadius: bullet.magnetRadius || 0,
+    radius: bullet.radius,
+  }));
+  io.sockets.sockets.forEach((socket) => {
+    const isBeingLasered = laserPayload.some(
+      (laser) => laser.hitPlayerId === socket.id
+    );
+    const visibleLasers = laserPayload.filter((laser) => laser.hitPlayerId !== socket.id);
+    socket.emit("world-update", {
+      players: payload,
+      bullets: bulletPayload,
+      lasers: visibleLasers,
+      movedPellets,
+      isBeingLasered,
+    });
+  });
+  movedPelletIndexes.clear();
 }
 
-setInterval(() => {
-  const now = Date.now();
-  const delta = Math.min((now - lastTick) / 1000, 0.1);
-  lastTick = now;
-  updatePlayers(delta);
-  broadcastWorldState();
-}, TICK_INTERVAL);
+function spawnBot(index) {
+  const id = `bot-${index}`;
+  if (players.has(id)) return;
 
-async function pollPendingCryptoDeposits() {
-  if (!cryptoDepositPollingEnabled || cryptoDepositPollerRunning) return;
-  cryptoDepositPollerRunning = true;
-  try {
-    const sessions = db.prepare(`
-      SELECT * FROM crypto_deposit_sessions
-      WHERE status NOT IN ('credited', 'cancelled', 'failed')
-        AND (deposit_address IS NOT NULL OR relay_request_id IS NOT NULL)
-      ORDER BY updated_at ASC
-      LIMIT 20
-    `).all();
-    for (const session of sessions) {
-      try {
-        await refreshCryptoDepositSession(session);
-      } catch (error) {
-        console.error(`Crypto deposit poll failed for ${session.id}:`, error.message);
-      }
-    }
-  } finally {
-    cryptoDepositPollerRunning = false;
+  const bot = createPlayerState({
+    id,
+    name: `Bot ${index + 1}`,
+    isBot: true,
+    position: randomSeparatedPosition(PLAYER_BASE_RADIUS),
+  });
+  bot.nextThinkAt = Date.now() + randomBetween(0, BOT_THINK_INTERVAL_MS);
+  bot.wanderTarget = randomPosition(bot.radius);
+  bot.wanderTargetUntil = Date.now() + randomBetween(500, BOT_WANDER_RETARGET_MS);
+
+  players.set(id, bot);
+  io.emit("player-joined", {
+    id: bot.id,
+    name: bot.name,
+    x: bot.position.x,
+    y: bot.position.y,
+    z: bot.position.z,
+    radius: bot.radius,
+    hp: bot.hp,
+    maxHp: getPlayerMaxHp(bot),
+    isBot: true,
+  });
+}
+
+function spawnBots() {
+  for (let i = 0; i < BOT_COUNT; i++) {
+    spawnBot(i);
   }
 }
 
-setInterval(() => {
-  pollPendingCryptoDeposits().catch((error) => {
-    console.error("Crypto deposit poller failed:", error.message);
+function scheduleBotRespawn(player) {
+  if (!player.isBot) return;
+  const index = Number(player.id.replace("bot-", ""));
+  if (!Number.isInteger(index) || botRespawnTimers.has(index)) return;
+
+  const timer = setTimeout(() => {
+    botRespawnTimers.delete(index);
+    spawnBot(index);
+    broadcastWorldState();
+  }, BOT_RESPAWN_MS);
+  botRespawnTimers.set(index, timer);
+}
+
+function removePlayer(id) {
+  const player = players.get(id);
+  if (!player) return false;
+  players.delete(id);
+  scheduleBotRespawn(player);
+  bullets.forEach((bullet, bulletId) => {
+    if (bullet.ownerId === id) removeBullet(bulletId, "owner-left");
   });
-}, 30_000);
+  io.emit("player-left", id);
+  broadcastWorldState();
+  return true;
+}
+
+spawnBots();
+
+setInterval(() => {
+  // Main server loop. At 20 ticks per second it moves players, handles
+  // collisions, and broadcasts the new world snapshot to every browser.
+  const now = Date.now();
+  const delta = (now - lastTick) / 1000;
+  lastTick = now;
+  updatePlayers(delta);
+  updateBullets(delta);
+  broadcastWorldState();
+}, TICK_INTERVAL);
 
 io.on("connection", (socket) => {
   console.log(`✅ Client connected: ${socket.id}`);
   console.log(`Total clients: ${io.engine.clientsCount}`);
 
-  socket.on("join", ({ name, startingMass, gameTicket }) => {
-    const localSocket = isLocalSocket(socket);
-    const ticket = consumeGameTicket(gameTicket);
-    if (!localSocket && !ticket) {
-      socket.emit("join-rejected", { error: "Paid game ticket is required." });
+  socket.on("join", ({ name }) => {
+    const existingPlayer = players.get(socket.id);
+    if (existingPlayer) {
+      existingPlayer.name = name || existingPlayer.name || "Player";
+      socket.emit("pellet-state", pelletState);
+      emitUpgradeState(existingPlayer);
+      broadcastWorldState();
       return;
     }
-    const requestedMass = normalizeBetUsd(ticket?.startingMass ?? startingMass);
-    const mass =
-      requestedMass >= MIN_BET_USD
-        ? requestedMass
-        : DEFAULT_STARTING_MASS_USD;
-    const playerRadius = massToRadius(mass);
-    const spawnPosition = findSafePlayerSpawn(playerRadius);
-    const player = {
+
+    const player = createPlayerState({
       id: socket.id,
-      userId: ticket?.userId || null,
-      entryCharged: Boolean(ticket?.entryCharged),
       name: name || "Player",
-      position: spawnPosition,
-      radius: playerRadius,
-      magnetUntil: 0,
-      speedBoostUntil: 0,
-      abilityReadyAt: { magnet: 0, speed: 0 },
-      mass,
-      startingMass: mass,
-      speed: getPlayerSpeed(mass),
-      velocity: { x: 0, y: 0, z: 0 },
-      input: { forward: false, rotation: { yaw: 0, pitch: 0 } },
-    };
+      position: randomSeparatedPosition(PLAYER_BASE_RADIUS),
+    });
     players.set(socket.id, player);
     socket.emit("pellet-state", pelletState);
-    socket.emit("world-update", {
-      players: Array.from(players.values()).map((p) => ({
-        id: p.id,
-        name: p.name,
-        x: p.position.x,
-        y: p.position.y,
-        z: p.position.z,
-        radius: p.radius,
-        mass: p.mass,
-        vx: p.velocity.x,
-        vy: p.velocity.y,
-        vz: p.velocity.z,
-      })),
-    });
+    emitUpgradeState(player);
     socket.broadcast.emit("player-joined", {
       id: player.id,
       name: player.name,
@@ -2170,127 +1400,88 @@ io.on("connection", (socket) => {
       y: player.position.y,
       z: player.position.z,
       radius: player.radius,
+      hp: player.hp,
+      maxHp: getPlayerMaxHp(player),
     });
+    broadcastWorldState();
+  });
+
+  socket.on("buy-upgrade", ({ key } = {}) => {
+    const player = players.get(socket.id);
+    const def = UPGRADE_DEFS[key];
+    if (!player || !def) return;
+    const level = getUpgradeLevel(player, key);
+    if (level >= def.maxLevel) {
+      emitUpgradeState(player);
+      return;
+    }
+
+    const cost = getUpgradeCost(player, key);
+    if (player.mass < cost) {
+      emitUpgradeState(player);
+      return;
+    }
+
+    player.mass -= cost;
+    player.upgrades[key] = level + 1;
+    player.speed = getPlayerSpeed(player);
+    player.hp = Math.min(getPlayerMaxHp(player), player.hp);
+    emitUpgradeState(player);
+  });
+
+  socket.on("dev-teleport-near-player", () => {
+    const player = players.get(socket.id);
+    if (!player) return;
+
+    const target = Array.from(players.values()).find((p) => p.id !== player.id);
+    if (!target) return;
+
+    const angle = Math.random() * Math.PI * 2;
+    const distance = target.radius + player.radius + 6;
+    player.position = clampPosition(
+      {
+        x: target.position.x + Math.cos(angle) * distance,
+        y: target.position.y,
+        z: target.position.z + Math.sin(angle) * distance,
+      },
+      player.radius
+    );
+    player.input.movement = {};
   });
 
   socket.on("player-input", (input) => {
     const player = players.get(socket.id);
     if (!player) return;
     player.input.forward = Boolean(input.forward);
+    player.input.movement = {
+      forward: Boolean(input.movement?.forward ?? input.forward),
+      backward: Boolean(input.movement?.backward),
+      left: Boolean(input.movement?.left),
+      right: Boolean(input.movement?.right),
+      up: Boolean(input.movement?.up),
+      down: Boolean(input.movement?.down),
+    };
     if (input.rotation) {
       player.input.rotation = {
         yaw: Number(input.rotation.yaw) || 0,
-        pitch: clamp(
-          Number(input.rotation.pitch) || 0,
-          -Math.PI / 2 + 0.1,
-          Math.PI / 2 - 0.1
-        ),
+        pitch: Number(input.rotation.pitch) || 0,
       };
     }
-  });
-
-  socket.on("activate-ability", ({ ability }) => {
-    const player = players.get(socket.id);
-    if (!player || (ability !== "magnet" && ability !== "speed")) return;
-
-    const now = Date.now();
-    const readyAt = player.abilityReadyAt[ability] || 0;
-    if (now < readyAt) {
-      socket.emit("ability-rejected", {
-        ability,
-        readyInMs: readyAt - now,
-      });
-      return;
+    if (input.aim) {
+      player.input.aim = {
+        origin: parseVector(input.aim.origin),
+        direction: parseVector(input.aim.direction),
+      };
     }
-
-    player.abilityReadyAt[ability] = now + ABILITY_COOLDOWN_MS;
-    const durationMs =
-      ability === "magnet" ? MAGNET_DURATION_MS : SPEED_DURATION_MS;
-    if (ability === "magnet") player.magnetUntil = now + durationMs;
-    if (ability === "speed") player.speedBoostUntil = now + durationMs;
-
-    socket.emit("ability-activated", {
-      ability,
-      durationMs,
-      cooldownMs: ABILITY_COOLDOWN_MS,
-    });
-  });
-
-  socket.on("teleport-nearest-player", () => {
-    const player = players.get(socket.id);
-    if (!player) {
-      socket.emit("teleport-result", {
-        ok: false,
-        error: "No active player.",
-      });
-      return;
+    player.input.shoot = Boolean(input.shoot);
+    player.input.weaponMode = input.weaponMode === "laser" ? "laser" : "bullet";
+    if (player.input.shoot && player.input.weaponMode === "bullet") {
+      shootBullet(player);
     }
-
-    let nearestPlayer = null;
-    let nearestDistanceSquared = Infinity;
-    players.forEach((candidate) => {
-      if (candidate.id === player.id) return;
-      const dx = player.position.x - candidate.position.x;
-      const dy = player.position.y - candidate.position.y;
-      const dz = player.position.z - candidate.position.z;
-      const distanceSquared = dx * dx + dy * dy + dz * dz;
-      if (distanceSquared < nearestDistanceSquared) {
-        nearestDistanceSquared = distanceSquared;
-        nearestPlayer = candidate;
-      }
-    });
-
-    if (!nearestPlayer) {
-      socket.emit("teleport-result", {
-        ok: false,
-        error: "No other players are currently in the arena.",
-      });
-      return;
-    }
-
-    let dx = player.position.x - nearestPlayer.position.x;
-    let dy = player.position.y - nearestPlayer.position.y;
-    let dz = player.position.z - nearestPlayer.position.z;
-    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (distance < 0.0001) {
-      dx = 1;
-      dy = 0;
-      dz = 0;
-    } else {
-      dx /= distance;
-      dy /= distance;
-      dz /= distance;
-    }
-
-    const safeDistance = player.radius + nearestPlayer.radius + 0.5;
-    player.position.x = nearestPlayer.position.x + dx * safeDistance;
-    player.position.y = nearestPlayer.position.y + dy * safeDistance;
-    player.position.z = nearestPlayer.position.z + dz * safeDistance;
-    player.velocity.x = 0;
-    player.velocity.y = 0;
-    player.velocity.z = 0;
-    clampPlayerPosition(player);
-
-    socket.emit("teleport-result", {
-      ok: true,
-      targetName: nearestPlayer.name,
-    });
   });
 
   socket.on("request-pellet-state", () => {
     socket.emit("pellet-state", pelletState);
-  });
-
-  socket.on("cash-in", () => {
-    const player = players.get(socket.id);
-    if (!player) {
-      socket.emit("cash-in-result", {
-        ok: false,
-        error: "No active player to cash in.",
-      });
-      return;
-    }
-    cashInPlayer(socket, player);
   });
 
   socket.on("ping", () => {
@@ -2300,20 +1491,15 @@ io.on("connection", (socket) => {
   socket.on("disconnect", (reason) => {
     console.log(`❌ Client disconnected: ${socket.id}`);
     console.log(`Disconnect reason: ${reason}`);
-    const player = players.get(socket.id);
-    if (player) {
-      players.delete(socket.id);
-      io.emit("player-left", socket.id);
-    }
+    removePlayer(socket.id);
   });
 });
 
-const port = Number(process.env.PORT) || 3001;
-server.listen(port, "0.0.0.0", () => {
-  console.log(`Multiplayer server running on port ${port}`);
+server.listen(3001, "0.0.0.0", () => {
+  console.log("Multiplayer server running on port 3001");
   console.log("Server is accessible on:");
-  console.log(`  - localhost:${port}`);
-  console.log(`  - <your-local-ip>:${port}`);
+  console.log("  - localhost:3001");
+  console.log("  - <your-local-ip>:3001");
   console.log(
     "\nTo find your local IP, run: ip addr show (Linux) or ipconfig (Windows)"
   );

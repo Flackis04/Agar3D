@@ -1,31 +1,64 @@
-import { checkEatCondition, convertMassToRadius } from "./utils/playerUtils.js";
+import { checkEatCondition } from "./utils/playerUtils.js";
 import * as THREE from "three";
 import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { SpatialGrid } from "./utils/spatialGrid.js";
 
-export const mapSize = 125;
-export const pelletCount = 250000;
-export const pelletMinSize = 0.03;
-export const pelletMaxSize = 0.04;
-export const minBetUsd = 5;
-export const startingMassUsd = 20;
+export const mapSize = 250;
+export const pelletMinSize = 0.3;
+export const pelletMaxSize = 0.55;
+const powerUpInterval = 24;
+const pelletDensityCenterCount = 64;
+const pelletGaussianChance = 0.8;
+const pelletGaussianSpread = 16;
 
-export function createPlayerCell(
-  isBot,
-  scene,
-  camera,
-  startingMass = startingMassUsd
-) {
-  const playerStartingRadius = isBot
-    ? Math.random() * 5.75
-    : convertMassToRadius(startingMass, pelletMinSize);
+function isPowerUpIndex(index) {
+  return index % powerUpInterval === 0;
+}
+
+function randomGaussian() {
+  const u = Math.max(Number.EPSILON, Math.random());
+  const v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function randomMapPosition(radius) {
+  const maxPos = mapSize / 2 - radius;
+  return new THREE.Vector3(
+    (Math.random() - 0.5) * 2 * maxPos,
+    (Math.random() - 0.5) * 2 * maxPos,
+    (Math.random() - 0.5) * 2 * maxPos
+  );
+}
+
+function randomPelletPosition(radius, densityCenters) {
+  if (!densityCenters?.length || Math.random() > pelletGaussianChance) {
+    return randomMapPosition(radius);
+  }
+
+  const center = densityCenters[Math.floor(Math.random() * densityCenters.length)];
+  const position = center.clone().add(
+    new THREE.Vector3(
+      randomGaussian() * pelletGaussianSpread,
+      randomGaussian() * pelletGaussianSpread,
+      randomGaussian() * pelletGaussianSpread
+    )
+  );
+  const maxPos = mapSize / 2 - radius;
+  position.x = Math.max(-maxPos, Math.min(maxPos, position.x));
+  position.y = Math.max(-maxPos, Math.min(maxPos, position.y));
+  position.z = Math.max(-maxPos, Math.min(maxPos, position.z));
+  return position;
+}
+
+export function createPlayerCell(isBot, scene, camera) {
+  const playerStartingRadius = isBot ? Math.random() * 5.75 : 0.75;
   const playerDefaultOpacity = 0.65;
-  const playerCellColor = isBot ? 0xff3333 : 0x00aaff;
+  const playerCellColor = isBot ? 0x999999 : 0x00aaff;
 
   const geometry = new THREE.SphereGeometry(playerStartingRadius, 32, 32);
   const material = new THREE.MeshStandardMaterial({
     color: playerCellColor,
-    emissive: 0x002244,
+    emissive: isBot ? 0x242424 : 0x002244,
     emissiveIntensity: 0.15,
     metalness: 0.1,
     transparent: true,
@@ -45,7 +78,6 @@ export function createPlayerCell(
   cell.userData.isBot = isBot;
   cell.userData.defaultOpacity = playerDefaultOpacity;
   cell.userData.isEaten = false;
-  cell.userData.startingMass = startingMass;
   scene.add(cell);
 
   return { cell, playerDefaultOpacity };
@@ -69,14 +101,13 @@ export function createMagnetSphere(playerCell, magnetRange) {
   });
 
   const magnetSphere = new THREE.Group();
-  magnetSphere.userData.baseRadius = magnetRange;
-  magnetSphere.scale.setScalar(0.001);
 
   const solidMesh = new THREE.Mesh(geometry, solidMaterial);
   const wireframeMesh = new THREE.Mesh(geometry, wireframeMaterial);
 
   magnetSphere.add(solidMesh);
   magnetSphere.add(wireframeMesh);
+  magnetSphere.scale.setScalar(0.001);
   magnetSphere.visible = false;
 
   playerCell.magnetSphere = magnetSphere;
@@ -166,11 +197,22 @@ export function createMapBox(onReady) {
     onReady(particles, PARTICLE_SIZE);
   }
 
-  finalize(buildMaterial(createFallbackTexture()));
+  const loader = new THREE.TextureLoader();
+  loader.load(
+    "https://threejs.org/examples/textures/sprites/disc.png",
+    (texture) => {
+      finalize(buildMaterial(texture));
+    },
+    undefined,
+    () => {
+      console.warn("Falling back to canvas texture for border points");
+      finalize(buildMaterial(createFallbackTexture()));
+    }
+  );
 }
 
 export function createPelletsInstanced(scene, count, colors) {
-  const geometry = new THREE.SphereGeometry(1, 6, 4);
+  const geometry = new THREE.SphereGeometry(1, 5, 3);
   const materialNormal = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     opacity: 1,
@@ -187,31 +229,37 @@ export function createPelletsInstanced(scene, count, colors) {
   const sizes = [];
   const active = new Array(count).fill(true);
   const powerUps = new Array(count);
-  const bombRolls = new Array(count);
   const pelletToMeshIndex = new Array(count);
-  const palette = colors.map((color) => new THREE.Color(color));
+  const densityCenters = Array.from({ length: pelletDensityCenterCount }, () =>
+    randomMapPosition(pelletGaussianSpread)
+  );
 
+  let powerupCount = 0;
+  let normalCount = 0;
   for (let i = 0; i < count; i++) {
-    powerUps[i] = false;
-    bombRolls[i] = Math.random();
+    const isPowerUp = isPowerUpIndex(i);
+    powerUps[i] = isPowerUp;
+    if (isPowerUp) powerupCount++;
+    else normalCount++;
   }
 
   const meshNormal = new THREE.InstancedMesh(
     geometry,
     materialNormal,
-    count
+    normalCount
   );
   const meshPowerup = new THREE.InstancedMesh(
     geometry,
     materialPowerup,
-    1
+    powerupCount
   );
-  meshNormal.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  meshPowerup.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+  let normalIdx = 0;
+  let powerupIdx = 0;
 
   for (let i = 0; i < count; i++) {
-    const color = palette[i % palette.length];
     const isPowerUp = powerUps[i];
+    const color = new THREE.Color(isPowerUp ? 0xff0000 : colors[i % colors.length]);
 
     const size =
       Math.random() * (pelletMaxSize - pelletMinSize) + pelletMinSize;
@@ -226,23 +274,23 @@ export function createPelletsInstanced(scene, count, colors) {
       isPowerUp,
       meshNormal,
       meshPowerup,
-      normalIdx: i,
-      powerupIdx: 0,
+      normalIdx,
+      powerupIdx,
       pelletToMeshIndex,
+      densityCenters,
       i,
       isInitialSpawn: true,
-      deferBufferUpdates: true,
     });
-    positions.push(position);
+    if (isPowerUp) {
+      powerupIdx++;
+    } else {
+      normalIdx++;
+    }
+    positions.push(position.clone());
   }
 
   meshNormal.instanceMatrix.needsUpdate = true;
   if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
-  meshNormal.computeBoundingSphere();
-  dummy.position.set(0, 0, 0);
-  dummy.scale.setScalar(0.0001);
-  dummy.updateMatrix();
-  meshPowerup.setMatrixAt(0, dummy.matrix);
   meshPowerup.instanceMatrix.needsUpdate = true;
   if (meshPowerup.instanceColor) meshPowerup.instanceColor.needsUpdate = true;
 
@@ -254,7 +302,7 @@ export function createPelletsInstanced(scene, count, colors) {
 
   // Create spatial grid for efficient collision detection
   // Voxel size should be roughly 2x the max interaction radius
-  const voxelSize = 4;
+  const voxelSize = 20; // Adjust based on typical cell + magnet radius
   const spatialGrid = new SpatialGrid(mapSize, voxelSize);
 
   // Build initial grid from pelletCell positions
@@ -269,9 +317,7 @@ export function createPelletsInstanced(scene, count, colors) {
     radius: geometry.parameters.radius,
     dummy,
     powerUps,
-    bombRolls,
     pelletToMeshIndex,
-    minRadius: pelletMinSize,
     spatialGrid,
   };
 }
@@ -293,19 +339,12 @@ export function respawnPellet({
   normalIdx,
   powerupIdx,
   pelletToMeshIndex,
+  densityCenters,
   i,
   isInitialSpawn = false,
-  deferBufferUpdates = false,
 }) {
   const pelletRadius = size;
-  const halfMapSize = mapSize / 2;
-  const maxPos = halfMapSize - pelletRadius;
-
-  const position = new THREE.Vector3(
-    (Math.random() - 0.5) * 2 * maxPos,
-    (Math.random() - 0.5) * 2 * maxPos,
-    (Math.random() - 0.5) * 2 * maxPos
-  );
+  const position = randomPelletPosition(pelletRadius, densityCenters);
 
   const initialScale = isInitialSpawn ? size : 0;
 
@@ -318,13 +357,19 @@ export function respawnPellet({
   dummy.scale.setScalar(initialScale);
   dummy.updateMatrix();
 
-  meshNormal.setMatrixAt(normalIdx, dummy.matrix);
-  meshNormal.setColorAt(normalIdx, color);
-  if (!deferBufferUpdates) {
+  if (isPowerUp) {
+    meshPowerup.setMatrixAt(powerupIdx, dummy.matrix);
+    meshPowerup.setColorAt(powerupIdx, color);
+    meshPowerup.instanceMatrix.needsUpdate = true;
+    if (meshPowerup.instanceColor) meshPowerup.instanceColor.needsUpdate = true;
+    pelletToMeshIndex[i] = powerupIdx;
+  } else {
+    meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+    meshNormal.setColorAt(normalIdx, color);
     meshNormal.instanceMatrix.needsUpdate = true;
     if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
+    pelletToMeshIndex[i] = normalIdx;
   }
-  pelletToMeshIndex[i] = normalIdx;
 
   if (!isInitialSpawn) {
     const spawnTime = performance.now();
@@ -343,8 +388,13 @@ export function respawnPellet({
       dummy.scale.setScalar(currentScale);
       dummy.updateMatrix();
 
-      meshNormal.setMatrixAt(normalIdx, dummy.matrix);
-      meshNormal.instanceMatrix.needsUpdate = true;
+      if (isPowerUp) {
+        meshPowerup.setMatrixAt(powerupIdx, dummy.matrix);
+        meshPowerup.instanceMatrix.needsUpdate = true;
+      } else {
+        meshNormal.setMatrixAt(normalIdx, dummy.matrix);
+        meshNormal.instanceMatrix.needsUpdate = true;
+      }
 
       if (progress < 1) {
         requestAnimationFrame(animateGrowth);
@@ -355,55 +405,6 @@ export function respawnPellet({
   }
 
   return position;
-}
-
-export function createViruses(scene) {
-  const VIRUS_COUNT = 125;
-  const VIRUS_SIZE = 1.75;
-  const virusColor = 0x32cd32;
-  const geometry = new THREE.DodecahedronGeometry(VIRUS_SIZE);
-  const material = new THREE.MeshStandardMaterial({
-    color: virusColor,
-    opacity: 0.8,
-    transparent: true,
-  });
-  const border = mapSize / 2 - VIRUS_SIZE;
-  const positions = [];
-  const virusCells = [];
-  for (let i = 0; i < VIRUS_COUNT; i++) {
-    let pos;
-    let tries = 0;
-    do {
-      pos = new THREE.Vector3(
-        Math.random() * (border * 2 - VIRUS_SIZE * 2) - (border - VIRUS_SIZE),
-        Math.random() * (border * 2 - VIRUS_SIZE * 2) - (border - VIRUS_SIZE),
-        Math.random() * (border * 2 - VIRUS_SIZE * 2) - (border - VIRUS_SIZE)
-      );
-      tries++;
-    } while (
-      positions.some((p) => p.distanceTo(pos) < VIRUS_SIZE * 2.1) &&
-      tries < 20
-    );
-    positions.push(pos);
-    const mesh = new THREE.Mesh(geometry, material.clone());
-    mesh.position.copy(pos);
-    mesh.userData.baseScale = 1;
-    virusCells.push(mesh);
-    scene.add(mesh);
-  }
-
-  scene.userData.virusCells = virusCells;
-
-  function animateViruses(time) {
-    for (let i = 0; i < virusCells.length; i++) {
-      const mesh = virusCells[i];
-      mesh.rotation.y += 0.005;
-      mesh.rotation.x += 0.002;
-      const scale = mesh.userData.baseScale + 0.08 * Math.sin(time * 0.001 + i);
-      mesh.scale.setScalar(scale);
-    }
-  }
-  scene.userData.animateViruses = animateViruses;
 }
 
 export function createSplitSphere(playerCell) {

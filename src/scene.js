@@ -17,8 +17,6 @@ let fogTransition = {
   duration: 500, // 0.5 seconds
 };
 
-export const DEFAULT_VIEW_DISTANCE = 25;
-
 export function updateBorderFog(scene) {
   // Find the border (Points mesh) and update its fog uniforms
   scene.traverse((object) => {
@@ -33,10 +31,10 @@ export function updateBorderFog(scene) {
   });
 }
 
-export function updateFogDistance(scene) {
+export function updateFogDistance(scene, cameraDistance) {
   if (!scene.fog) return;
 
-  const targetFogFar = DEFAULT_VIEW_DISTANCE;
+  const targetFogFar = cameraDistance * 2;
 
   // If we're currently animating, continue the animation
   if (fogTransition.isAnimating) {
@@ -74,11 +72,11 @@ export function createScene() {
   const fov = 75;
   const aspect = window.innerWidth / window.innerHeight;
   const near = 0.2;
-  const far = 600;
+  const far = 1000;
   const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
 
   const fogNear = 0;
-  const fogFar = DEFAULT_VIEW_DISTANCE;
+  const fogFar = 100; // Initial value, will be updated dynamically
   scene.fog = new THREE.Fog(bgColor, fogNear, fogFar);
 
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);

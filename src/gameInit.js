@@ -3,27 +3,27 @@ import {
   createPelletsInstanced,
   createPlayerCell,
   createMagnetSphere,
-  pelletCount,
+  createCellSpatialGrid,
+  pelletMinSize,
 } from "./objects.js";
 import { initNetworking, emitJoin, setupPelletSync } from "./multiplayer.js";
 import { updateFogDistance, updateBorderFog } from "./scene.js";
+import { calculateCameraDistanceTarget } from "./camera.js";
 
-export function initializeGame(
-  scene,
-  camera,
-  onReady,
-  playerName = "Player",
-  startingMass = 20,
-  gameTicket = null
-) {
+// Builds one playable match. It creates local Three.js objects first, then
+// connects them to the multiplayer server so server updates can drive them.
+export function initializeGame(scene, camera, onReady, playerName = "Player", audioManager = null) {
   const { cell: playerCell, playerDefaultOpacity } = createPlayerCell(
     false,
     scene,
-    camera,
-    startingMass
+    camera
   );
 
-  updateFogDistance(scene);
+  const playerRadius =
+    playerCell.geometry.parameters.radius *
+    Math.max(playerCell.scale.x, playerCell.scale.y, playerCell.scale.z);
+  const initialCameraDistance = calculateCameraDistanceTarget(playerCell, false);
+  updateFogDistance(scene, initialCameraDistance, playerRadius);
 
   // Bots disabled for multiplayer - only players will be visible
   const botCount = 0;
@@ -40,8 +40,10 @@ export function initializeGame(
   const magnetSphere = createMagnetSphere(playerCell, magnetRange);
   scene.add(magnetSphere);
 
-  initNetworking(scene, playerCell);
-  emitJoin(playerName, startingMass, gameTicket);
+  // After this, multiplayer.js listens for server snapshots and applies them
+  // to playerCell, pellets, and other players' meshes.
+  initNetworking(scene, playerCell, audioManager, camera);
+  emitJoin(playerName);
 
   const cells = [];
   let lastSplitTime = null;
@@ -57,11 +59,15 @@ export function initializeGame(
       0xff69b4,
     ];
 
+    // Keep this equal to the server count. Otherwise unseen server pellets
+    // can still block shots aimed at the rendered pellet set.
+    const PELLET_COUNT = 75000;
     const pelletData = createPelletsInstanced(
       scene,
-      pelletCount,
+      PELLET_COUNT,
       pelletColors
     );
+    const cellSpatialGrid = createCellSpatialGrid();
 
     setupPelletSync(pelletData);
 
@@ -73,6 +79,9 @@ export function initializeGame(
       lastSplitTime,
       border: loadedBorder,
       pelletData,
+      cellSpatialGrid,
+      magnetSphere,
+      audioManager,
     });
   });
 }
