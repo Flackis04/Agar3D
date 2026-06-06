@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { createSplitSphere, mapSize, respawnPellet } from "../objects.js";
+import { hasMinimumSphereVolumeOverlap } from "./sphereOverlap.js";
 
 export function checkCellDistanceFromCamera(activeCell, cameraDistance) {
   if (activeCell.position.distanceTo(camera.position) > cameraDistance) {
@@ -218,8 +219,13 @@ export function checkEatCondition(cell, pelletData, onEatCallback) {
     if (cell.userData?.isEaten) break;
     const i = nearbyIndices[idx];
     if (!active[i]) continue;
-    const distance = cellPosition.distanceTo(positions[i]);
-    if (distance <= cellRadius + sizes[i]) {
+    if (
+      hasMinimumSphereVolumeOverlap(
+        cellRadius,
+        sizes[i],
+        cellPosition.distanceToSquared(positions[i])
+      )
+    ) {
       if (!cell.isBot) {
       }
       eatenCount++;

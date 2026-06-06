@@ -160,7 +160,6 @@ const SPAWN_ATTEMPTS = 24;
 const PELLET_COUNT = 125000;
 const PELLET_MIN_RADIUS = 0.03;
 const PELLET_MAX_RADIUS = 0.04;
-const PELLET_EAT_PADDING = PELLET_MAX_RADIUS * 1.5;
 const PELLET_GRID_SIZE = 4;
 const PELLET_COLOR_COUNT = 8;
 const RED_PELLET_INDEX = 0;
@@ -1711,7 +1710,7 @@ function removePelletFromGrid(pellet) {
 }
 
 function getNearbyPelletIndices(position, radius) {
-  const searchRadius = radius + PELLET_MAX_RADIUS + PELLET_EAT_PADDING;
+  const searchRadius = radius + PELLET_MAX_RADIUS;
   const minX = Math.floor((position.x + HALF_WORLD - searchRadius) / PELLET_GRID_SIZE);
   const maxX = Math.floor((position.x + HALF_WORLD + searchRadius) / PELLET_GRID_SIZE);
   const minY = Math.floor((position.y + HALF_WORLD - searchRadius) / PELLET_GRID_SIZE);
@@ -1851,6 +1850,38 @@ function settlePlayerDeath(player) {
   player.entryCharged = true;
 }
 
+function hasMinimumPelletVolumeOverlap(
+  eaterRadius,
+  pelletRadius,
+  distanceSquared,
+  minimumPelletFraction = 0.25
+) {
+  const combinedRadius = eaterRadius + pelletRadius;
+  if (distanceSquared >= combinedRadius * combinedRadius) return false;
+
+  const radiusDifference = Math.abs(eaterRadius - pelletRadius);
+  const pelletVolume = (4 / 3) * Math.PI * pelletRadius ** 3;
+
+  if (distanceSquared <= radiusDifference * radiusDifference) {
+    const containedRadius = Math.min(eaterRadius, pelletRadius);
+    const containedVolume = (4 / 3) * Math.PI * containedRadius ** 3;
+    return containedVolume >= pelletVolume * minimumPelletFraction;
+  }
+
+  const distance = Math.sqrt(distanceSquared);
+  const overlapHeight = combinedRadius - distance;
+  const radiusDelta = pelletRadius - eaterRadius;
+  const intersectionVolume =
+    (Math.PI *
+      overlapHeight ** 2 *
+      (distance ** 2 +
+        2 * distance * combinedRadius -
+        3 * radiusDelta ** 2)) /
+    (12 * distance);
+
+  return intersectionVolume >= pelletVolume * minimumPelletFraction;
+}
+
 function handlePelletCollisions(player) {
   const magnetActive = player.magnetUntil > Date.now();
   const collectionRadius = magnetActive ? player.radius * 4 : player.radius;
@@ -1864,8 +1895,14 @@ function handlePelletCollisions(player) {
     const dx = player.position.x - pellet.position.x;
     const dy = player.position.y - pellet.position.y;
     const dz = player.position.z - pellet.position.z;
-    const eatRadius = collectionRadius + pellet.size + PELLET_EAT_PADDING;
-    if (dx * dx + dy * dy + dz * dz <= eatRadius * eatRadius) {
+    const distanceSquared = dx * dx + dy * dy + dz * dz;
+    if (
+      hasMinimumPelletVolumeOverlap(
+        collectionRadius,
+        pellet.size,
+        distanceSquared
+      )
+    ) {
       pellet.active = false;
       removePelletFromGrid(pellet);
       pelletState.active[pellet.index] = false;

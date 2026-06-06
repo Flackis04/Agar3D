@@ -1,6 +1,5 @@
 import * as THREE from "three";
 
-const CAMERA_ROTATION_DAMPING = 18;
 const CAMERA_DISTANCE_DAMPING = 8;
 
 function clampPitch(pitch) {
@@ -26,14 +25,6 @@ function dampingFactor(rate, delta) {
   return 1 - Math.exp(-rate * delta);
 }
 
-function dampAngle(current, target, rate, delta) {
-  const difference = Math.atan2(
-    Math.sin(target - current),
-    Math.cos(target - current)
-  );
-  return current + difference * dampingFactor(rate, delta);
-}
-
 function calculateCameraDistanceFromPlayer(
   playerCell,
   magnetActive
@@ -56,10 +47,8 @@ export function createCameraController(camera, playerCell) {
   const devLookTarget = new THREE.Vector3();
   const cameraOffset = new THREE.Vector3();
   const devRotation = { yaw: 0, pitch: 0 };
-  const smoothedRotation = { yaw: 0, pitch: 0 };
   const devSpeed = 1;
   let followDistance = calculateCameraDistanceFromPlayer(playerCell, false);
-  let rotationInitialized = false;
 
   function toggleDeveloperMode() {
     devMode = !devMode;
@@ -100,25 +89,6 @@ export function createCameraController(camera, playerCell) {
   ) {
     if (!playerCell || !playerCell.position) return;
 
-    if (!rotationInitialized) {
-      smoothedRotation.yaw = playerRotation.yaw;
-      smoothedRotation.pitch = playerRotation.pitch;
-      rotationInitialized = true;
-    } else {
-      smoothedRotation.yaw = dampAngle(
-        smoothedRotation.yaw,
-        playerRotation.yaw,
-        CAMERA_ROTATION_DAMPING,
-        delta
-      );
-      smoothedRotation.pitch = dampAngle(
-        smoothedRotation.pitch,
-        playerRotation.pitch,
-        CAMERA_ROTATION_DAMPING,
-        delta
-      );
-    }
-
     const targetDistance = calculateCameraDistanceFromPlayer(
       playerCell,
       magnetActive
@@ -128,8 +98,8 @@ export function createCameraController(camera, playerCell) {
       dampingFactor(CAMERA_DISTANCE_DAMPING, delta);
 
     const offset = calculateDirectionVector(
-      smoothedRotation.yaw,
-      smoothedRotation.pitch,
+      playerRotation.yaw,
+      playerRotation.pitch,
       followDistance,
       cameraOffset
     );

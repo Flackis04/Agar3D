@@ -2,6 +2,7 @@ import { io } from "socket.io-client";
 import * as THREE from "three";
 import { mapSize, pelletMinSize } from "./objects.js";
 import { AudioManager } from "./audio.js";
+import { hasMinimumSphereVolumeOverlap } from "./utils/sphereOverlap.js";
 
 const defaultSocketUrl = `${window.location.protocol}//${window.location.hostname}:3001`;
 const socketUrl = import.meta.env.VITE_API_BASE_URL || defaultSocketUrl;
@@ -452,8 +453,13 @@ export function predictLocalPelletConsumption() {
     if (!pelletDataRef.active[index]) continue;
     const pelletPosition = pelletDataRef.positions[index];
     const pelletRadius = pelletDataRef.sizes[index] || pelletMinSize;
-    const eatRadius = collectionRadius + pelletRadius;
-    if (position.distanceToSquared(pelletPosition) > eatRadius * eatRadius) {
+    if (
+      !hasMinimumSphereVolumeOverlap(
+        collectionRadius,
+        pelletRadius,
+        position.distanceToSquared(pelletPosition)
+      )
+    ) {
       continue;
     }
 
