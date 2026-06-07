@@ -96,6 +96,11 @@ body,
   box-shadow: 0 0 16px rgba(127, 82, 255, 0.8);
 }
 
+.weapon-progress-fill.final {
+  background: linear-gradient(90deg, #20c95a, #78ff9e);
+  box-shadow: 0 0 16px rgba(50, 255, 115, 0.8);
+}
+
 .weapon-progress-mode {
   justify-content: center;
   color: rgba(255, 255, 255, 0.76);

@@ -104,6 +104,18 @@ const laserGlowMaterial = new THREE.MeshBasicMaterial({
   toneMapped: false,
 });
 const laserMeshPool = [];
+const LASER_COLORS = {
+  blue: {
+    core: new THREE.Color(0xc8f8ff),
+    glow: new THREE.Color(0x28cfff),
+    light: new THREE.Color(0x35dfff),
+  },
+  green: {
+    core: new THREE.Color(0xd8ffe2),
+    glow: new THREE.Color(0x32ff73),
+    light: new THREE.Color(0x45ff82),
+  },
+};
 
 function getWorldSoundVolume(position) {
   if (!localPlayerCell || !position) return 0;
@@ -189,7 +201,8 @@ function createPlayerTarget(playerState) {
     radius: playerState.radius || 1,
     mass: playerState.mass ?? 0,
     score: playerState.score ?? 0,
-    laserUnlockScore: playerState.laserUnlockScore ?? 1000,
+    laserUnlockScore: playerState.laserUnlockScore ?? 2500,
+    greenLaserUnlockScore: playerState.greenLaserUnlockScore ?? 75000,
     weaponMode: playerState.weaponMode || "bullet",
     hp: playerState.hp ?? 100,
     maxHp: playerState.maxHp ?? 100,
@@ -205,7 +218,11 @@ function updatePlayerTarget(target, playerState) {
   target.mass = playerState.mass ?? target.mass ?? 0;
   target.score = playerState.score ?? target.score ?? 0;
   target.laserUnlockScore =
-    playerState.laserUnlockScore ?? target.laserUnlockScore ?? 1000;
+    playerState.laserUnlockScore ?? target.laserUnlockScore ?? 2500;
+  target.greenLaserUnlockScore =
+    playerState.greenLaserUnlockScore ??
+    target.greenLaserUnlockScore ??
+    75000;
   target.weaponMode = playerState.weaponMode || target.weaponMode || "bullet";
   target.hp = playerState.hp ?? target.hp ?? 100;
   target.maxHp = playerState.maxHp ?? target.maxHp ?? 100;
@@ -462,10 +479,14 @@ function updateLaserMesh(mesh, laser) {
   mesh.position.copy(laserMidpoint);
   mesh.quaternion.setFromUnitVectors(laserUp, laserDirection.normalize());
   const thickness = Math.max(1, laser.thickness || 1);
+  const colors = LASER_COLORS[laser.color] || LASER_COLORS.blue;
+  mesh.userData.core.material.color.copy(colors.core);
+  mesh.userData.glow.material.color.copy(colors.glow);
   mesh.userData.core.scale.set(thickness, length, thickness);
   mesh.userData.glow.scale.set(thickness, length, thickness);
 
   mesh.userData.lights.forEach((light, index) => {
+    light.color.copy(colors.light);
     const progress = (index + 0.5) / LASER_LIGHT_COUNT;
     light.position.y = (progress - 0.5) * length;
     light.distance = Math.min(20, Math.max(12, length / LASER_LIGHT_COUNT + 4));
@@ -500,6 +521,7 @@ function updateLaserFromRenderedShooter(id, entry) {
     entry.visualLaser.end.z = origin.z;
   }
   entry.visualLaser.thickness = laser.thickness;
+  entry.visualLaser.color = laser.color;
   updateLaserMesh(entry.mesh, entry.visualLaser);
 }
 
@@ -512,11 +534,11 @@ function createLaserMesh(laser) {
   }
 
   const group = new THREE.Group();
-  const core = new THREE.Mesh(laserCoreGeometry, laserCoreMaterial);
+  const core = new THREE.Mesh(laserCoreGeometry, laserCoreMaterial.clone());
   core.renderOrder = 11;
   core.frustumCulled = false;
 
-  const glow = new THREE.Mesh(laserGlowGeometry, laserGlowMaterial);
+  const glow = new THREE.Mesh(laserGlowGeometry, laserGlowMaterial.clone());
   glow.renderOrder = 10;
   glow.frustumCulled = false;
 
@@ -558,6 +580,7 @@ function updateLasers(laserStates = []) {
           origin: { x: 0, y: 0, z: 0 },
           end: { x: 0, y: 0, z: 0 },
           thickness: laser.thickness,
+          color: laser.color,
         },
       };
     } else {
@@ -660,6 +683,7 @@ function updateLocalPlayer(playerState) {
         mass: localPlayerTarget.mass,
         score: localPlayerTarget.score,
         laserUnlockScore: localPlayerTarget.laserUnlockScore,
+        greenLaserUnlockScore: localPlayerTarget.greenLaserUnlockScore,
         weaponMode: localPlayerTarget.weaponMode,
         isInCombat: localPlayerTarget.isInCombat,
       },

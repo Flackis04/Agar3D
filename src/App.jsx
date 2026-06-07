@@ -61,7 +61,8 @@ function WeaponProgress({ visible }) {
     function onLocalPlayerState(event) {
       setProgressState({
         score: event.detail?.score ?? 0,
-        unlockScore: event.detail?.laserUnlockScore ?? 1000,
+        laserUnlockScore: event.detail?.laserUnlockScore ?? 2500,
+        greenLaserUnlockScore: event.detail?.greenLaserUnlockScore ?? 75000,
         weaponMode: event.detail?.weaponMode || "bullet",
       });
     }
@@ -75,13 +76,15 @@ function WeaponProgress({ visible }) {
   useEffect(() => {
     function onMassGained({
       totalScore,
-      laserUnlockScore = 1000,
+      laserUnlockScore = 2500,
+      greenLaserUnlockScore = 75000,
       weaponMode = "bullet",
     } = {}) {
       if (typeof totalScore !== "number") return;
       setProgressState({
         score: totalScore,
-        unlockScore: laserUnlockScore,
+        laserUnlockScore,
+        greenLaserUnlockScore,
         weaponMode,
       });
     }
@@ -98,32 +101,49 @@ function WeaponProgress({ visible }) {
 
   if (!visible || !progressState) return null;
 
-  const unlocked = progressState.weaponMode === "laser";
-  const ratio = unlocked
+  const isBullet = progressState.weaponMode === "bullet";
+  const isGreenLaser = progressState.weaponMode === "greenLaser";
+  const unlockScore = isBullet
+    ? progressState.laserUnlockScore
+    : progressState.greenLaserUnlockScore;
+  const ratio = isGreenLaser
     ? 1
-    : Math.max(
-        0,
-        Math.min(1, progressState.score / Math.max(1, progressState.unlockScore))
-      );
+    : Math.max(0, Math.min(1, progressState.score / Math.max(1, unlockScore)));
+  const unlockLabel = isBullet
+    ? "Laser unlock"
+    : isGreenLaser
+      ? "Green laser unlocked"
+      : "Green laser unlock";
+  const weaponLabel = isBullet
+    ? "Bullet"
+    : isGreenLaser
+      ? "Green Laser"
+      : "Laser";
 
   return (
     <div id="weapon-progress">
       <div className="weapon-progress-label">
-        <span>{unlocked ? "Laser unlocked" : "Laser unlock"}</span>
+        <span>{unlockLabel}</span>
         <span>
-          {unlocked
+          {isGreenLaser
             ? `Score ${progressState.score}`
-            : `${progressState.score} / ${progressState.unlockScore}`}
+            : `${progressState.score} / ${unlockScore}`}
         </span>
       </div>
       <div className="weapon-progress-track">
         <div
-          className={unlocked ? "weapon-progress-fill unlocked" : "weapon-progress-fill"}
+          className={
+            isGreenLaser
+              ? "weapon-progress-fill final"
+              : progressState.weaponMode === "laser"
+                ? "weapon-progress-fill unlocked"
+                : "weapon-progress-fill"
+          }
           style={{ width: `${ratio * 100}%` }}
         />
       </div>
       <div className="weapon-progress-mode">
-        Main weapon: {unlocked ? "Laser" : "Bullet"}
+        Main weapon: {weaponLabel}
       </div>
     </div>
   );
@@ -227,7 +247,12 @@ function UpgradePanel({ visible }) {
   return (
     <div id="upgrade-panel">
       <div className="upgrade-title">
-        {upgradeState.weaponMode === "laser" ? "Laser" : "Bullet"} Upgrades
+        {upgradeState.weaponMode === "bullet"
+          ? "Bullet"
+          : upgradeState.weaponMode === "greenLaser"
+            ? "Green Laser"
+            : "Laser"}{" "}
+        Upgrades
       </div>
       <div className="upgrade-mass">Mass {upgradeState.mass}</div>
       {Object.entries(upgradeState.upgrades).map(([key, upgrade]) => {
