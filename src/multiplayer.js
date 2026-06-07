@@ -437,6 +437,34 @@ function updateLaserMesh(mesh, laser) {
   });
 }
 
+function updateLaserFromRenderedShooter(id, entry) {
+  const laser = entry.state;
+  if (!laser?.origin || !laser?.end) return;
+
+  laserStart.set(laser.origin.x, laser.origin.y, laser.origin.z);
+  laserEnd.set(laser.end.x, laser.end.y, laser.end.z);
+  laserDirection.subVectors(laserEnd, laserStart);
+  const length = laserDirection.length();
+  const shooterPosition = otherPlayers[id]?.mesh?.position;
+  const origin = shooterPosition || laserStart;
+
+  entry.visualLaser.origin.x = origin.x;
+  entry.visualLaser.origin.y = origin.y;
+  entry.visualLaser.origin.z = origin.z;
+  if (length > 0.001) {
+    laserDirection.multiplyScalar(1 / length);
+    entry.visualLaser.end.x = origin.x + laserDirection.x * length;
+    entry.visualLaser.end.y = origin.y + laserDirection.y * length;
+    entry.visualLaser.end.z = origin.z + laserDirection.z * length;
+  } else {
+    entry.visualLaser.end.x = origin.x;
+    entry.visualLaser.end.y = origin.y;
+    entry.visualLaser.end.z = origin.z;
+  }
+  entry.visualLaser.thickness = laser.thickness;
+  updateLaserMesh(entry.mesh, entry.visualLaser);
+}
+
 function createLaserMesh(laser) {
   const group = new THREE.Group();
 
@@ -492,10 +520,20 @@ function updateLasers(laserStates = []) {
     if (!lasers[laser.id]) {
       const mesh = createLaserMesh(laser);
       localScene.add(mesh);
-      lasers[laser.id] = { mesh };
+      lasers[laser.id] = {
+        mesh,
+        state: laser,
+        visualLaser: {
+          origin: { x: 0, y: 0, z: 0 },
+          end: { x: 0, y: 0, z: 0 },
+          thickness: laser.thickness,
+        },
+      };
+    } else {
+      lasers[laser.id].state = laser;
     }
 
-    updateLaserMesh(lasers[laser.id].mesh, laser);
+    updateLaserFromRenderedShooter(laser.id, lasers[laser.id]);
   });
 
   Object.keys(lasers).forEach((id) => {
@@ -743,6 +781,12 @@ export function applyNetworkSmoothing(deltaTime = 1 / 60) {
     );
   }
 
+  // Remote player meshes are interpolated, so anchor their beams after that
+  // interpolation. This keeps the laser attached even at low frame rates.
+  for (const id in lasers) {
+    updateLaserFromRenderedShooter(id, lasers[id]);
+  }
+
   for (const id in bullets) {
     const bullet = bullets[id];
     if (!bullet.mesh || !bullet.velocity) continue;
@@ -795,12 +839,40 @@ let pelletHandlersRegistered = false;
 
 function updatePelletInstance(index) {
   if (!pelletDataRef) return;
+  const tier = Math.trunc(
+    Math.max(
+      0,
+      Math.min(
+        pelletDataRef.meshes.length - 1,
+        Number(pelletDataRef.tiers[index]) || 0
+      )
+    )
+  );
   const isPowerUp = pelletDataRef.powerUps[index];
-  const mesh = isPowerUp ? pelletDataRef.meshPowerup : pelletDataRef.mesh;
+  const mesh = isPowerUp
+    ? pelletDataRef.powerupMeshes[tier]
+    : pelletDataRef.meshes[tier];
   if (!mesh) return;
-  const meshIndex = pelletDataRef.pelletToMeshIndex[index];
-  if (meshIndex === undefined) return;
   const dummy = pelletDataRef.dummy;
+
+  const previousTier = pelletDataRef.renderedTiers[index];
+  const previousPowerUp = pelletDataRef.renderedPowerUps[index];
+  // A respawn may change tier, so remove the old instance before showing the
+  // same pellet index in its new tier mesh.
+  if (
+    previousTier !== undefined &&
+    (previousTier !== tier || previousPowerUp !== isPowerUp)
+  ) {
+    const previousMesh = previousPowerUp
+      ? pelletDataRef.powerupMeshes[previousTier]
+      : pelletDataRef.meshes[previousTier];
+    dummy.position.set(0, 0, 0);
+    dummy.scale.setScalar(0.0001);
+    dummy.updateMatrix();
+    previousMesh.setMatrixAt(index, dummy.matrix);
+    previousMesh.instanceMatrix.needsUpdate = true;
+  }
+
   if (pelletDataRef.active[index]) {
     dummy.position.copy(pelletDataRef.positions[index]);
     dummy.scale.setScalar(pelletDataRef.sizes[index]);
@@ -808,10 +880,16 @@ function updatePelletInstance(index) {
     dummy.position.set(0, 0, 0);
     dummy.scale.setScalar(0.0001);
   }
-  dummy.rotation.set(0, 0, 0);
+  dummy.rotation.set(
+    (index * 0.37) % Math.PI,
+    (index * 0.61) % Math.PI,
+    (index * 0.83) % Math.PI
+  );
   dummy.updateMatrix();
-  mesh.setMatrixAt(meshIndex, dummy.matrix);
+  mesh.setMatrixAt(index, dummy.matrix);
   mesh.instanceMatrix.needsUpdate = true;
+  pelletDataRef.renderedTiers[index] = tier;
+  pelletDataRef.renderedPowerUps[index] = isPowerUp;
 }
 
 function updateMovedPellets(movedPellets) {
@@ -844,6 +922,9 @@ function applyPelletStateIndex(state, index) {
   pelletDataRef.active[index] = state.active[index];
   if (state.powerUps) {
     pelletDataRef.powerUps[index] = state.powerUps[index];
+  }
+  if (state.tiers) {
+    pelletDataRef.tiers[index] = state.tiers[index];
   }
   if (state.sizes) {
     pelletDataRef.sizes[index] = state.sizes[index];
@@ -927,6 +1008,9 @@ function registerPelletHandlers() {
     );
     if (typeof data.size === "number") {
       pelletDataRef.sizes[data.index] = data.size;
+    }
+    if (typeof data.tier === "number") {
+      pelletDataRef.tiers[data.index] = data.tier;
     }
     if (typeof data.hp === "number") {
       pelletDataRef.hp ||= [];

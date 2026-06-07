@@ -2,10 +2,16 @@ import { checkEatCondition } from "./utils/playerUtils.js";
 import * as THREE from "three";
 import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { SpatialGrid } from "./utils/spatialGrid.js";
+import {
+  getPelletTier,
+  PELLET_MAX_RADIUS,
+  PELLET_MIN_RADIUS,
+  PELLET_TIERS,
+} from "./pelletTiers.js";
 
 export const mapSize = 250;
-export const pelletMinSize = 0.3;
-export const pelletMaxSize = 0.55;
+export const pelletMinSize = PELLET_MIN_RADIUS;
+export const pelletMaxSize = PELLET_MAX_RADIUS;
 const powerUpInterval = 24;
 const pelletDensityCenterCount = 64;
 const pelletGaussianChance = 0.8;
@@ -48,6 +54,24 @@ function randomPelletPosition(radius, densityCenters) {
   position.y = Math.max(-maxPos, Math.min(maxPos, position.y));
   position.z = Math.max(-maxPos, Math.min(maxPos, position.z));
   return position;
+}
+
+function createPelletGeometry(tier) {
+  if (tier.shape === "cube") {
+    // A 1.15 cube has roughly the same corner radius as the unit sphere used
+    // by server collision checks.
+    return new THREE.BoxGeometry(1.15, 1.15, 1.15);
+  }
+
+  if (tier.shape === "dodecahedron") {
+    return new THREE.DodecahedronGeometry(1, 0);
+  }
+
+  return new THREE.SphereGeometry(
+    1,
+    tier.widthSegments,
+    tier.heightSegments
+  );
 }
 
 export function createPlayerCell(isBot, scene, camera) {
@@ -211,94 +235,86 @@ export function createMapBox(onReady) {
   );
 }
 
-export function createPelletsInstanced(scene, count, colors) {
-  const geometry = new THREE.SphereGeometry(1, 5, 3);
-  const materialNormal = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    opacity: 1,
-    transparent: false,
-  });
-  const materialPowerup = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    opacity: 0.25,
-    transparent: true,
-  });
-
+export function createPelletsInstanced(scene, count) {
   const dummy = new THREE.Object3D();
   const positions = [];
   const sizes = [];
+  const tiers = new Array(count).fill(0);
   const active = new Array(count).fill(true);
   const powerUps = new Array(count);
-  const pelletToMeshIndex = new Array(count);
+  const renderedTiers = new Array(count);
+  const renderedPowerUps = new Array(count);
   const densityCenters = Array.from({ length: pelletDensityCenterCount }, () =>
     randomMapPosition(pelletGaussianSpread)
   );
 
-  let powerupCount = 0;
-  let normalCount = 0;
+  const normalGroup = new THREE.Group();
+  const powerupGroup = new THREE.Group();
+  const meshes = [];
+  const powerupMeshes = [];
+
+  // Separate instanced meshes let each tier have its own silhouette and
+  // material while keeping the renderer to a small, fixed number of draws.
+  dummy.position.set(0, 0, 0);
+  dummy.scale.setScalar(0.0001);
+  dummy.updateMatrix();
+
+  for (let tierIndex = 0; tierIndex < PELLET_TIERS.length; tierIndex++) {
+    const tier = getPelletTier(tierIndex);
+    const geometry = createPelletGeometry(tier);
+    const color = new THREE.Color(tier.color);
+    const material = new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: tier.emissiveIntensity,
+      roughness: Math.max(0.25, 0.8 - tierIndex * 0.07),
+      metalness: tierIndex * 0.035,
+    });
+    const powerupColor = new THREE.Color(0xff2838).lerp(color, 0.18);
+    const powerupMaterial = new THREE.MeshStandardMaterial({
+      color: powerupColor,
+      emissive: powerupColor,
+      emissiveIntensity: Math.max(0.35, tier.emissiveIntensity),
+      roughness: Math.max(0.2, 0.65 - tierIndex * 0.05),
+      metalness: 0.12,
+      transparent: true,
+      opacity: 0.82,
+    });
+    const mesh = new THREE.InstancedMesh(geometry, material, count);
+    const powerupMesh = new THREE.InstancedMesh(
+      geometry.clone(),
+      powerupMaterial,
+      count
+    );
+
+    for (let index = 0; index < count; index++) {
+      mesh.setMatrixAt(index, dummy.matrix);
+      powerupMesh.setMatrixAt(index, dummy.matrix);
+    }
+
+    mesh.instanceMatrix.needsUpdate = true;
+    powerupMesh.instanceMatrix.needsUpdate = true;
+    mesh.frustumCulled = false;
+    powerupMesh.frustumCulled = false;
+    meshes.push(mesh);
+    powerupMeshes.push(powerupMesh);
+    normalGroup.add(mesh);
+    powerupGroup.add(powerupMesh);
+  }
+
   for (let i = 0; i < count; i++) {
     const isPowerUp = isPowerUpIndex(i);
     powerUps[i] = isPowerUp;
-    if (isPowerUp) powerupCount++;
-    else normalCount++;
-  }
-
-  const meshNormal = new THREE.InstancedMesh(
-    geometry,
-    materialNormal,
-    normalCount
-  );
-  const meshPowerup = new THREE.InstancedMesh(
-    geometry,
-    materialPowerup,
-    powerupCount
-  );
-
-  let normalIdx = 0;
-  let powerupIdx = 0;
-
-  for (let i = 0; i < count; i++) {
-    const isPowerUp = powerUps[i];
-    const color = new THREE.Color(isPowerUp ? 0xff0000 : colors[i % colors.length]);
-
-    const size =
-      Math.random() * (pelletMaxSize - pelletMinSize) + pelletMinSize;
-    sizes.push(size);
-
-    // Use reusable pelletCell respawn function
-    const position = respawnPellet({
-      dummy,
-      size,
-      mapSize,
-      color,
-      isPowerUp,
-      meshNormal,
-      meshPowerup,
-      normalIdx,
-      powerupIdx,
-      pelletToMeshIndex,
-      densityCenters,
-      i,
-      isInitialSpawn: true,
-    });
-    if (isPowerUp) {
-      powerupIdx++;
-    } else {
-      normalIdx++;
-    }
+    const tier = getPelletTier(0);
+    sizes.push(tier.radius);
+    const position = randomPelletPosition(tier.radius, densityCenters);
     positions.push(position.clone());
   }
 
-  meshNormal.instanceMatrix.needsUpdate = true;
-  if (meshNormal.instanceColor) meshNormal.instanceColor.needsUpdate = true;
-  meshPowerup.instanceMatrix.needsUpdate = true;
-  if (meshPowerup.instanceColor) meshPowerup.instanceColor.needsUpdate = true;
-
-  meshNormal.frustumCulled = true;
-  meshPowerup.frustumCulled = true;
-
-  scene.add(meshNormal);
-  scene.add(meshPowerup);
+  normalGroup.visible = false;
+  powerupGroup.visible = false;
+  scene.add(normalGroup);
+  scene.add(powerupGroup);
 
   // Create spatial grid for efficient collision detection
   // Voxel size should be roughly 2x the max interaction radius
@@ -309,15 +325,19 @@ export function createPelletsInstanced(scene, count, colors) {
   spatialGrid.buildFromPelletData({ positions, active });
 
   return {
-    mesh: meshNormal,
-    meshPowerup,
+    mesh: normalGroup,
+    meshPowerup: powerupGroup,
+    meshes,
+    powerupMeshes,
     positions,
     sizes,
+    tiers,
     active,
-    radius: geometry.parameters.radius,
+    radius: 1,
     dummy,
     powerUps,
-    pelletToMeshIndex,
+    renderedTiers,
+    renderedPowerUps,
     spatialGrid,
   };
 }

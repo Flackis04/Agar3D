@@ -176,13 +176,13 @@ function UpgradePanel({ visible }) {
 }
 
 function PlayerHpHud({ visible }) {
-  const [hpState, setHpState] = useState({ hp: 100, maxHp: 100 });
+  const [hpState, setHpState] = useState(null);
 
   useEffect(() => {
     function onLocalPlayerState(event) {
       setHpState({
-        hp: event.detail?.hp ?? 100,
-        maxHp: event.detail?.maxHp ?? 100,
+        hp: event.detail?.hp ?? 0,
+        maxHp: event.detail?.maxHp ?? 1,
       });
     }
 
@@ -192,7 +192,11 @@ function PlayerHpHud({ visible }) {
     };
   }, []);
 
-  if (!visible) return null;
+  useEffect(() => {
+    if (!visible) setHpState(null);
+  }, [visible]);
+
+  if (!visible || !hpState) return null;
 
   const ratio = Math.max(0, Math.min(1, hpState.hp / Math.max(1, hpState.maxHp)));
   const hpLabel = `${Math.ceil(hpState.hp)} / ${Math.ceil(hpState.maxHp)}`;

@@ -4,7 +4,6 @@ import {
   createPlayerCell,
   createMagnetSphere,
   createCellSpatialGrid,
-  pelletMinSize,
 } from "./objects.js";
 import { initNetworking, emitJoin, setupPelletSync } from "./multiplayer.js";
 import { updateFogDistance, updateBorderFog } from "./scene.js";
@@ -54,19 +53,10 @@ export function initializeGame(scene, camera, onReady, playerName = "Player", au
     // Update border fog uniforms to match scene fog
     updateBorderFog(scene);
 
-    const pelletColors = [
-      0xff0000, 0x0077ff, 0x00ff00, 0xffff00, 0x9b30ff, 0xff9900, 0x7ed6ff,
-      0xff69b4,
-    ];
-
     // Keep this equal to the server count. Otherwise unseen server pellets
     // can still block shots aimed at the rendered pellet set.
-    const PELLET_COUNT = 25000;
-    const pelletData = createPelletsInstanced(
-      scene,
-      PELLET_COUNT,
-      pelletColors
-    );
+    const PELLET_COUNT = 5000;
+    const pelletData = createPelletsInstanced(scene, PELLET_COUNT);
     const cellSpatialGrid = createCellSpatialGrid();
 
     setupPelletSync(pelletData);

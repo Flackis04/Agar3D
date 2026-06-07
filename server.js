@@ -1,5 +1,11 @@
 import { Server } from "socket.io";
 import http from "http";
+import {
+  getPelletTier,
+  PELLET_MAX_RADIUS,
+  PELLET_MIN_RADIUS,
+  pickPelletTier,
+} from "./src/pelletTiers.js";
 
 const server = http.createServer();
 const io = new Server(server, {
@@ -18,10 +24,9 @@ const WORLD_SIZE = 250;
 const HALF_WORLD = WORLD_SIZE / 2;
 const PLAYER_BASE_RADIUS = 0.75;
 const BASE_SPEED = 10; // units per second
-const PELLET_COUNT = 25000;
+const BOT_SPEED_MULTIPLIER = 0.5;
+const PELLET_COUNT = 5000;
 const PELLET_GRID_SIZE = 8;
-const PELLET_MIN_RADIUS = 0.75;
-const PELLET_MAX_RADIUS = 1.0;
 const PELLET_DENSITY_CENTER_COUNT = 64;
 const PELLET_GAUSSIAN_CHANCE = 0.8;
 const PELLET_GAUSSIAN_SPREAD = 16;
@@ -37,7 +42,7 @@ const BULLET_SPEED = 26;
 const BULLET_TTL_MS = 1600;
 const PLAYER_BULLET_TTL_MS = 8000;
 const BULLET_COOLDOWN_MS = 90;
-const PLAYER_MAX_HP = 5000;
+const PLAYER_MAX_HP = 2500;
 const BULLET_DAMAGE = 0.08;
 const BASE_VIEW_DISTANCE = 30;
 const VIEW_DISTANCE_PER_LEVEL = 6;
@@ -48,18 +53,33 @@ const LASER_RADIUS = 0.18;
 const LASER_DAMAGE = 180;
 const LASER_HIT_SOUND_DELAY_MS = 70;
 const COMBAT_MODE_DURATION_MS = 12000;
-const BASE_HEALTH_REGEN_PER_SECOND = 10;
+const BASE_HEALTH_REGEN_PER_SECOND = 5;
 const BASE_BODY_DAMAGE = 18;
 const BOT_COUNT = 5;
 const BOT_RENDER_DISTANCE = 45;
-const BOT_PELLET_SCAN_RADIUS = 18;
-const BOT_THINK_INTERVAL_MS = 450;
+const BOT_PELLET_SCAN_RADIUS = 42;
+const BOT_PLAYER_SCAN_RADIUS = 52;
+const BOT_THINK_INTERVAL_MS = 240;
 const BOT_SHOOT_COOLDOWN_MS = 650;
 const BOT_RESPAWN_MS = 3000;
 const BOT_WANDER_RETARGET_MS = 2400;
 const BOT_MIN_SPAWN_DISTANCE = 28;
-const BOT_PLAYER_SHOOT_RANGE = 34;
+const BOT_PLAYER_SHOOT_RANGE = 42;
 const BOT_BULLET_DODGE_RADIUS = 14;
+const BOT_STATE_MIN_DURATION_MS = 700;
+const BOT_AIM_REACTION_MIN_MS = 180;
+const BOT_AIM_REACTION_MAX_MS = 420;
+const BOT_FARM_STANDOFF_DISTANCE = 10;
+
+const BOT_STATES = Object.freeze({
+  ROAMING: "roaming",
+  FARMING: "farming",
+  COMBAT: "combat",
+  RETREATING: "retreating",
+  EVADING: "evading",
+  RECOVERING: "recovering",
+  HUNTING: "hunting",
+});
 
 const UPGRADE_DEFS = {
   playerSpeed: { label: "Player Speed", baseCost: 8, maxLevel: 10 },
@@ -185,16 +205,20 @@ function isPowerUpIndex(index) {
 }
 
 function createPellet(index) {
-  const size = randomBetween(PELLET_MIN_RADIUS, PELLET_MAX_RADIUS);
+  const tier = pickPelletTier();
+  const tierConfig = getPelletTier(tier);
+  const size = tierConfig.radius;
   const position = randomPelletPosition(size);
   const isPowerUp = isPowerUpIndex(index);
-  const maxHp = getPelletMaxHp(size);
   return {
     index,
+    tier,
     position,
     size,
-    maxHp,
-    hp: maxHp,
+    maxHp: tierConfig.maxHp,
+    hp: tierConfig.maxHp,
+    massReward: tierConfig.massReward,
+    collisionDamage: tierConfig.collisionDamage,
     isPowerUp,
     active: true,
   };
@@ -203,6 +227,7 @@ function createPellet(index) {
 function serializePelletState(pellets) {
   return {
     positions: pellets.map((pellet) => pellet.position),
+    tiers: pellets.map((pellet) => pellet.tier),
     sizes: pellets.map((pellet) => pellet.size),
     active: pellets.map((pellet) => pellet.active),
     powerUps: pellets.map((pellet) => pellet.isPowerUp),
@@ -387,7 +412,7 @@ function createUpgradeState() {
 }
 
 function getPlayerMaxHp(player) {
-  return PLAYER_MAX_HP + getUpgradeLevel(player, "maxHealth") * 500;
+  return PLAYER_MAX_HP + getUpgradeLevel(player, "maxHealth") * 250;
 }
 
 function getViewDistance(player) {
@@ -400,7 +425,7 @@ function getViewDistance(player) {
 function getHealthRegen(player, isInCombat) {
   const regenPerSecond =
     BASE_HEALTH_REGEN_PER_SECOND +
-    getUpgradeLevel(player, "healthRegenSpeed") * 1.4;
+    getUpgradeLevel(player, "healthRegenSpeed") * 0.7;
   return isInCombat ? regenPerSecond : regenPerSecond * 5;
 }
 
@@ -436,15 +461,48 @@ function getBulletPenetration(player) {
 function getPlayerSpeed(player) {
   const upgradeMultiplier =
     typeof player === "number" ? 1 : 1 + getUpgradeLevel(player, "playerSpeed") * 0.08;
-  return BASE_SPEED * upgradeMultiplier;
-}
-
-function getPelletMaxHp(size) {
-  return volumeFromRadius(size);
+  const botMultiplier = player?.isBot ? BOT_SPEED_MULTIPLIER : 1;
+  return BASE_SPEED * upgradeMultiplier * botMultiplier;
 }
 
 function getPelletContactDamage(pellet) {
-  return Math.max(65, Math.ceil((pellet.maxHp / pelletVolume) * 65));
+  return pellet.collisionDamage;
+}
+
+function createBotAi(now = Date.now()) {
+  const phase = Math.random() * Math.PI * 2;
+  return {
+    state: BOT_STATES.ROAMING,
+    stateUntil: now,
+    nextThinkAt: now + randomBetween(0, BOT_THINK_INTERVAL_MS),
+    targetType: "position",
+    targetId: null,
+    targetIndex: null,
+    reactionUntil: now + randomBetween(
+      BOT_AIM_REACTION_MIN_MS,
+      BOT_AIM_REACTION_MAX_MS
+    ),
+    currentAim: { x: 0, y: 0, z: -1 },
+    aimBias: { x: 0, y: 0, z: 0 },
+    aimPhase: { x: phase, y: phase + 2.1, z: phase + 4.2 },
+    nextAimBiasAt: now,
+    aimHesitationUntil: 0,
+    nextAimHesitationAt: now + randomBetween(900, 2200),
+    firePauseUntil: 0,
+    nextFirePauseAt: now + randomBetween(1200, 2800),
+    strafeDirection: Math.random() < 0.5 ? -1 : 1,
+    strafeActive: true,
+    nextStrafeAt: now + randomBetween(650, 1500),
+    verticalDirection: 0,
+    verticalActive: false,
+    nextVerticalAt: now + randomBetween(900, 2200),
+    threatBulletId: null,
+    wanderTarget: null,
+    wanderTargetUntil: 0,
+    lastProgressPosition: null,
+    lastProgressAt: now,
+    stuckUntil: 0,
+  };
 }
 
 function buildUpgradePayload(player) {
@@ -490,6 +548,7 @@ function createPlayerState({ id, name, isBot = false, position = null }) {
     nextLaserHitSoundAt: 0,
     combatUntil: 0,
     activeLaser: null,
+    ai: isBot ? createBotAi() : null,
     input: {
       forward: false,
       movement: {},
@@ -505,13 +564,18 @@ function createPlayerState({ id, name, isBot = false, position = null }) {
 
 function respawnPellet(pellet) {
   removePelletFromGrid(pellet);
-  pellet.size = randomBetween(PELLET_MIN_RADIUS, PELLET_MAX_RADIUS);
+  pellet.tier = pickPelletTier();
+  const tierConfig = getPelletTier(pellet.tier);
+  pellet.size = tierConfig.radius;
   pellet.position = randomPelletPosition(pellet.size);
-  pellet.maxHp = getPelletMaxHp(pellet.size);
+  pellet.maxHp = tierConfig.maxHp;
   pellet.hp = pellet.maxHp;
+  pellet.massReward = tierConfig.massReward;
+  pellet.collisionDamage = tierConfig.collisionDamage;
   pellet.active = true;
   addPelletToGrid(pellet);
   pelletState.positions[pellet.index] = pellet.position;
+  pelletState.tiers[pellet.index] = pellet.tier;
   pelletState.sizes[pellet.index] = pellet.size;
   pelletState.active[pellet.index] = true;
   pelletState.powerUps[pellet.index] = pellet.isPowerUp;
@@ -519,6 +583,7 @@ function respawnPellet(pellet) {
   pelletState.maxHp[pellet.index] = pellet.maxHp;
   io.emit("pellet-respawn", {
     index: pellet.index,
+    tier: pellet.tier,
     position: pellet.position,
     size: pellet.size,
     hp: pellet.hp,
@@ -605,23 +670,25 @@ function getAimRay(player) {
   const aimOrigin = parseVector(player.input.aim?.origin);
   const aimDirection = parseVector(player.input.aim?.direction);
 
+  if (player.isBot) {
+    const direction = aimDirection || fallbackDirection;
+    normalizeVector(direction);
+    return {
+      origin: { ...player.position },
+      direction:
+        Math.hypot(direction.x, direction.y, direction.z) > 0
+          ? direction
+          : fallbackDirection,
+    };
+  }
+
   if (!aimOrigin || !aimDirection) {
-    return player.isBot
-      ? {
-          origin: { ...player.position },
-          direction: fallbackDirection,
-        }
-      : null;
+    return null;
   }
 
   normalizeVector(aimDirection);
   if (Math.hypot(aimDirection.x, aimDirection.y, aimDirection.z) <= 0) {
-    return player.isBot
-      ? {
-          origin: { ...player.position },
-          direction: fallbackDirection,
-        }
-      : null;
+    return null;
   }
 
   const dx = aimOrigin.x - player.position.x;
@@ -847,7 +914,7 @@ function eatPellet(player, pellet) {
   pelletState.active[pellet.index] = false;
   awardMassCurrency(
     player,
-    Math.pow(pellet.size / PELLET_MIN_RADIUS, 3)
+    pellet.massReward
   );
   io.emit("pellet-eaten", {
     index: pellet.index,
@@ -868,7 +935,7 @@ function contactConsumePellet(player, pellet) {
 
   awardMassCurrency(
     player,
-    Math.pow(pellet.size / PELLET_MIN_RADIUS, 3)
+    pellet.massReward
   );
   tryActivatePelletMagnet(player, pellet);
 
@@ -917,7 +984,7 @@ function applyBulletPelletHit(bullet, pellet) {
 
   if (pellet.hp <= 0) {
     if (owner) {
-      awardMassCurrency(owner, pellet.maxHp / pelletVolume);
+      awardMassCurrency(owner, pellet.massReward);
     }
     removePelletFromGrid(pellet);
     pellet.active = false;
@@ -940,48 +1007,45 @@ function applyBulletPelletHit(bullet, pellet) {
   });
 }
 
-function findNearestHumanPlayer(bot) {
-  const maxDistanceSq = BOT_PLAYER_SHOOT_RANGE * BOT_PLAYER_SHOOT_RANGE;
-  let nearest = null;
-  let nearestDistanceSq = maxDistanceSq;
-
+function findBestHumanPlayer(bot, maxDistance = BOT_PLAYER_SCAN_RADIUS) {
+  let best = null;
   players.forEach((player) => {
     if (player.id === bot.id || player.isBot) return;
     const currentDistanceSq = distanceSq(bot.position, player.position);
-    if (currentDistanceSq >= nearestDistanceSq) return;
-    nearest = player;
-    nearestDistanceSq = currentDistanceSq;
-  });
+    if (currentDistanceSq > maxDistance * maxDistance) return;
 
-  return nearest;
+    const distance = Math.sqrt(currentDistanceSq);
+    const healthRatio = player.hp / Math.max(1, getPlayerMaxHp(player));
+    const targetStickiness = bot.ai?.targetId === player.id ? -4 : 0;
+    const score = distance + healthRatio * 7 + targetStickiness;
+    if (!best || score < best.score) {
+      best = { target: player, distance, score };
+    }
+  });
+  return best;
 }
 
-function findNearestBotPellet(bot) {
+function findBestBotPellet(bot) {
   const nearbyPellets = queryNearbyPellets(bot.position, BOT_PELLET_SCAN_RADIUS);
-  let nearest = null;
-  let nearestDistanceSq = BOT_PELLET_SCAN_RADIUS * BOT_PELLET_SCAN_RADIUS;
+  let best = null;
 
   for (const pellet of nearbyPellets) {
     if (!pellet.active) continue;
     const currentDistanceSq = distanceSq(bot.position, pellet.position);
-    if (currentDistanceSq >= nearestDistanceSq) continue;
-    nearest = pellet;
-    nearestDistanceSq = currentDistanceSq;
+    if (currentDistanceSq > BOT_PELLET_SCAN_RADIUS * BOT_PELLET_SCAN_RADIUS) {
+      continue;
+    }
+
+    const distance = Math.sqrt(currentDistanceSq);
+    const targetStickiness = bot.ai?.targetIndex === pellet.index ? 5 : 0;
+    const score =
+      pellet.massReward * 5 - distance * 0.35 + targetStickiness;
+    if (!best || score > best.score) {
+      best = { target: pellet, distance, score };
+    }
   }
 
-  return nearest;
-}
-
-function setBotAim(bot, targetPosition) {
-  const direction = directionBetween(bot.position, targetPosition);
-  if (Math.hypot(direction.x, direction.y, direction.z) <= 0) return false;
-
-  bot.input.rotation = directionToRotation(direction);
-  bot.input.aim = {
-    origin: { ...bot.position },
-    direction,
-  };
-  return true;
+  return best;
 }
 
 function findIncomingBulletThreat(bot) {
@@ -1014,55 +1078,404 @@ function findIncomingBulletThreat(bot) {
   return nearest;
 }
 
-function setBotEvasiveMovement(bot, playerTarget, threat, now) {
-  const movement = {};
-  const right = rotationToRight(bot.input.rotation);
-  const strafeRight = threat
-    ? threat.velocity.x * right.x + threat.velocity.z * right.z <= 0
-    : Math.floor((now / 900 + Number(bot.id.replace("bot-", ""))) % 2) === 0;
+function findLaserThreatOwner(bot) {
+  let threatOwner = null;
+  players.forEach((player) => {
+    if (
+      !threatOwner &&
+      player.id !== bot.id &&
+      player.activeLaser?.hitPlayerId === bot.id
+    ) {
+      threatOwner = player;
+    }
+  });
+  return threatOwner;
+}
 
-  if (strafeRight) {
-    movement.right = true;
-  } else {
-    movement.left = true;
+function pickBotWanderTarget(bot, now) {
+  const ai = bot.ai;
+  if (ai.wanderTarget && ai.wanderTargetUntil > now) return ai.wanderTarget;
+
+  ai.wanderTarget = randomPosition(bot.radius);
+  ai.wanderTargetUntil =
+    now + BOT_WANDER_RETARGET_MS + randomBetween(0, 1200);
+  return ai.wanderTarget;
+}
+
+function pickBotRetreatTarget(bot, danger, now) {
+  if (!danger) return pickBotWanderTarget(bot, now);
+  const away = directionBetween(danger.position, bot.position);
+  return clampPosition(
+    {
+      x: bot.position.x + away.x * 32 + randomBetween(-5, 5),
+      y: bot.position.y + away.y * 22 + randomBetween(-4, 4),
+      z: bot.position.z + away.z * 32 + randomBetween(-5, 5),
+    },
+    bot.radius
+  );
+}
+
+function setBotState(bot, nextState, now, force = false) {
+  const ai = bot.ai;
+  if (ai.state === nextState) return true;
+  if (!force && ai.stateUntil > now) return false;
+
+  ai.state = nextState;
+  ai.stateUntil =
+    now + BOT_STATE_MIN_DURATION_MS + randomBetween(0, 650);
+  ai.wanderTargetUntil = 0;
+  return true;
+}
+
+function setBotTarget(bot, type, target, now) {
+  const ai = bot.ai;
+  const nextId = type === "player" ? target?.id ?? null : null;
+  const nextIndex = type === "pellet" ? target?.index ?? null : null;
+  const changed =
+    ai.targetType !== type ||
+    ai.targetId !== nextId ||
+    ai.targetIndex !== nextIndex;
+
+  ai.targetType = type;
+  ai.targetId = nextId;
+  ai.targetIndex = nextIndex;
+  if (
+    type === "position" &&
+    (changed || !ai.wanderTarget || ai.wanderTargetUntil <= now)
+  ) {
+    ai.wanderTarget = target ? { ...target } : pickBotWanderTarget(bot, now);
+    ai.wanderTargetUntil =
+      now + BOT_WANDER_RETARGET_MS + randomBetween(0, 1200);
   }
 
-  const playerDistanceSq = distanceSq(bot.position, playerTarget.position);
-  const backoffDistance = bot.radius + playerTarget.radius + 10;
-  if (playerDistanceSq < backoffDistance * backoffDistance) {
-    movement.backward = true;
-  } else if (!threat) {
+  if (changed) {
+    ai.reactionUntil =
+      now +
+      randomBetween(BOT_AIM_REACTION_MIN_MS, BOT_AIM_REACTION_MAX_MS);
+    ai.nextAimBiasAt = now;
+  }
+}
+
+function getBotTargetPosition(bot) {
+  const ai = bot.ai;
+  if (ai.targetType === "player") {
+    return players.get(ai.targetId)?.position || null;
+  }
+  if (ai.targetType === "pellet") {
+    const pellet = pellets[ai.targetIndex];
+    return pellet?.active ? pellet.position : null;
+  }
+  return ai.wanderTarget;
+}
+
+function chooseBotPlan(bot, now) {
+  const ai = bot.ai;
+  const bulletThreat = findIncomingBulletThreat(bot);
+  const laserThreatOwner = findLaserThreatOwner(bot);
+  const playerInfo = findBestHumanPlayer(bot);
+  const healthRatio = bot.hp / Math.max(1, getPlayerMaxHp(bot));
+  const targetHealthRatio = playerInfo
+    ? playerInfo.target.hp / Math.max(1, getPlayerMaxHp(playerInfo.target))
+    : 1;
+
+  ai.threatBulletId = bulletThreat?.id || null;
+
+  if (bulletThreat || laserThreatOwner) {
+    const owner =
+      laserThreatOwner ||
+      players.get(bulletThreat?.ownerId) ||
+      playerInfo?.target;
+    setBotState(bot, BOT_STATES.EVADING, now, true);
+    if (owner) setBotTarget(bot, "player", owner, now);
+    return;
+  }
+
+  if (playerInfo && healthRatio < 0.3) {
+    setBotState(bot, BOT_STATES.RETREATING, now, true);
+    setBotTarget(bot, "player", playerInfo.target, now);
+    return;
+  }
+
+  if (
+    healthRatio < 0.52 &&
+    (bot.combatUntil > now || (playerInfo && playerInfo.distance < 30))
+  ) {
+    if (setBotState(bot, BOT_STATES.RECOVERING, now)) {
+      setBotTarget(
+        bot,
+        "position",
+        pickBotRetreatTarget(bot, playerInfo?.target, now),
+        now
+      );
+    }
+    return;
+  }
+
+  if (
+    playerInfo &&
+    targetHealthRatio < 0.35 &&
+    healthRatio > 0.6
+  ) {
+    if (setBotState(bot, BOT_STATES.HUNTING, now)) {
+      setBotTarget(bot, "player", playerInfo.target, now);
+    }
+    return;
+  }
+
+  if (playerInfo && playerInfo.distance <= BOT_PLAYER_SHOOT_RANGE) {
+    if (setBotState(bot, BOT_STATES.COMBAT, now)) {
+      setBotTarget(bot, "player", playerInfo.target, now);
+    }
+    return;
+  }
+
+  const pelletInfo = findBestBotPellet(bot);
+  if (pelletInfo) {
+    if (setBotState(bot, BOT_STATES.FARMING, now)) {
+      setBotTarget(bot, "pellet", pelletInfo.target, now);
+    }
+    return;
+  }
+
+  if (healthRatio < 0.7) {
+    if (setBotState(bot, BOT_STATES.RECOVERING, now)) {
+      setBotTarget(bot, "position", pickBotWanderTarget(bot, now), now);
+    }
+    return;
+  }
+
+  if (setBotState(bot, BOT_STATES.ROAMING, now)) {
+    setBotTarget(bot, "position", pickBotWanderTarget(bot, now), now);
+  }
+}
+
+function getBotAimError(bot, distance) {
+  if (bot.ai.targetType === "player") {
+    const distanceRatio = clamp(distance / BOT_PLAYER_SHOOT_RANGE, 0, 1);
+    return 0.08 + distanceRatio * 1.15;
+  }
+  if (bot.ai.targetType === "pellet") {
+    return 0.03 + clamp(distance / BOT_PELLET_SCAN_RADIUS, 0, 1) * 0.22;
+  }
+  return 0.04;
+}
+
+function updateBotAim(bot, now, delta) {
+  const ai = bot.ai;
+  const targetPosition = getBotTargetPosition(bot);
+  if (!targetPosition) {
+    ai.nextThinkAt = 0;
+    bot.input.shoot = false;
+    return;
+  }
+
+  const distance = Math.sqrt(distanceSq(bot.position, targetPosition));
+  const aimError = getBotAimError(bot, distance);
+
+  if (now >= ai.nextAimBiasAt) {
+    const correctionRoll = Math.random();
+    const correction =
+      correctionRoll < 0.15 ? 1.65 : correctionRoll < 0.38 ? 0.55 : 1;
+    ai.aimBias.x = randomBetween(-aimError, aimError) * correction;
+    ai.aimBias.y = randomBetween(-aimError, aimError) * correction;
+    ai.aimBias.z = randomBetween(-aimError, aimError) * correction;
+    ai.nextAimBiasAt = now + randomBetween(380, 850);
+  }
+
+  if (now >= ai.nextAimHesitationAt) {
+    ai.aimHesitationUntil = now + randomBetween(90, 260);
+    ai.nextAimHesitationAt = now + randomBetween(900, 2400);
+  }
+
+  if (now >= ai.reactionUntil && now >= ai.aimHesitationUntil) {
+    const drift = aimError * 0.3;
+    const time = now * 0.002;
+    const noisyTarget = {
+      x:
+        targetPosition.x +
+        ai.aimBias.x +
+        Math.sin(time + ai.aimPhase.x) * drift,
+      y:
+        targetPosition.y +
+        ai.aimBias.y +
+        Math.sin(time * 0.83 + ai.aimPhase.y) * drift,
+      z:
+        targetPosition.z +
+        ai.aimBias.z +
+        Math.sin(time * 1.13 + ai.aimPhase.z) * drift,
+    };
+    const desiredAim = directionBetween(bot.position, noisyTarget);
+    const distanceRatio = clamp(distance / BOT_PLAYER_SHOOT_RANGE, 0, 1);
+    const turnRate =
+      ai.targetType === "player"
+        ? 4.5 - distanceRatio * 1.7
+        : 3.6;
+    const smoothing = 1 - Math.exp(-turnRate * delta);
+    ai.currentAim.x += (desiredAim.x - ai.currentAim.x) * smoothing;
+    ai.currentAim.y += (desiredAim.y - ai.currentAim.y) * smoothing;
+    ai.currentAim.z += (desiredAim.z - ai.currentAim.z) * smoothing;
+    normalizeVector(ai.currentAim);
+  }
+
+  bot.input.rotation = directionToRotation(ai.currentAim);
+  bot.input.aim = {
+    origin: { ...bot.position },
+    direction: { ...ai.currentAim },
+  };
+}
+
+function addMovementToward(bot, targetPosition, movement) {
+  if (!targetPosition) return;
+  const desired = directionBetween(bot.position, targetPosition);
+  const forward = rotationToForward(bot.input.rotation);
+  const right = rotationToRight(bot.input.rotation);
+  const forwardAmount =
+    desired.x * forward.x + desired.y * forward.y + desired.z * forward.z;
+  const rightAmount = desired.x * right.x + desired.z * right.z;
+
+  if (forwardAmount > 0.2) movement.forward = true;
+  if (forwardAmount < -0.2) movement.backward = true;
+  if (rightAmount > 0.2) movement.right = true;
+  if (rightAmount < -0.2) movement.left = true;
+  if (desired.y > 0.25) movement.up = true;
+  if (desired.y < -0.25) movement.down = true;
+}
+
+function updateBotMovement(bot, now) {
+  const ai = bot.ai;
+  const targetPosition = getBotTargetPosition(bot);
+  const movement = {};
+
+  if (now >= ai.nextStrafeAt) {
+    if (Math.random() < 0.7) ai.strafeDirection *= -1;
+    ai.strafeActive = Math.random() < 0.72;
+    ai.nextStrafeAt = now + randomBetween(650, 1700);
+  }
+  if (now >= ai.nextVerticalAt) {
+    ai.verticalDirection = Math.random() < 0.5 ? -1 : 1;
+    ai.verticalActive = Math.random() < 0.32;
+    ai.nextVerticalAt = now + randomBetween(1000, 2600);
+  }
+
+  if (!ai.lastProgressPosition) {
+    ai.lastProgressPosition = { ...bot.position };
+    ai.lastProgressAt = now;
+  } else if (now - ai.lastProgressAt >= 1100) {
+    if (distanceSq(bot.position, ai.lastProgressPosition) < 0.2) {
+      ai.stuckUntil = now + 750;
+      ai.strafeDirection *= -1;
+      ai.wanderTargetUntil = 0;
+    }
+    ai.lastProgressPosition = { ...bot.position };
+    ai.lastProgressAt = now;
+  }
+
+  if (now < ai.stuckUntil) {
     movement.forward = true;
+    movement.right = ai.strafeDirection > 0;
+    movement.left = ai.strafeDirection < 0;
+    movement.up = true;
+    bot.input.movement = movement;
+    return;
+  }
+
+  const nearBoundary =
+    Math.abs(bot.position.x) > HALF_WORLD - 7 ||
+    Math.abs(bot.position.y) > HALF_WORLD - 7 ||
+    Math.abs(bot.position.z) > HALF_WORLD - 7;
+  if (nearBoundary) {
+    addMovementToward(bot, { x: 0, y: 0, z: 0 }, movement);
+    bot.input.movement = movement;
+    return;
+  }
+
+  const targetDistance = targetPosition
+    ? Math.sqrt(distanceSq(bot.position, targetPosition))
+    : Infinity;
+  const strafe = () => {
+    movement.right = ai.strafeDirection > 0;
+    movement.left = ai.strafeDirection < 0;
+  };
+
+  switch (ai.state) {
+    case BOT_STATES.EVADING:
+      strafe();
+      movement.backward = true;
+      movement.up = ai.verticalActive && ai.verticalDirection > 0;
+      movement.down = ai.verticalActive && ai.verticalDirection < 0;
+      break;
+    case BOT_STATES.RETREATING:
+      movement.backward = true;
+      strafe();
+      break;
+    case BOT_STATES.RECOVERING:
+      addMovementToward(bot, targetPosition, movement);
+      if (ai.targetType === "player") movement.backward = true;
+      break;
+    case BOT_STATES.HUNTING:
+      movement.forward = true;
+      if (ai.strafeActive) strafe();
+      break;
+    case BOT_STATES.COMBAT:
+      strafe();
+      if (targetDistance > 24) movement.forward = true;
+      if (targetDistance < 13) movement.backward = true;
+      if (ai.verticalActive) {
+        movement.up = ai.verticalDirection > 0;
+        movement.down = ai.verticalDirection < 0;
+      }
+      break;
+    case BOT_STATES.FARMING:
+      if (targetDistance > BOT_FARM_STANDOFF_DISTANCE + 5) {
+        addMovementToward(bot, targetPosition, movement);
+      } else if (targetDistance < BOT_FARM_STANDOFF_DISTANCE - 2) {
+        movement.backward = true;
+      } else {
+        strafe();
+      }
+      break;
+    default:
+      addMovementToward(bot, targetPosition, movement);
+      if (ai.strafeActive && targetDistance < 12) strafe();
+      break;
   }
 
   bot.input.movement = movement;
 }
 
-function pickBotWanderTarget(bot, now) {
-  if (bot.wanderTarget && bot.wanderTargetUntil > now) return bot.wanderTarget;
+function updateBotFiring(bot, now) {
+  const ai = bot.ai;
+  const hasTarget = Boolean(getBotTargetPosition(bot));
+  const canFire =
+    hasTarget &&
+    (ai.targetType === "player" ||
+      (ai.targetType === "pellet" && ai.state === BOT_STATES.FARMING));
 
-  bot.wanderTarget = randomPosition(bot.radius);
-  bot.wanderTargetUntil = now + BOT_WANDER_RETARGET_MS + randomBetween(0, 1200);
-  return bot.wanderTarget;
+  if (now >= ai.nextFirePauseAt) {
+    if (Math.random() < 0.7) {
+      ai.firePauseUntil = now + randomBetween(120, 380);
+    }
+    ai.nextFirePauseAt = now + randomBetween(1100, 2700);
+  }
+
+  bot.input.shoot =
+    canFire &&
+    now >= ai.reactionUntil &&
+    now >= ai.firePauseUntil &&
+    ai.state !== BOT_STATES.RECOVERING;
 }
 
-function updateBotIntent(bot, now) {
-  if (bot.nextThinkAt && bot.nextThinkAt > now) return;
-  bot.nextThinkAt = now + BOT_THINK_INTERVAL_MS + randomBetween(0, 80);
+function updateBotIntent(bot, now, delta) {
+  if (!bot.ai) bot.ai = createBotAi(now);
   bot.input.weaponMode = "laser";
-  bot.input.shoot = false;
-
-  const playerTarget = findNearestHumanPlayer(bot);
-  const pelletTarget = findNearestBotPellet(bot);
-  let targetPosition = pelletTarget?.position || pickBotWanderTarget(bot, now);
-
-  setBotAim(bot, targetPosition);
-  bot.input.movement = { forward: true };
-
-  if (playerTarget && setBotAim(bot, playerTarget.position)) {
-    setBotEvasiveMovement(bot, playerTarget, findIncomingBulletThreat(bot), now);
-    bot.input.shoot = true;
+  if (now >= bot.ai.nextThinkAt) {
+    bot.ai.nextThinkAt =
+      now + BOT_THINK_INTERVAL_MS + randomBetween(0, 120);
+    chooseBotPlan(bot, now);
   }
+  updateBotAim(bot, now, delta);
+  updateBotMovement(bot, now);
+  updateBotFiring(bot, now);
 }
 
 function updateBullets(delta) {
@@ -1171,7 +1584,7 @@ function handlePlayerCollisions(player) {
 function updatePlayers(delta) {
   const now = Date.now();
   players.forEach((player) => {
-    if (player.isBot) updateBotIntent(player, now);
+    if (player.isBot) updateBotIntent(player, now, delta);
   });
 
   players.forEach((player) => {
@@ -1308,9 +1721,6 @@ function spawnBot(index) {
     isBot: true,
     position: randomSeparatedPosition(PLAYER_BASE_RADIUS),
   });
-  bot.nextThinkAt = Date.now() + randomBetween(0, BOT_THINK_INTERVAL_MS);
-  bot.wanderTarget = randomPosition(bot.radius);
-  bot.wanderTargetUntil = Date.now() + randomBetween(500, BOT_WANDER_RETARGET_MS);
 
   players.set(id, bot);
   io.emit("player-joined", {
@@ -1361,7 +1771,7 @@ function removePlayer(id) {
 spawnBots();
 
 setInterval(() => {
-  // Main server loop. At 20 ticks per second it moves players, handles
+  // Main server loop. At 60 ticks per second it moves players, handles
   // collisions, and broadcasts the new world snapshot to every browser.
   const now = Date.now();
   const delta = (now - lastTick) / 1000;
