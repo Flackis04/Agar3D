@@ -332,7 +332,7 @@ function clearRemotePlayers() {
 }
 
 function createBulletMesh(bullet) {
-  const visualRadius = Math.max(0.08, (bullet.radius || 0.16) * 0.75);
+  const visualRadius = Math.max(0.08, (bullet.radius || 0.19) * 0.75);
   const geometry = new THREE.SphereGeometry(visualRadius, 8, 8);
   const material = new THREE.MeshStandardMaterial({
     color: 0x9fffe2,
