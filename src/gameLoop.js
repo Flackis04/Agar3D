@@ -43,7 +43,6 @@ export function createGameFrame(
     forward: false,
     movement: {},
     shoot: false,
-    weaponMode: "bullet",
     rotation: { yaw: 0, pitch: 0 },
   };
   let lastInputSend = 0;
@@ -84,7 +83,6 @@ export function createGameFrame(
           forward: controls.getForwardButtonPressed(),
         },
         shoot: controls.getShootButtonPressed?.() || false,
-        weaponMode: controls.getWeaponMode?.() || "bullet",
         rotation: {
           yaw: controls.playerRotation.yaw,
           pitch: controls.playerRotation.pitch,
@@ -111,7 +109,6 @@ export function createGameFrame(
         movementChanged ||
         payload.shoot !== lastInputPayload.shoot ||
         payload.shoot ||
-        payload.weaponMode !== lastInputPayload.weaponMode ||
         rotationChanged ||
         now - lastInputSend > 50
       ) {
@@ -120,7 +117,6 @@ export function createGameFrame(
           forward: payload.forward,
           movement: { ...payload.movement },
           shoot: payload.shoot,
-          weaponMode: payload.weaponMode,
           rotation: { ...payload.rotation },
         };
         lastInputSend = now;

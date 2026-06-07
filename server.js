@@ -108,11 +108,12 @@ const PELLET_MAGNET_SPEED = 27;
 const BULLET_MAGNET_RADIUS = 3.5;
 const TICK_RATE = 60;
 const TICK_INTERVAL = 1000 / TICK_RATE;
-const BULLET_RADIUS = 0.1;
+const BULLET_RADIUS = 0.16;
+const BULLET_SPAWN_OFFSET = 1.25;
 const BULLET_SPEED = 26;
 const BULLET_TTL_MS = 1600;
 const PLAYER_BULLET_TTL_MS = 8000;
-const BULLET_COOLDOWN_MS = 90;
+const BULLET_COOLDOWN_MS = 150;
 const PLAYER_MAX_HP = 2500;
 const BULLET_DAMAGE = 0.08;
 const BASE_VIEW_DISTANCE = 30;
@@ -141,6 +142,8 @@ const BOT_STATE_MIN_DURATION_MS = 700;
 const BOT_AIM_REACTION_MIN_MS = 180;
 const BOT_AIM_REACTION_MAX_MS = 420;
 const BOT_FARM_STANDOFF_DISTANCE = 10;
+const LASER_NET_RANGE = 14;
+const LASER_UNLOCK_SCORE = 1000;
 
 const BOT_STATES = Object.freeze({
   ROAMING: "roaming",
@@ -165,9 +168,25 @@ const UPGRADE_DEFS = {
   healthRegenSpeed: { label: "Health Regen", baseCost: 8, maxLevel: 10 },
   bulletDamage: { label: "Bullet Damage", baseCost: 9, maxLevel: 10 },
   laserDamage: { label: "Laser Damage", baseCost: 10, maxLevel: 10 },
+  laserNet: { label: "Laser Net", baseCost: 25, maxLevel: 5 },
   bodyDamage: { label: "Body Damage", baseCost: 8, maxLevel: 10 },
   bulletPenetration: { label: "Bullet Penetration", baseCost: 12, maxLevel: 8 },
 };
+
+const COMMON_UPGRADE_KEYS = [
+  "playerSpeed",
+  "viewDistance",
+  "maxHealth",
+  "healthRegenSpeed",
+  "bodyDamage",
+];
+const BULLET_UPGRADE_KEYS = [
+  "bulletSpeed",
+  "bulletDelay",
+  "bulletDamage",
+  "bulletPenetration",
+];
+const LASER_UPGRADE_KEYS = ["laserDamage", "laserNet"];
 
 const pelletVolume = (4 / 3) * Math.PI * Math.pow(PELLET_MIN_RADIUS, 3);
 const bulletVolume = (4 / 3) * Math.PI * Math.pow(BULLET_RADIUS, 3);
@@ -482,6 +501,14 @@ function createUpgradeState() {
   }, {});
 }
 
+function getAvailableUpgradeKeys(player) {
+  const weaponKeys =
+    player.weaponMode === "laser"
+      ? LASER_UPGRADE_KEYS
+      : BULLET_UPGRADE_KEYS;
+  return new Set([...COMMON_UPGRADE_KEYS, ...weaponKeys]);
+}
+
 function getPlayerMaxHp(player) {
   return PLAYER_MAX_HP + getUpgradeLevel(player, "maxHealth") * 250;
 }
@@ -578,7 +605,9 @@ function createBotAi(now = Date.now()) {
 
 function buildUpgradePayload(player) {
   const upgrades = {};
+  const availableUpgradeKeys = getAvailableUpgradeKeys(player);
   for (const [key, def] of Object.entries(UPGRADE_DEFS)) {
+    if (!availableUpgradeKeys.has(key)) continue;
     const level = getUpgradeLevel(player, key);
     upgrades[key] = {
       label: def.label,
@@ -589,6 +618,9 @@ function buildUpgradePayload(player) {
   }
   return {
     mass: player.mass,
+    score: player.score,
+    laserUnlockScore: LASER_UNLOCK_SCORE,
+    weaponMode: player.weaponMode,
     hp: player.hp,
     maxHp: getPlayerMaxHp(player),
     viewDistance: getViewDistance(player),
@@ -610,6 +642,8 @@ function createPlayerState({ id, name, isBot = false, position = null }) {
     position: position || randomPosition(PLAYER_BASE_RADIUS),
     radius: PLAYER_BASE_RADIUS,
     mass,
+    score: 0,
+    weaponMode: isBot ? "laser" : "bullet",
     upgrades: createUpgradeState(),
     speed: BASE_SPEED,
     hp: PLAYER_MAX_HP,
@@ -833,6 +867,11 @@ function shootBullet(player) {
   const id = String(nextBulletId++);
   const bulletSpeed = getBulletSpeed(player);
   const penetration = getBulletPenetration(player);
+  const spawnPosition = {
+    x: origin.x + direction.x * BULLET_SPAWN_OFFSET,
+    y: origin.y + direction.y * BULLET_SPAWN_OFFSET,
+    z: origin.z + direction.z * BULLET_SPAWN_OFFSET,
+  };
 
   bullets.set(id, {
     id,
@@ -845,11 +884,7 @@ function shootBullet(player) {
     canHitPlayers: true,
     magnetRadius: player.bulletMagnetUntil > now ? BULLET_MAGNET_RADIUS : 0,
     radius: BULLET_RADIUS,
-    position: {
-      x: origin.x,
-      y: origin.y,
-      z: origin.z,
-    },
+    position: spawnPosition,
     velocity: {
       x: direction.x * bulletSpeed,
       y: direction.y * bulletSpeed,
@@ -935,7 +970,7 @@ function applyLaserTargetHit(owner, hit, delta, now) {
 
 function updatePlayerLaser(player, delta) {
   player.activeLaser = null;
-  if (player.input.weaponMode !== "laser" || !player.input.shoot) {
+  if (player.weaponMode !== "laser" || !player.input.shoot) {
     player.nextLaserHitSoundAt = 0;
     return;
   }
@@ -950,15 +985,55 @@ function updatePlayerLaser(player, delta) {
   const end = getRayEnd(origin, direction);
   const hit = findNearestLaserTarget(player, origin, direction, end);
   const now = Date.now();
+  const netTargets =
+    hit?.type === "pellet"
+      ? getLaserNetTargets(
+          hit.target,
+          getUpgradeLevel(player, "laserNet")
+        )
+      : [];
+  const netSegments =
+    hit?.type === "pellet"
+      ? netTargets.map((netTarget) => ({
+          sourcePelletIndex: hit.target.index,
+          targetPelletIndex: netTarget.target.index,
+          origin: { ...hit.target.position },
+          end: { ...netTarget.target.position },
+        }))
+      : [];
 
   if (hit) applyLaserTargetHit(player, hit, delta, now);
+  for (const netTarget of netTargets) {
+    applyLaserTargetHit(player, netTarget, delta, now);
+  }
 
   player.activeLaser = {
     origin,
     end,
     hitPlayerId: hit?.type === "player" ? hit.target.id : null,
     thickness: getLaserThickness(player),
+    netSegments,
   };
+}
+
+function getLaserNetTargets(sourcePellet, level) {
+  if (!sourcePellet?.active || level <= 0) return [];
+
+  return queryNearbyPellets(sourcePellet.position, LASER_NET_RANGE)
+    .filter(
+      (pellet) =>
+        pellet.active &&
+        pellet.index !== sourcePellet.index
+    )
+    .map((pellet) => ({
+      type: "pellet",
+      target: pellet,
+      distance: Math.sqrt(
+        distanceSq(sourcePellet.position, pellet.position)
+      ),
+    }))
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, level);
 }
 
 function tryActivatePelletMagnet(player, pellet) {
@@ -972,10 +1047,28 @@ function tryActivatePelletMagnet(player, pellet) {
 function awardMassCurrency(player, amount) {
   const gainedMass = Math.max(1, Math.round(amount));
   player.mass += gainedMass;
+  player.score += gainedMass;
+
+  if (
+    !player.isBot &&
+    player.weaponMode === "bullet" &&
+    player.score >= LASER_UNLOCK_SCORE
+  ) {
+    player.weaponMode = "laser";
+    player.input.weaponMode = "laser";
+    player.upgrades = createUpgradeState();
+    player.hp = Math.min(player.hp, getPlayerMaxHp(player));
+  }
+
   player.speed = getPlayerSpeed(player);
   emitUpgradeState(player);
   if (!player.isBot) {
-    io.to(player.id).emit("mass-gained", { amount: gainedMass });
+    io.to(player.id).emit("mass-gained", {
+      amount: gainedMass,
+      totalScore: player.score,
+      laserUnlockScore: LASER_UNLOCK_SCORE,
+      weaponMode: player.weaponMode,
+    });
   }
 }
 
@@ -1727,13 +1820,29 @@ function broadcastWorldState() {
   }));
   const laserPayload = Array.from(players.values())
     .filter((player) => player.activeLaser)
-    .map((player) => ({
-      id: player.id,
-      origin: player.activeLaser.origin,
-      end: player.activeLaser.end,
-      hitPlayerId: player.activeLaser.hitPlayerId,
-      thickness: player.activeLaser.thickness,
-    }));
+    .flatMap((player) => {
+      const primaryLaser = {
+        id: player.id,
+        ownerId: player.id,
+        origin: player.activeLaser.origin,
+        end: player.activeLaser.end,
+        hitPlayerId: player.activeLaser.hitPlayerId,
+        thickness: player.activeLaser.thickness,
+        anchorToShooter: true,
+      };
+      const netLasers = (player.activeLaser.netSegments || []).map(
+        (segment) => ({
+          id: `${player.id}:net:${segment.sourcePelletIndex}:${segment.targetPelletIndex}`,
+          ownerId: player.id,
+          origin: segment.origin,
+          end: segment.end,
+          hitPlayerId: null,
+          thickness: Math.max(0.75, player.activeLaser.thickness * 0.8),
+          anchorToShooter: false,
+        })
+      );
+      return [primaryLaser, ...netLasers];
+    });
   const laseredPlayerIds = new Set(
     laserPayload.map((laser) => laser.hitPlayerId).filter(Boolean)
   );
@@ -1747,6 +1856,9 @@ function broadcastWorldState() {
       z: player.position.z,
       radius: player.radius,
       mass: player.mass,
+      score: player.score,
+      laserUnlockScore: LASER_UNLOCK_SCORE,
+      weaponMode: player.weaponMode,
       hp: player.hp,
       maxHp: getPlayerMaxHp(player),
       viewDistance: getViewDistance(player),
@@ -1891,6 +2003,10 @@ io.on("connection", (socket) => {
     const player = players.get(socket.id);
     const def = UPGRADE_DEFS[key];
     if (!player || !def) return;
+    if (!getAvailableUpgradeKeys(player).has(key)) {
+      emitUpgradeState(player);
+      return;
+    }
     const level = getUpgradeLevel(player, key);
     if (level >= def.maxLevel) {
       emitUpgradeState(player);
@@ -1955,8 +2071,8 @@ io.on("connection", (socket) => {
       };
     }
     player.input.shoot = Boolean(input.shoot);
-    player.input.weaponMode = input.weaponMode === "laser" ? "laser" : "bullet";
-    if (player.input.shoot && player.input.weaponMode === "bullet") {
+    player.input.weaponMode = player.weaponMode;
+    if (player.input.shoot && player.weaponMode === "bullet") {
       shootBullet(player);
     }
   });

@@ -11,7 +11,6 @@ export function setupControls(canvas, cameraController) {
   const sensitivity = 0.002;
   const playerSpeed = 0.12;
   let isShooting = false;
-  let weaponMode = 'bullet';
   let lastSplit = 0;
   let viewingCell = false;
 
@@ -25,8 +24,6 @@ export function setupControls(canvas, cameraController) {
     keys[key] = true;
 
     if (key === 'x') cameraController.toggleDeveloperMode();
-    if (key === '1') weaponMode = 'bullet';
-    if (key === '2') weaponMode = 'laser';
   }
 
   function onKeyUp(e) {
@@ -135,7 +132,6 @@ export function setupControls(canvas, cameraController) {
     }),
     getForwardButtonPressed: () => hasControl() && Boolean(keys.w),
     getShootButtonPressed: () => hasControl() && isShooting,
-    getWeaponMode: () => weaponMode,
     keys,
     playerSpeed,
     lastSplit,

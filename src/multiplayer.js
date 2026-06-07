@@ -151,6 +151,9 @@ function createPlayerTarget(playerState) {
     position: new THREE.Vector3(playerState.x, playerState.y, playerState.z),
     radius: playerState.radius || 1,
     mass: playerState.mass ?? 0,
+    score: playerState.score ?? 0,
+    laserUnlockScore: playerState.laserUnlockScore ?? 1000,
+    weaponMode: playerState.weaponMode || "bullet",
     hp: playerState.hp ?? 100,
     maxHp: playerState.maxHp ?? 100,
     viewDistance: playerState.viewDistance ?? 30,
@@ -163,6 +166,10 @@ function updatePlayerTarget(target, playerState) {
   target.position.set(playerState.x, playerState.y, playerState.z);
   target.radius = playerState.radius || target.radius || 1;
   target.mass = playerState.mass ?? target.mass ?? 0;
+  target.score = playerState.score ?? target.score ?? 0;
+  target.laserUnlockScore =
+    playerState.laserUnlockScore ?? target.laserUnlockScore ?? 1000;
+  target.weaponMode = playerState.weaponMode || target.weaponMode || "bullet";
   target.hp = playerState.hp ?? target.hp ?? 100;
   target.maxHp = playerState.maxHp ?? target.maxHp ?? 100;
   target.viewDistance = playerState.viewDistance ?? target.viewDistance ?? 30;
@@ -325,7 +332,7 @@ function clearRemotePlayers() {
 }
 
 function createBulletMesh(bullet) {
-  const visualRadius = Math.max(0.035, (bullet.radius || 0.12) * 0.45);
+  const visualRadius = Math.max(0.08, (bullet.radius || 0.16) * 0.75);
   const geometry = new THREE.SphereGeometry(visualRadius, 8, 8);
   const material = new THREE.MeshStandardMaterial({
     color: 0x9fffe2,
@@ -451,7 +458,10 @@ function updateLaserFromRenderedShooter(id, entry) {
   laserEnd.set(laser.end.x, laser.end.y, laser.end.z);
   laserDirection.subVectors(laserEnd, laserStart);
   const length = laserDirection.length();
-  const shooterPosition = otherPlayers[id]?.mesh?.position;
+  const shooterPosition =
+    laser.anchorToShooter === false
+      ? null
+      : otherPlayers[laser.ownerId || id]?.mesh?.position;
   const origin = shooterPosition || laserStart;
 
   entry.visualLaser.origin.x = origin.x;
@@ -628,12 +638,16 @@ function updateLocalPlayer(playerState) {
   }
   localPlayerCell.userData.viewDistance = localPlayerTarget.viewDistance;
   localPlayerCell.userData.currencyMass = localPlayerTarget.mass;
+  localPlayerCell.userData.runScore = localPlayerTarget.score;
   window.dispatchEvent(
     new CustomEvent("local-player-state", {
       detail: {
         hp: localPlayerTarget.hp,
         maxHp: localPlayerTarget.maxHp,
         mass: localPlayerTarget.mass,
+        score: localPlayerTarget.score,
+        laserUnlockScore: localPlayerTarget.laserUnlockScore,
+        weaponMode: localPlayerTarget.weaponMode,
         isInCombat: localPlayerTarget.isInCombat,
       },
     })
@@ -731,7 +745,7 @@ export function initNetworking(scene, playerCell, audioMgr = null, camera = null
   socket.on("world-sound", playWorldSound);
 }
 
-export function sendPlayerInput({ forward, movement, rotation, shoot, aim, weaponMode }) {
+export function sendPlayerInput({ forward, movement, rotation, shoot, aim }) {
   // Input is intentionally small. The server receives this and decides how far
   // the player actually moves during its next tick.
   socket.emit("player-input", {
@@ -740,7 +754,6 @@ export function sendPlayerInput({ forward, movement, rotation, shoot, aim, weapo
     rotation,
     shoot,
     aim,
-    weaponMode: weaponMode || "bullet",
   });
 }
 

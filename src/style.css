@@ -51,6 +51,64 @@ body,
   backdrop-filter: blur(5px);
 }
 
+#weapon-progress {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  width: min(440px, calc(100vw - 420px));
+  min-width: 260px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  color: #fff;
+  font-family: Arial, sans-serif;
+  pointer-events: none;
+}
+
+.weapon-progress-label,
+.weapon-progress-mode {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+
+.weapon-progress-track {
+  height: 13px;
+  margin: 5px 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.68);
+  box-shadow: 0 0 12px rgba(40, 145, 255, 0.2);
+}
+
+.weapon-progress-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #4d85ff, #37d5ff);
+  box-shadow: 0 0 12px rgba(55, 213, 255, 0.65);
+  transition: width 0.18s ease-out;
+}
+
+.weapon-progress-fill.unlocked {
+  background: linear-gradient(90deg, #24d8ff, #b358ff);
+  box-shadow: 0 0 16px rgba(127, 82, 255, 0.8);
+}
+
+.weapon-progress-mode {
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  #weapon-progress {
+    top: 72px;
+    width: min(420px, calc(100vw - 40px));
+  }
+}
+
 .leaderboard-title {
   font-weight: bold;
   margin-bottom: 10px;

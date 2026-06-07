@@ -54,6 +54,81 @@ function MassCounter({ visible }) {
   );
 }
 
+function WeaponProgress({ visible }) {
+  const [progressState, setProgressState] = useState(null);
+
+  useEffect(() => {
+    function onLocalPlayerState(event) {
+      setProgressState({
+        score: event.detail?.score ?? 0,
+        unlockScore: event.detail?.laserUnlockScore ?? 1000,
+        weaponMode: event.detail?.weaponMode || "bullet",
+      });
+    }
+
+    window.addEventListener("local-player-state", onLocalPlayerState);
+    return () => {
+      window.removeEventListener("local-player-state", onLocalPlayerState);
+    };
+  }, []);
+
+  useEffect(() => {
+    function onMassGained({
+      totalScore,
+      laserUnlockScore = 1000,
+      weaponMode = "bullet",
+    } = {}) {
+      if (typeof totalScore !== "number") return;
+      setProgressState({
+        score: totalScore,
+        unlockScore: laserUnlockScore,
+        weaponMode,
+      });
+    }
+
+    socket.on("mass-gained", onMassGained);
+    return () => {
+      socket.off("mass-gained", onMassGained);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!visible) setProgressState(null);
+  }, [visible]);
+
+  if (!visible || !progressState) return null;
+
+  const unlocked = progressState.weaponMode === "laser";
+  const ratio = unlocked
+    ? 1
+    : Math.max(
+        0,
+        Math.min(1, progressState.score / Math.max(1, progressState.unlockScore))
+      );
+
+  return (
+    <div id="weapon-progress">
+      <div className="weapon-progress-label">
+        <span>{unlocked ? "Laser unlocked" : "Laser unlock"}</span>
+        <span>
+          {unlocked
+            ? `Score ${progressState.score}`
+            : `${progressState.score} / ${progressState.unlockScore}`}
+        </span>
+      </div>
+      <div className="weapon-progress-track">
+        <div
+          className={unlocked ? "weapon-progress-fill unlocked" : "weapon-progress-fill"}
+          style={{ width: `${ratio * 100}%` }}
+        />
+      </div>
+      <div className="weapon-progress-mode">
+        Main weapon: {unlocked ? "Laser" : "Bullet"}
+      </div>
+    </div>
+  );
+}
+
 function Leaderboard({ gameState, playerName, visible }) {
   const [entries, setEntries] = useState([]);
 
@@ -68,7 +143,7 @@ function Leaderboard({ gameState, playerName, visible }) {
     const nextEntries = [
       {
         name: playerName || "Player",
-        mass: playerCell.userData.currencyMass ?? 0,
+        score: playerCell.userData.runScore ?? 0,
         isPlayer: true,
       },
     ];
@@ -77,7 +152,7 @@ function Leaderboard({ gameState, playerName, visible }) {
       if (botCell.userData.isEaten) return;
       nextEntries.push({
         name: botCell.userData.name || `Bot ${index + 1}`,
-        mass: botCell.userData.currencyMass ?? 0,
+        score: botCell.userData.runScore ?? 0,
         isPlayer: false,
       });
     });
@@ -87,12 +162,12 @@ function Leaderboard({ gameState, playerName, visible }) {
       if (!otherPlayer.mesh || otherPlayer.mesh.userData?.isEaten) continue;
       nextEntries.push({
         name: otherPlayer.name || "Player",
-        mass: otherPlayer.target?.mass ?? 0,
+        score: otherPlayer.target?.score ?? 0,
         isPlayer: false,
       });
     }
 
-    nextEntries.sort((a, b) => b.mass - a.mass);
+    nextEntries.sort((a, b) => b.score - a.score);
     setEntries(nextEntries);
   }, [gameState, playerName, visible]);
 
@@ -115,7 +190,7 @@ function Leaderboard({ gameState, playerName, visible }) {
           <span>
             {index + 1}. {entry.name}
           </span>
-          <span>{entry.mass}</span>
+          <span>{entry.score}</span>
         </div>
       ))}
       {playerOutsideTopTen && (
@@ -125,7 +200,7 @@ function Leaderboard({ gameState, playerName, visible }) {
             <span>
               {playerRank}. {playerOutsideTopTen.name}
             </span>
-            <span>{playerOutsideTopTen.mass}</span>
+            <span>{playerOutsideTopTen.score}</span>
           </div>
         </>
       )}
@@ -151,7 +226,9 @@ function UpgradePanel({ visible }) {
 
   return (
     <div id="upgrade-panel">
-      <div className="upgrade-title">Upgrades</div>
+      <div className="upgrade-title">
+        {upgradeState.weaponMode === "laser" ? "Laser" : "Bullet"} Upgrades
+      </div>
       <div className="upgrade-mass">Mass {upgradeState.mass}</div>
       {Object.entries(upgradeState.upgrades).map(([key, upgrade]) => {
         const isMaxed = upgrade.level >= upgrade.maxLevel;
@@ -387,6 +464,7 @@ export function App() {
       )}
 
       <MassCounter visible={isPlaying} />
+      <WeaponProgress visible={isPlaying} />
       <MassGainPopups visible={isPlaying} />
       <LaserHitVignette visible={isPlaying} />
       <Crosshair visible={isPlaying} />
