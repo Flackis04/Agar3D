@@ -428,6 +428,28 @@ function recycleBulletMesh(mesh) {
   bulletMeshPool.push(mesh);
 }
 
+function getLocalViewDistance() {
+  return localPlayerTarget?.viewDistance ?? 30;
+}
+
+function isWithinLocalView(position, padding = 0) {
+  if (!localPlayerCell || !position) return false;
+  const maxDistance = getLocalViewDistance() + padding;
+  return localPlayerCell.position.distanceToSquared(position) <=
+    maxDistance * maxDistance;
+}
+
+function updateBulletVisibility(entry) {
+  if (!entry?.mesh) return;
+  const withinView = isWithinLocalView(entry.mesh.position, entry.radius || 0);
+  const traveledFarEnough =
+    entry.ownerId !== socket.id ||
+    !entry.visualOrigin ||
+    entry.mesh.position.distanceToSquared(entry.visualOrigin) >=
+      entry.visualOffset * entry.visualOffset;
+  entry.mesh.visible = withinView && traveledFarEnough;
+}
+
 function updateBullets(bulletStates = []) {
   if (!localScene) return;
   const seen = new Set();
@@ -440,13 +462,24 @@ function updateBullets(bulletStates = []) {
       bullets[bullet.id] = {
         mesh,
         velocity: new THREE.Vector3(bullet.vx || 0, bullet.vy || 0, bullet.vz || 0),
+        visualOrigin: bullet.visualOrigin
+          ? new THREE.Vector3(
+              bullet.visualOrigin.x,
+              bullet.visualOrigin.y,
+              bullet.visualOrigin.z
+            )
+          : null,
       };
     }
 
     const entry = bullets[bullet.id];
+    entry.ownerId = bullet.ownerId;
+    entry.radius = bullet.radius || 0;
+    entry.visualOffset = bullet.visualOffset || 0;
     entry.velocity.set(bullet.vx || 0, bullet.vy || 0, bullet.vz || 0);
     entry.mesh.position.set(bullet.x, bullet.y, bullet.z);
     updateBulletMagnetSphere(entry.mesh, bullet.magnetRadius || 0);
+    updateBulletVisibility(entry);
   });
 
   Object.keys(bullets).forEach((id) => {
@@ -822,6 +855,12 @@ export function applyNetworkSmoothing(deltaTime = 1 / 60) {
     otherPlayer.mesh.scale.setScalar(
       THREE.MathUtils.lerp(otherPlayer.mesh.scale.x, targetScale, smoothing)
     );
+    const withinView = isWithinLocalView(
+      otherPlayer.mesh.position,
+      otherPlayer.target.radius
+    );
+    otherPlayer.mesh.visible = withinView;
+    otherPlayer.hpBar.visible = withinView;
     updateLaserHitTint(
       otherPlayer.mesh,
       otherPlayer.target.isBeingLasered,
@@ -846,6 +885,7 @@ export function applyNetworkSmoothing(deltaTime = 1 / 60) {
     const bullet = bullets[id];
     if (!bullet.mesh || !bullet.velocity) continue;
     bullet.mesh.position.addScaledVector(bullet.velocity, deltaTime);
+    updateBulletVisibility(bullet);
   }
 
   const now = performance.now();
@@ -867,6 +907,10 @@ export function applyNetworkSmoothing(deltaTime = 1 / 60) {
       pelletDataRef.sizes[index] || 0.3,
       displayHp,
       entry.maxHp
+    );
+    entry.bar.visible = isWithinLocalView(
+      pelletDataRef.positions[index],
+      pelletDataRef.sizes[index] || 0
     );
     setBarOpacity(entry.bar, opacity);
     if (opacity <= 0) removePelletHpBar(index);

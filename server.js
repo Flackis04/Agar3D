@@ -114,8 +114,6 @@ const LASER_PELLET_SYNC_INTERVAL_MS = 50;
 const BULLET_RADIUS = 0.24;
 const BULLET_SPAWN_OFFSET =
   PELLET_MAX_RADIUS + BULLET_RADIUS + 1;
-const BULLET_SPAWN_CLEARANCE_STEP = 0.5;
-const BULLET_SPAWN_CLEARANCE_ATTEMPTS = 12;
 const BULLET_SPEED = 48;
 const BULLET_TTL_MS = 1600;
 const PLAYER_BULLET_TTL_MS = 9000;
@@ -133,7 +131,7 @@ const LASER_HIT_SOUND_DELAY_MS = 70;
 const COMBAT_MODE_DURATION_MS = 12000;
 const BASE_HEALTH_REGEN_PER_SECOND = 5;
 const BASE_BODY_DAMAGE = 30;
-const BOT_COUNT = 5;
+const BOT_COUNT = 8;
 const BOT_RENDER_DISTANCE = 45;
 const BOT_PELLET_SCAN_RADIUS = 42;
 const BOT_PLAYER_SCAN_RADIUS = 52;
@@ -243,8 +241,17 @@ const BOT_STAGE_CONFIGS = Object.freeze({
   },
 });
 
-// Five fixed slots guarantee stage variety while values still vary per spawn.
-const BOT_STAGE_SLOTS = ["early", "mid", "mid", "late", "boss"];
+// Fixed slots guarantee stage variety while values still vary per spawn.
+const BOT_STAGE_SLOTS = [
+  "early",
+  "early",
+  "early",
+  "early",
+  "mid",
+  "mid",
+  "late",
+  "boss",
+];
 
 const BOT_STATES = Object.freeze({
   ROAMING: "roaming",
@@ -612,6 +619,80 @@ function createUpgradeState() {
     state[key] = 0;
     return state;
   }, {});
+}
+
+function pointToSegmentDistanceSq(point, start, end) {
+  const segmentX = end.x - start.x;
+  const segmentY = end.y - start.y;
+  const segmentZ = end.z - start.z;
+  const lengthSq =
+    segmentX * segmentX + segmentY * segmentY + segmentZ * segmentZ;
+  if (lengthSq <= Number.EPSILON) return distanceSq(point, start);
+
+  const t = clamp(
+    ((point.x - start.x) * segmentX +
+      (point.y - start.y) * segmentY +
+      (point.z - start.z) * segmentZ) /
+      lengthSq,
+    0,
+    1
+  );
+  const closest = {
+    x: start.x + segmentX * t,
+    y: start.y + segmentY * t,
+    z: start.z + segmentZ * t,
+  };
+  return distanceSq(point, closest);
+}
+
+function clipSegmentToSphere(start, end, center, radius) {
+  if (pointToSegmentDistanceSq(center, start, end) > radius * radius) {
+    return null;
+  }
+
+  const direction = {
+    x: end.x - start.x,
+    y: end.y - start.y,
+    z: end.z - start.z,
+  };
+  const offset = {
+    x: start.x - center.x,
+    y: start.y - center.y,
+    z: start.z - center.z,
+  };
+  const a =
+    direction.x * direction.x +
+    direction.y * direction.y +
+    direction.z * direction.z;
+  if (a <= Number.EPSILON) return { origin: start, end };
+
+  const b =
+    2 *
+    (offset.x * direction.x +
+      offset.y * direction.y +
+      offset.z * direction.z);
+  const c =
+    offset.x * offset.x +
+    offset.y * offset.y +
+    offset.z * offset.z -
+    radius * radius;
+  const discriminant = Math.max(0, b * b - 4 * a * c);
+  const sqrtDiscriminant = Math.sqrt(discriminant);
+  const startT = clamp((-b - sqrtDiscriminant) / (2 * a), 0, 1);
+  const endT = clamp((-b + sqrtDiscriminant) / (2 * a), 0, 1);
+
+  return {
+    origin: {
+      x: start.x + direction.x * startT,
+      y: start.y + direction.y * startT,
+      z: start.z + direction.z * startT,
+    },
+    end: {
+      x: start.x + direction.x * endT,
+      y: start.y + direction.y * endT,
+      z: start.z + direction.z * endT,
+    },
+  };
 }
 
 function randomInteger([min, max]) {
@@ -1050,41 +1131,6 @@ function applyBotStage(bot, stageKey) {
   bot.hp = getPlayerMaxHp(bot);
 }
 
-function getClearBulletSpawnPosition(origin, direction) {
-  let distance = BULLET_SPAWN_OFFSET;
-
-  for (
-    let attempt = 0;
-    attempt < BULLET_SPAWN_CLEARANCE_ATTEMPTS;
-    attempt++
-  ) {
-    const position = {
-      x: origin.x + direction.x * distance,
-      y: origin.y + direction.y * distance,
-      z: origin.z + direction.z * distance,
-    };
-    const nearbyPellets = queryNearbyPellets(
-      position,
-      PELLET_MAX_RADIUS + BULLET_RADIUS
-    );
-    const overlapsPellet = nearbyPellets.some(
-      (pellet) =>
-        pellet.active &&
-        distanceSq(position, pellet.position) <
-          Math.pow(pellet.size + BULLET_RADIUS, 2)
-    );
-
-    if (!overlapsPellet) return position;
-    distance += BULLET_SPAWN_CLEARANCE_STEP;
-  }
-
-  return {
-    x: origin.x + direction.x * distance,
-    y: origin.y + direction.y * distance,
-    z: origin.z + direction.z * distance,
-  };
-}
-
 function shootBullet(player) {
   const aimRay = getAimRay(player);
   if (!aimRay) return;
@@ -1097,7 +1143,6 @@ function shootBullet(player) {
   const id = String(nextBulletId++);
   const bulletSpeed = getBulletSpeed(player);
   const penetration = getBulletPenetration(player);
-  const spawnPosition = getClearBulletSpawnPosition(origin, direction);
 
   bullets.set(id, {
     id,
@@ -1110,7 +1155,9 @@ function shootBullet(player) {
     canHitPlayers: true,
     magnetRadius: player.bulletMagnetUntil > now ? BULLET_MAGNET_RADIUS : 0,
     radius: BULLET_RADIUS,
-    position: spawnPosition,
+    position: { ...origin },
+    visualOrigin: { ...origin },
+    visualOffset: player.isBot ? 0 : BULLET_SPAWN_OFFSET,
     velocity: {
       x: direction.x * bulletSpeed,
       y: direction.y * bulletSpeed,
@@ -2182,14 +2229,36 @@ function broadcastWorldState() {
     vx: bullet.velocity.x,
     vy: bullet.velocity.y,
     vz: bullet.velocity.z,
+    ownerId: bullet.ownerId,
+    visualOrigin: bullet.visualOrigin,
+    visualOffset: bullet.visualOffset || 0,
     magnetRadius: bullet.magnetRadius || 0,
     radius: bullet.radius,
   }));
   io.sockets.sockets.forEach((socket) => {
+    const viewer = players.get(socket.id);
+    const viewDistance = viewer ? getViewDistance(viewer) : 0;
     const isBeingLasered = laserPayload.some(
       (laser) => laser.hitPlayerId === socket.id
     );
-    const visibleLasers = laserPayload.filter((laser) => laser.hitPlayerId !== socket.id);
+    const visibleLasers = viewer
+      ? laserPayload.flatMap((laser) => {
+          if (laser.hitPlayerId === socket.id) return [];
+          const clipped = clipSegmentToSphere(
+            laser.origin,
+            laser.end,
+            viewer.position,
+            viewDistance
+          );
+          if (!clipped) return [];
+          return [{
+            ...laser,
+            origin: clipped.origin,
+            end: clipped.end,
+            anchorToShooter: false,
+          }];
+        })
+      : [];
     socket.emit("world-update", {
       players: payload,
       bullets: bulletPayload,
@@ -2209,7 +2278,7 @@ function spawnBot(index) {
 
   const bot = createPlayerState({
     id,
-    name: `${stageConfig.label} Bot ${index + 1}`,
+    name: `Bot ${index + 1}`,
     isBot: true,
   });
   applyBotStage(bot, stageKey);
