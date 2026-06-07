@@ -108,6 +108,9 @@ const PELLET_MAGNET_SPEED = 27;
 const BULLET_MAGNET_RADIUS = 3.5;
 const TICK_RATE = 60;
 const TICK_INTERVAL = 1000 / TICK_RATE;
+const WORLD_BROADCAST_RATE = 30;
+const WORLD_BROADCAST_INTERVAL = 1000 / WORLD_BROADCAST_RATE;
+const LASER_PELLET_SYNC_INTERVAL_MS = 50;
 const BULLET_RADIUS = 0.19;
 const BULLET_SPAWN_OFFSET = 1.25;
 const BULLET_SPEED = 32;
@@ -311,6 +314,7 @@ function createPellet(index) {
     collisionDamage: tierConfig.collisionDamage,
     isPowerUp,
     active: true,
+    nextDamageSyncAt: 0,
   };
 }
 
@@ -357,6 +361,7 @@ const players = new Map();
 const bullets = new Map();
 const botRespawnTimers = new Map();
 let lastTick = Date.now();
+let nextWorldBroadcastAt = lastTick;
 let nextBulletId = 1;
 
 function removeBullet(id, reason = "removed") {
@@ -678,6 +683,7 @@ function respawnPellet(pellet) {
   pellet.massReward = tierConfig.massReward;
   pellet.collisionDamage = tierConfig.collisionDamage;
   pellet.active = true;
+  pellet.nextDamageSyncAt = 0;
   addPelletToGrid(pellet);
   pelletState.positions[pellet.index] = pellet.position;
   pelletState.tiers[pellet.index] = pellet.tier;
@@ -963,6 +969,7 @@ function applyLaserTargetHit(owner, hit, delta, now) {
     {
       ownerId: owner.id,
       damage: (getLaserDamage(owner) * delta) / 125,
+      continuous: true,
     },
     hit.target
   );
@@ -1163,12 +1170,16 @@ function applyBulletPelletHit(bullet, pellet) {
     return;
   }
 
-  io.emit("pellet-damaged", {
-    index: pellet.index,
-    size: pellet.size,
-    hp: pellet.hp,
-    maxHp: pellet.maxHp,
-  });
+  const now = Date.now();
+  if (!bullet.continuous || pellet.nextDamageSyncAt <= now) {
+    pellet.nextDamageSyncAt = now + LASER_PELLET_SYNC_INTERVAL_MS;
+    io.emit("pellet-damaged", {
+      index: pellet.index,
+      size: pellet.size,
+      hp: pellet.hp,
+      maxHp: pellet.maxHp,
+    });
+  }
 }
 
 function findBestHumanPlayer(bot, maxDistance = BOT_PLAYER_SCAN_RADIUS) {
@@ -1954,14 +1965,20 @@ function removePlayer(id) {
 spawnBots();
 
 setInterval(() => {
-  // Main server loop. At 60 ticks per second it moves players, handles
-  // collisions, and broadcasts the new world snapshot to every browser.
+  // Gameplay stays at 60 ticks per second. Visual snapshots are sent at 30 Hz
+  // and clients interpolate between them.
   const now = Date.now();
   const delta = (now - lastTick) / 1000;
   lastTick = now;
   updatePlayers(delta);
   updateBullets(delta);
-  broadcastWorldState();
+  if (now >= nextWorldBroadcastAt) {
+    broadcastWorldState();
+    nextWorldBroadcastAt += WORLD_BROADCAST_INTERVAL;
+    if (nextWorldBroadcastAt < now - WORLD_BROADCAST_INTERVAL) {
+      nextWorldBroadcastAt = now + WORLD_BROADCAST_INTERVAL;
+    }
+  }
 }, TICK_INTERVAL);
 
 io.on("connection", (socket) => {

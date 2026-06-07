@@ -49,7 +49,7 @@ export const otherPlayers = {};
 const bullets = {};
 const lasers = {};
 const pelletHpBars = {};
-const PELLET_SYNC_BATCH_SIZE = 5000;
+const PELLET_SYNC_BATCH_SIZE = 400;
 const LASER_HIT_COLOR = new THREE.Color(0x5c0008);
 const LASER_HIT_EMISSIVE = new THREE.Color(0x9c0012);
 const REMOTE_PLAYER_FOLLOW_RATE = 45;
@@ -67,6 +67,42 @@ let audioManager = null;
 let currentPlayerName = null;
 let pelletSyncJob = null;
 const WORLD_SOUND_DISTANCE = 50;
+const BULLET_BASE_VISUAL_RADIUS = 0.19 * 0.75;
+const bulletGeometry = new THREE.SphereGeometry(BULLET_BASE_VISUAL_RADIUS, 8, 8);
+const bulletMaterial = new THREE.MeshStandardMaterial({
+  color: 0x9fffe2,
+  emissive: 0x052a22,
+  emissiveIntensity: 0.18,
+  metalness: 0.05,
+  roughness: 0.55,
+});
+const bulletMagnetGeometry = new THREE.SphereGeometry(1, 16, 8);
+const bulletMagnetMaterial = new THREE.MeshBasicMaterial({
+  color: 0xff3333,
+  transparent: true,
+  opacity: 0.16,
+  wireframe: true,
+});
+const bulletMeshPool = [];
+const laserCoreGeometry = new THREE.CylinderGeometry(0.065, 0.065, 1, 8, 1, true);
+const laserGlowGeometry = new THREE.CylinderGeometry(0.15, 0.15, 1, 8, 1, true);
+const laserCoreMaterial = new THREE.MeshBasicMaterial({
+  color: 0xc8f8ff,
+  transparent: true,
+  opacity: 0.95,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  toneMapped: false,
+});
+const laserGlowMaterial = new THREE.MeshBasicMaterial({
+  color: 0x28cfff,
+  transparent: true,
+  opacity: 0.22,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  toneMapped: false,
+});
+const laserMeshPool = [];
 
 function getWorldSoundVolume(position) {
   if (!localPlayerCell || !position) return 0;
@@ -333,30 +369,12 @@ function clearRemotePlayers() {
 
 function createBulletMesh(bullet) {
   const visualRadius = Math.max(0.08, (bullet.radius || 0.19) * 0.75);
-  const geometry = new THREE.SphereGeometry(visualRadius, 8, 8);
-  const material = new THREE.MeshStandardMaterial({
-    color: 0x9fffe2,
-    emissive: 0x052a22,
-    emissiveIntensity: 0.18,
-    metalness: 0.05,
-    roughness: 0.55,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
+  const mesh =
+    bulletMeshPool.pop() || new THREE.Mesh(bulletGeometry, bulletMaterial);
+  mesh.visible = true;
+  mesh.scale.setScalar(visualRadius / BULLET_BASE_VISUAL_RADIUS);
   mesh.position.set(bullet.x, bullet.y, bullet.z);
-
-  if (bullet.magnetRadius > 0) {
-    const magnetSphere = new THREE.Mesh(
-      new THREE.SphereGeometry(bullet.magnetRadius, 24, 12),
-      new THREE.MeshBasicMaterial({
-        color: 0xff3333,
-        transparent: true,
-        opacity: 0.16,
-        wireframe: true,
-      })
-    );
-    magnetSphere.userData.isBulletMagnetSphere = true;
-    mesh.add(magnetSphere);
-  }
+  updateBulletMagnetSphere(mesh, bullet.magnetRadius || 0);
 
   return mesh;
 }
@@ -368,13 +386,8 @@ function updateBulletMagnetSphere(mesh, magnetRadius = 0) {
 
   if (magnetRadius > 0 && !magnetSphere) {
     magnetSphere = new THREE.Mesh(
-      new THREE.SphereGeometry(magnetRadius, 24, 12),
-      new THREE.MeshBasicMaterial({
-        color: 0xff3333,
-        transparent: true,
-        opacity: 0.16,
-        wireframe: true,
-      })
+      bulletMagnetGeometry,
+      bulletMagnetMaterial
     );
     magnetSphere.userData.isBulletMagnetSphere = true;
     mesh.add(magnetSphere);
@@ -383,9 +396,18 @@ function updateBulletMagnetSphere(mesh, magnetRadius = 0) {
   if (!magnetSphere) return;
   magnetSphere.visible = magnetRadius > 0;
   if (magnetRadius > 0) {
-    const baseRadius = magnetSphere.geometry.parameters.radius || magnetRadius;
-    magnetSphere.scale.setScalar(magnetRadius / baseRadius);
+    magnetSphere.scale.setScalar(magnetRadius);
   }
+}
+
+function recycleBulletMesh(mesh) {
+  if (!mesh) return;
+  localScene?.remove(mesh);
+  mesh.visible = false;
+  mesh.children.forEach((child) => {
+    if (child.userData.isBulletMagnetSphere) child.visible = false;
+  });
+  bulletMeshPool.push(mesh);
 }
 
 function updateBullets(bulletStates = []) {
@@ -413,8 +435,7 @@ function updateBullets(bulletStates = []) {
     if (seen.has(id)) return;
     const entry = bullets[id];
     if (entry.mesh) {
-      localScene.remove(entry.mesh);
-      disposeGroup(entry.mesh);
+      recycleBulletMesh(entry.mesh);
     }
     delete bullets[id];
   });
@@ -425,7 +446,7 @@ const laserEnd = new THREE.Vector3();
 const laserDirection = new THREE.Vector3();
 const laserMidpoint = new THREE.Vector3();
 const laserUp = new THREE.Vector3(0, 1, 0);
-const LASER_LIGHT_COUNT = 6;
+const LASER_LIGHT_COUNT = 1;
 
 function updateLaserMesh(mesh, laser) {
   laserStart.set(laser.origin.x, laser.origin.y, laser.origin.z);
@@ -482,38 +503,24 @@ function updateLaserFromRenderedShooter(id, entry) {
 }
 
 function createLaserMesh(laser) {
-  const group = new THREE.Group();
+  const pooledMesh = laserMeshPool.pop();
+  if (pooledMesh) {
+    pooledMesh.visible = true;
+    updateLaserMesh(pooledMesh, laser);
+    return pooledMesh;
+  }
 
-  const core = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.065, 0.065, 1, 8, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0xc8f8ff,
-      transparent: true,
-      opacity: 0.95,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      toneMapped: false,
-    }),
-  );
+  const group = new THREE.Group();
+  const core = new THREE.Mesh(laserCoreGeometry, laserCoreMaterial);
   core.renderOrder = 11;
   core.frustumCulled = false;
 
-  const glow = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.15, 0.15, 1, 8, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: 0x28cfff,
-      transparent: true,
-      opacity: 0.22,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      toneMapped: false,
-    }),
-  );
+  const glow = new THREE.Mesh(laserGlowGeometry, laserGlowMaterial);
   glow.renderOrder = 10;
   glow.frustumCulled = false;
 
   const lights = Array.from({ length: LASER_LIGHT_COUNT }, () => (
-    new THREE.PointLight(0x35dfff, 2.5, 18, 2)
+    new THREE.PointLight(0x35dfff, 2.2, 20, 2)
   ));
 
   group.add(glow, core, ...lights);
@@ -522,6 +529,13 @@ function createLaserMesh(laser) {
   group.userData.lights = lights;
   updateLaserMesh(group, laser);
   return group;
+}
+
+function recycleLaserMesh(mesh) {
+  if (!mesh) return;
+  localScene?.remove(mesh);
+  mesh.visible = false;
+  laserMeshPool.push(mesh);
 }
 
 function updateLasers(laserStates = []) {
@@ -556,8 +570,7 @@ function updateLasers(laserStates = []) {
     if (seen.has(id)) return;
     const entry = lasers[id];
     if (entry.mesh) {
-      localScene.remove(entry.mesh);
-      disposeGroup(entry.mesh);
+      recycleLaserMesh(entry.mesh);
     }
     delete lasers[id];
   });
@@ -567,8 +580,7 @@ function removeBullet(id) {
   const entry = bullets[id];
   if (!entry) return;
   if (entry.mesh && localScene) {
-    localScene.remove(entry.mesh);
-    disposeGroup(entry.mesh);
+    recycleBulletMesh(entry.mesh);
   }
   delete bullets[id];
 }
@@ -664,8 +676,7 @@ export function initNetworking(scene, playerCell, audioMgr = null, camera = null
   clearRemotePlayers();
   Object.keys(lasers).forEach((id) => {
     if (lasers[id].mesh && localScene) {
-      localScene.remove(lasers[id].mesh);
-      disposeGroup(lasers[id].mesh);
+      recycleLaserMesh(lasers[id].mesh);
     }
     delete lasers[id];
   });
@@ -1055,7 +1066,6 @@ function registerPelletHandlers() {
       pelletDataRef.maxHp[data.index] = data.maxHp;
     }
     pelletDataRef.active[data.index] = true;
-    updatePelletInstance(data.index);
     if (typeof data.hp === "number") {
       showPelletHpBar(data.index, data.hp, data.maxHp);
     }
