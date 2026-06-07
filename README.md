@@ -27,18 +27,15 @@ The page runs on port `3000`. The multiplayer server runs on port `3001`.
 
 ## Deploy To Render
 
-Deploy the repository as a **Web Service**, not a Static Site. Render can use
-the included `render.yaml`, or use these dashboard settings:
+The included `render.yaml` defines the existing deployment as two services:
 
 ```text
-Build command: npm ci && npm run build
-Start command: npm start
-Health check: /health
+agar3d-frontend: static Vite site
+agar3d-backend: Node, Socket.IO, bots, and authoritative movement
 ```
 
-The Node process serves both the built website and Socket.IO on Render's
-assigned port. This is required because player movement and the five bots are
-authoritative server features.
+The frontend receives `VITE_API_BASE_URL=https://agar3d-byw8.onrender.com`
+during its build. Player movement and the five bots run on that backend.
 
 ## Learn The Code
 

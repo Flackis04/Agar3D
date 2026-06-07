@@ -8,13 +8,18 @@ function getSocketUrl() {
     return serverFromUrl;
   }
 
+  const configuredServer = import.meta.env.VITE_API_BASE_URL;
+  if (configuredServer) {
+    return configuredServer;
+  }
+
   return undefined;
 }
 
 const socketUrl = getSocketUrl();
 
-// Production uses the page's own origin. Local Vite development proxies this
-// same Socket.IO path to the multiplayer server on port 3001.
+// Render injects VITE_API_BASE_URL for its separate backend service. Local
+// Vite development uses the same-origin proxy configured in vite.config.js.
 // Reusing window.__socket prevents duplicate sockets during Vite hot reloads.
 let socket;
 if (!window.__socket) {

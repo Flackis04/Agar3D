@@ -1,6 +1,8 @@
+import eatSoundUrl from "../assets/blob.wav?url";
+
 // AudioManager: handles audio context, buffer loading, and sound playback
 export class AudioManager {
-  constructor(audioUrl = "assets/blob.wav") {
+  constructor(audioUrl = eatSoundUrl) {
     this.audioContext = null;
     this.audioBuffer = null;
     this.audioBufferLoading = null;
@@ -26,7 +28,12 @@ export class AudioManager {
   ensureAudioBufferLoaded() {
     if (this.audioBufferLoading) return this.audioBufferLoading;
     this.audioBufferLoading = fetch(this.audioUrl)
-      .then((response) => response.arrayBuffer())
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Audio request failed with status ${response.status}`);
+        }
+        return response.arrayBuffer();
+      })
       .then((arrayBuffer) => {
         const ctx = this.initAudioContext();
         return ctx.decodeAudioData(arrayBuffer);
