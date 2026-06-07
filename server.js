@@ -157,6 +157,95 @@ const PELLET_KNOCKBACK_BASE = 0.8;
 const BODY_PELLET_DAMAGE_SCALE = 0.035;
 const PELLET_BODY_DAMAGE_REQUIREMENTS = [18, 34, 58];
 
+const BOT_STAGE_CONFIGS = Object.freeze({
+  early: {
+    label: "Early",
+    radiusRange: [0.9, 1.1],
+    massRange: [250, 600],
+    scoreRange: [800, 2200],
+    killRewardRange: [300, 650],
+    weaponMode: "bullet",
+    aimErrorMultiplier: 0.62,
+    reactionTimeMultiplier: 0.82,
+    aimTurnRateMultiplier: 1.15,
+    firePauseMultiplier: 0.82,
+    upgrades: {
+      playerSpeed: [1, 3],
+      viewDistance: [1, 3],
+      maxHealth: [1, 3],
+      healthRegenSpeed: [1, 3],
+      bodyDamage: [1, 3],
+      bulletSpeed: [2, 4],
+      bulletDelay: [1, 3],
+      bulletDamage: [2, 4],
+      bulletPenetration: [0, 2],
+    },
+  },
+  mid: {
+    label: "Mid",
+    radiusRange: [1.05, 1.35],
+    massRange: [900, 2200],
+    scoreRange: [7000, 18000],
+    killRewardRange: [1200, 2600],
+    weaponMode: "laser",
+    aimErrorMultiplier: 0.48,
+    reactionTimeMultiplier: 0.68,
+    aimTurnRateMultiplier: 1.3,
+    firePauseMultiplier: 0.68,
+    upgrades: {
+      playerSpeed: [3, 5],
+      viewDistance: [3, 6],
+      maxHealth: [3, 5],
+      healthRegenSpeed: [3, 5],
+      bodyDamage: [3, 5],
+      laserDamage: [3, 5],
+    },
+  },
+  late: {
+    label: "Late",
+    radiusRange: [1.3, 1.7],
+    massRange: [3500, 7500],
+    scoreRange: [35000, 70000],
+    killRewardRange: [5000, 9000],
+    weaponMode: "laser",
+    aimErrorMultiplier: 0.36,
+    reactionTimeMultiplier: 0.55,
+    aimTurnRateMultiplier: 1.45,
+    firePauseMultiplier: 0.52,
+    upgrades: {
+      playerSpeed: [5, 8],
+      viewDistance: [6, 9],
+      maxHealth: [6, 9],
+      healthRegenSpeed: [5, 8],
+      bodyDamage: [6, 9],
+      laserDamage: [6, 9],
+    },
+  },
+  boss: {
+    label: "Boss",
+    radiusRange: [1.7, 2.15],
+    massRange: [12000, 22000],
+    scoreRange: [90000, 160000],
+    killRewardRange: [15000, 25000],
+    weaponMode: "greenLaser",
+    aimErrorMultiplier: 0.25,
+    reactionTimeMultiplier: 0.42,
+    aimTurnRateMultiplier: 1.65,
+    firePauseMultiplier: 0.38,
+    upgrades: {
+      playerSpeed: [7, 10],
+      viewDistance: [9, 10],
+      maxHealth: [9, 10],
+      healthRegenSpeed: [8, 10],
+      bodyDamage: [9, 10],
+      laserDamage: [9, 10],
+    },
+  },
+});
+
+// Five fixed slots guarantee stage variety while values still vary per spawn.
+const BOT_STAGE_SLOTS = ["early", "mid", "mid", "late", "boss"];
+
 const BOT_STATES = Object.freeze({
   ROAMING: "roaming",
   FARMING: "farming",
@@ -507,6 +596,7 @@ function updateMagnetizedPellets(player, delta, now) {
 }
 
 function getUpgradeLevel(player, key) {
+  if (player?.isBot && key === "laserNet") return 0;
   return player?.upgrades?.[key] || 0;
 }
 
@@ -522,6 +612,10 @@ function createUpgradeState() {
     state[key] = 0;
     return state;
   }, {});
+}
+
+function randomInteger([min, max]) {
+  return Math.floor(randomBetween(min, max + 1));
 }
 
 function getAvailableUpgradeKeys(player) {
@@ -572,7 +666,13 @@ function getBulletSpeed(player) {
 }
 
 function getBulletCooldown(player) {
-  if (player?.isBot) return BOT_SHOOT_COOLDOWN_MS;
+  if (player?.isBot) {
+    return Math.max(
+      90,
+      BOT_SHOOT_COOLDOWN_MS *
+        Math.pow(0.88, getUpgradeLevel(player, "bulletDelay"))
+    );
+  }
   return Math.max(28, BULLET_COOLDOWN_MS * Math.pow(0.88, getUpgradeLevel(player, "bulletDelay")));
 }
 
@@ -916,6 +1016,38 @@ function applyAimRayPlayerHits(owner, origin, direction) {
     return true;
   }
   return false;
+}
+
+function getBotStageConfig(bot) {
+  return BOT_STAGE_CONFIGS[bot?.botStage] || BOT_STAGE_CONFIGS.mid;
+}
+
+function createBotUpgrades(stageConfig) {
+  const upgrades = createUpgradeState();
+  for (const [key, range] of Object.entries(stageConfig.upgrades)) {
+    if (key === "laserNet" || !UPGRADE_DEFS[key]) continue;
+    upgrades[key] = clamp(
+      randomInteger(range),
+      0,
+      UPGRADE_DEFS[key].maxLevel
+    );
+  }
+  upgrades.laserNet = 0;
+  return upgrades;
+}
+
+function applyBotStage(bot, stageKey) {
+  const stageConfig = BOT_STAGE_CONFIGS[stageKey] || BOT_STAGE_CONFIGS.mid;
+  bot.botStage = stageKey;
+  bot.radius = randomBetween(...stageConfig.radiusRange);
+  bot.mass = randomInteger(stageConfig.massRange);
+  bot.score = randomInteger(stageConfig.scoreRange);
+  bot.killReward = randomInteger(stageConfig.killRewardRange);
+  bot.weaponMode = stageConfig.weaponMode;
+  bot.input.weaponMode = stageConfig.weaponMode;
+  bot.upgrades = createBotUpgrades(stageConfig);
+  bot.speed = getPlayerSpeed(bot);
+  bot.hp = getPlayerMaxHp(bot);
 }
 
 function getClearBulletSpawnPosition(origin, direction) {
@@ -1264,7 +1396,8 @@ function defeatPlayer(player, reason = "defeated") {
 
 function awardVictimMass(killer, victim) {
   if (!killer || !victim || killer.id === victim.id || !players.has(killer.id)) return;
-  awardMassCurrency(killer, victim.mass);
+  const reward = victim.isBot ? victim.killReward : victim.mass;
+  awardMassCurrency(killer, reward);
 }
 
 function setPlayersInCombat(attacker, victim, now = Date.now()) {
@@ -1467,9 +1600,14 @@ function setBotTarget(bot, type, target, now) {
   }
 
   if (changed) {
+    const reactionMultiplier =
+      getBotStageConfig(bot).reactionTimeMultiplier;
     ai.reactionUntil =
       now +
-      randomBetween(BOT_AIM_REACTION_MIN_MS, BOT_AIM_REACTION_MAX_MS);
+      randomBetween(
+        BOT_AIM_REACTION_MIN_MS * reactionMultiplier,
+        BOT_AIM_REACTION_MAX_MS * reactionMultiplier
+      );
     ai.nextAimBiasAt = now;
   }
 }
@@ -1570,7 +1708,10 @@ function chooseBotPlan(bot, now) {
 function getBotAimError(bot, distance) {
   if (bot.ai.targetType === "player") {
     const distanceRatio = clamp(distance / BOT_PLAYER_SHOOT_RANGE, 0, 1);
-    return 0.08 + distanceRatio * 1.15;
+    return (
+      (0.06 + distanceRatio * 0.82) *
+      getBotStageConfig(bot).aimErrorMultiplier
+    );
   }
   if (bot.ai.targetType === "pellet") {
     return 0.03 + clamp(distance / BOT_PELLET_SCAN_RADIUS, 0, 1) * 0.22;
@@ -1626,7 +1767,8 @@ function updateBotAim(bot, now, delta) {
     const distanceRatio = clamp(distance / BOT_PLAYER_SHOOT_RANGE, 0, 1);
     const turnRate =
       ai.targetType === "player"
-        ? 4.5 - distanceRatio * 1.7
+        ? (4.8 - distanceRatio * 1.45) *
+          getBotStageConfig(bot).aimTurnRateMultiplier
         : 3.6;
     const smoothing = 1 - Math.exp(-turnRate * delta);
     ai.currentAim.x += (desiredAim.x - ai.currentAim.x) * smoothing;
@@ -1763,6 +1905,7 @@ function updateBotMovement(bot, now) {
 
 function updateBotFiring(bot, now) {
   const ai = bot.ai;
+  const firePauseMultiplier = getBotStageConfig(bot).firePauseMultiplier;
   const hasTarget = Boolean(getBotTargetPosition(bot));
   const canFire =
     hasTarget &&
@@ -1771,9 +1914,11 @@ function updateBotFiring(bot, now) {
 
   if (now >= ai.nextFirePauseAt) {
     if (Math.random() < 0.7) {
-      ai.firePauseUntil = now + randomBetween(120, 380);
+      ai.firePauseUntil =
+        now + randomBetween(120, 380) * firePauseMultiplier;
     }
-    ai.nextFirePauseAt = now + randomBetween(1100, 2700);
+    ai.nextFirePauseAt =
+      now + randomBetween(1100, 2700) * firePauseMultiplier;
   }
 
   bot.input.shoot =
@@ -1785,7 +1930,7 @@ function updateBotFiring(bot, now) {
 
 function updateBotIntent(bot, now, delta) {
   if (!bot.ai) bot.ai = createBotAi(now);
-  bot.input.weaponMode = "laser";
+  bot.input.weaponMode = bot.weaponMode;
   if (now >= bot.ai.nextThinkAt) {
     bot.ai.nextThinkAt =
       now + BOT_THINK_INTERVAL_MS + randomBetween(0, 120);
@@ -2024,6 +2169,7 @@ function broadcastWorldState() {
       maxHp: getPlayerMaxHp(player),
       viewDistance: getViewDistance(player),
       isBot: Boolean(player.isBot),
+      botStage: player.botStage || null,
       isInCombat: player.combatUntil > Date.now(),
       isBeingLasered: laseredPlayerIds.has(player.id),
     });
@@ -2058,13 +2204,16 @@ function broadcastWorldState() {
 function spawnBot(index) {
   const id = `bot-${index}`;
   if (players.has(id)) return;
+  const stageKey = BOT_STAGE_SLOTS[index % BOT_STAGE_SLOTS.length];
+  const stageConfig = BOT_STAGE_CONFIGS[stageKey];
 
   const bot = createPlayerState({
     id,
-    name: `Bot ${index + 1}`,
+    name: `${stageConfig.label} Bot ${index + 1}`,
     isBot: true,
-    position: randomSeparatedPosition(PLAYER_BASE_RADIUS),
   });
+  applyBotStage(bot, stageKey);
+  bot.position = randomSeparatedPosition(bot.radius);
 
   players.set(id, bot);
   io.emit("player-joined", {
@@ -2074,9 +2223,13 @@ function spawnBot(index) {
     y: bot.position.y,
     z: bot.position.z,
     radius: bot.radius,
+    mass: bot.mass,
+    score: bot.score,
+    weaponMode: bot.weaponMode,
     hp: bot.hp,
     maxHp: getPlayerMaxHp(bot),
     isBot: true,
+    botStage: bot.botStage,
   });
 }
 
