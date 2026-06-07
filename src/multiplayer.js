@@ -67,7 +67,7 @@ let audioManager = null;
 let currentPlayerName = null;
 let pelletSyncJob = null;
 const WORLD_SOUND_DISTANCE = 50;
-const BULLET_BASE_VISUAL_RADIUS = 0.19 * 0.75;
+const BULLET_BASE_VISUAL_RADIUS = 0.24 * 0.78;
 const bulletGeometry = new THREE.SphereGeometry(BULLET_BASE_VISUAL_RADIUS, 8, 8);
 const bulletMaterial = new THREE.MeshStandardMaterial({
   color: 0x9fffe2,
@@ -75,6 +75,7 @@ const bulletMaterial = new THREE.MeshStandardMaterial({
   emissiveIntensity: 0.18,
   metalness: 0.05,
   roughness: 0.55,
+  fog: false,
 });
 const bulletMagnetGeometry = new THREE.SphereGeometry(1, 16, 8);
 const bulletMagnetMaterial = new THREE.MeshBasicMaterial({
@@ -368,7 +369,7 @@ function clearRemotePlayers() {
 }
 
 function createBulletMesh(bullet) {
-  const visualRadius = Math.max(0.08, (bullet.radius || 0.19) * 0.75);
+  const visualRadius = Math.max(0.1, (bullet.radius || 0.24) * 0.78);
   const mesh =
     bulletMeshPool.pop() || new THREE.Mesh(bulletGeometry, bulletMaterial);
   mesh.visible = true;

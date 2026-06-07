@@ -111,14 +111,17 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 const WORLD_BROADCAST_RATE = 30;
 const WORLD_BROADCAST_INTERVAL = 1000 / WORLD_BROADCAST_RATE;
 const LASER_PELLET_SYNC_INTERVAL_MS = 50;
-const BULLET_RADIUS = 0.19;
-const BULLET_SPAWN_OFFSET = 1.25;
-const BULLET_SPEED = 32;
+const BULLET_RADIUS = 0.24;
+const BULLET_SPAWN_OFFSET =
+  PELLET_MAX_RADIUS + BULLET_RADIUS + 1;
+const BULLET_SPAWN_CLEARANCE_STEP = 0.5;
+const BULLET_SPAWN_CLEARANCE_ATTEMPTS = 12;
+const BULLET_SPEED = 48;
 const BULLET_TTL_MS = 1600;
-const PLAYER_BULLET_TTL_MS = 8000;
+const PLAYER_BULLET_TTL_MS = 9000;
 const BULLET_COOLDOWN_MS = 150;
 const PLAYER_MAX_HP = 2500;
-const BULLET_DAMAGE = 0.08;
+const BULLET_DAMAGE = 0.3;
 const BASE_VIEW_DISTANCE = 30;
 const VIEW_DISTANCE_PER_LEVEL = 6;
 const VIEW_DISTANCE_MAX_LEVEL = 10;
@@ -147,6 +150,11 @@ const BOT_AIM_REACTION_MAX_MS = 420;
 const BOT_FARM_STANDOFF_DISTANCE = 10;
 const LASER_NET_RANGE = 14;
 const LASER_UNLOCK_SCORE = 1000;
+const PELLET_CONTACT_REACH = 0.3;
+const PELLET_CONTACT_COOLDOWN_MS = 320;
+const PELLET_KNOCKBACK_BASE = 0.8;
+const BODY_PELLET_DAMAGE_SCALE = 0.035;
+const PELLET_BODY_DAMAGE_REQUIREMENTS = [18, 34, 58];
 
 const BOT_STATES = Object.freeze({
   ROAMING: "roaming",
@@ -212,6 +220,15 @@ function clamp(value, min, max) {
 
 function randomBetween(min, max) {
   return Math.random() * (max - min) + min;
+}
+
+function randomUnitVector() {
+  const vector = {
+    x: randomBetween(-1, 1),
+    y: randomBetween(-1, 1),
+    z: randomBetween(-1, 1),
+  };
+  return normalizeVector(vector);
 }
 
 function randomPosition(radius = PLAYER_BASE_RADIUS) {
@@ -572,6 +589,10 @@ function getPelletContactDamage(pellet) {
   return pellet.collisionDamage;
 }
 
+function getPelletBodyDamageRequirement(pellet) {
+  return PELLET_BODY_DAMAGE_REQUIREMENTS[pellet.tier] ?? Infinity;
+}
+
 function createBotAi(now = Date.now()) {
   const phase = Math.random() * Math.PI * 2;
   return {
@@ -656,6 +677,7 @@ function createPlayerState({ id, name, isBot = false, position = null }) {
     bulletMagnetUntil: 0,
     nextShootAt: 0,
     nextLaserHitSoundAt: 0,
+    nextPelletContactAt: 0,
     combatUntil: 0,
     activeLaser: null,
     ai: isBot ? createBotAi() : null,
@@ -742,26 +764,58 @@ function segmentSphereIntersects(start, end, center, radius) {
 }
 
 function handlePelletCollisions(player) {
-  const pickupRadius = player.radius;
-  const pickupRadiusSq = pickupRadius * pickupRadius;
+  const now = Date.now();
+  if (player.nextPelletContactAt > now) return;
 
-  const nearbyPellets = queryNearbyPellets(player.position, pickupRadius);
+  const searchRadius = player.radius + PELLET_MAX_RADIUS * PELLET_CONTACT_REACH;
+  const nearbyPellets = queryNearbyPellets(player.position, searchRadius);
   for (const pellet of nearbyPellets) {
     if (!pellet.active) continue;
     const dx = player.position.x - pellet.position.x;
     const dy = player.position.y - pellet.position.y;
     const dz = player.position.z - pellet.position.z;
-    if (dx * dx + dy * dy + dz * dz <= pickupRadiusSq) {
-      const contactDamage = getPelletContactDamage(pellet);
-      if (player.hp <= contactDamage) {
-        player.hp = 0;
+    const distanceSq = dx * dx + dy * dy + dz * dz;
+    const contactRadius =
+      player.radius + pellet.size * PELLET_CONTACT_REACH;
+    if (distanceSq > contactRadius * contactRadius) continue;
+
+    player.nextPelletContactAt = now + PELLET_CONTACT_COOLDOWN_MS;
+    const contactDamage = getPelletContactDamage(pellet);
+    const bodyDamage = getBodyDamage(player);
+    const requiredBodyDamage = getPelletBodyDamageRequirement(pellet);
+
+    player.hp = Math.max(0, player.hp - contactDamage);
+    if (bodyDamage >= requiredBodyDamage) {
+      if (player.hp <= 0) {
         defeatPlayer(player, "pellet");
         return;
       }
-
-      player.hp = Math.max(0, player.hp - contactDamage);
       contactConsumePellet(player, pellet);
+      return;
     }
+
+    damagePelletFromBody(
+      player,
+      pellet,
+      bodyDamage * BODY_PELLET_DAMAGE_SCALE
+    );
+
+    const distance = Math.sqrt(distanceSq);
+    const knockbackDirection =
+      distance > 0.001
+        ? { x: dx / distance, y: dy / distance, z: dz / distance }
+        : randomUnitVector();
+    const knockbackDistance =
+      PELLET_KNOCKBACK_BASE + pellet.size * 0.45;
+    player.position.x += knockbackDirection.x * knockbackDistance;
+    player.position.y += knockbackDirection.y * knockbackDistance;
+    player.position.z += knockbackDirection.z * knockbackDistance;
+    clampPosition(player.position, player.radius);
+
+    if (player.hp <= 0) {
+      defeatPlayer(player, "pellet");
+    }
+    return;
   }
 }
 
@@ -861,6 +915,41 @@ function applyAimRayPlayerHits(owner, origin, direction) {
   return false;
 }
 
+function getClearBulletSpawnPosition(origin, direction) {
+  let distance = BULLET_SPAWN_OFFSET;
+
+  for (
+    let attempt = 0;
+    attempt < BULLET_SPAWN_CLEARANCE_ATTEMPTS;
+    attempt++
+  ) {
+    const position = {
+      x: origin.x + direction.x * distance,
+      y: origin.y + direction.y * distance,
+      z: origin.z + direction.z * distance,
+    };
+    const nearbyPellets = queryNearbyPellets(
+      position,
+      PELLET_MAX_RADIUS + BULLET_RADIUS
+    );
+    const overlapsPellet = nearbyPellets.some(
+      (pellet) =>
+        pellet.active &&
+        distanceSq(position, pellet.position) <
+          Math.pow(pellet.size + BULLET_RADIUS, 2)
+    );
+
+    if (!overlapsPellet) return position;
+    distance += BULLET_SPAWN_CLEARANCE_STEP;
+  }
+
+  return {
+    x: origin.x + direction.x * distance,
+    y: origin.y + direction.y * distance,
+    z: origin.z + direction.z * distance,
+  };
+}
+
 function shootBullet(player) {
   const aimRay = getAimRay(player);
   if (!aimRay) return;
@@ -873,11 +962,7 @@ function shootBullet(player) {
   const id = String(nextBulletId++);
   const bulletSpeed = getBulletSpeed(player);
   const penetration = getBulletPenetration(player);
-  const spawnPosition = {
-    x: origin.x + direction.x * BULLET_SPAWN_OFFSET,
-    y: origin.y + direction.y * BULLET_SPAWN_OFFSET,
-    z: origin.z + direction.z * BULLET_SPAWN_OFFSET,
-  };
+  const spawnPosition = getClearBulletSpawnPosition(origin, direction);
 
   bullets.set(id, {
     id,
@@ -1111,6 +1196,24 @@ function contactConsumePellet(player, pellet) {
   tryActivatePelletMagnet(player, pellet);
 
   setTimeout(() => respawnPellet(pellet), pellet.isPowerUp ? 5000 : 2500);
+}
+
+function damagePelletFromBody(player, pellet, damage) {
+  pellet.hp = Math.max(0, pellet.hp - damage);
+  pelletState.hp[pellet.index] = pellet.hp;
+  pelletState.maxHp[pellet.index] = pellet.maxHp;
+
+  if (pellet.hp <= 0) {
+    contactConsumePellet(player, pellet);
+    return;
+  }
+
+  io.emit("pellet-damaged", {
+    index: pellet.index,
+    size: pellet.size,
+    hp: pellet.hp,
+    maxHp: pellet.maxHp,
+  });
 }
 
 function defeatPlayer(player, reason = "defeated") {
