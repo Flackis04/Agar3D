@@ -1,5 +1,8 @@
 import { Server } from "socket.io";
+import { readFile, stat } from "node:fs/promises";
 import http from "http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   getPelletTier,
   PELLET_MAX_RADIUS,
@@ -7,7 +10,75 @@ import {
   pickPelletTier,
 } from "./src/pelletTiers.js";
 
-const server = http.createServer();
+const ROOT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
+const DIST_DIRECTORY = path.join(ROOT_DIRECTORY, "dist");
+const SERVER_PORT = Number(process.env.PORT) || 3001;
+const MIME_TYPES = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".ogg": "audio/ogg",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".wav": "audio/wav",
+  ".webp": "image/webp",
+};
+
+async function serveClient(request, response) {
+  if (request.url?.startsWith("/socket.io")) return;
+
+  if (request.url === "/health") {
+    response.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    response.end(JSON.stringify({ ok: true, players: players.size }));
+    return;
+  }
+
+  const requestPath = decodeURIComponent(
+    new URL(request.url || "/", "http://localhost").pathname
+  );
+  const relativePath = requestPath === "/" ? "index.html" : requestPath.slice(1);
+  let filePath = path.resolve(DIST_DIRECTORY, relativePath);
+
+  if (!filePath.startsWith(`${DIST_DIRECTORY}${path.sep}`)) {
+    response.writeHead(403);
+    response.end("Forbidden");
+    return;
+  }
+
+  try {
+    if (!(await stat(filePath)).isFile()) throw new Error("Not a file");
+  } catch {
+    // Vite is a single-page app, so client-side routes load index.html.
+    if (path.extname(relativePath)) {
+      response.writeHead(404);
+      response.end("Not found");
+      return;
+    }
+    filePath = path.join(DIST_DIRECTORY, "index.html");
+  }
+
+  try {
+    const content = await readFile(filePath);
+    response.writeHead(200, {
+      "Content-Type":
+        MIME_TYPES[path.extname(filePath).toLowerCase()] ||
+        "application/octet-stream",
+      "Cache-Control": path.basename(filePath) === "index.html"
+        ? "no-cache"
+        : "public, max-age=31536000, immutable",
+    });
+    response.end(content);
+  } catch {
+    response.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" });
+    response.end("Client build unavailable. Run npm run build first.");
+  }
+}
+
+const server = http.createServer((request, response) => {
+  void serveClient(request, response);
+});
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -1905,12 +1976,7 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(3001, "0.0.0.0", () => {
-  console.log("Multiplayer server running on port 3001");
-  console.log("Server is accessible on:");
-  console.log("  - localhost:3001");
-  console.log("  - <your-local-ip>:3001");
-  console.log(
-    "\nTo find your local IP, run: ip addr show (Linux) or ipconfig (Windows)"
-  );
+server.listen(SERVER_PORT, "0.0.0.0", () => {
+  console.log(`Agar3D web and multiplayer server running on port ${SERVER_PORT}`);
+  console.log(`Bots active: ${BOT_COUNT}`);
 });

@@ -25,6 +25,21 @@ http://your-ip-address:3000/
 
 The page runs on port `3000`. The multiplayer server runs on port `3001`.
 
+## Deploy To Render
+
+Deploy the repository as a **Web Service**, not a Static Site. Render can use
+the included `render.yaml`, or use these dashboard settings:
+
+```text
+Build command: npm ci && npm run build
+Start command: npm start
+Health check: /health
+```
+
+The Node process serves both the built website and Socket.IO on Render's
+assigned port. This is required because player movement and the five bots are
+authoritative server features.
+
 ## Learn The Code
 
 Start here:

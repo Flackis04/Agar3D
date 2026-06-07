@@ -13,7 +13,8 @@ function getSocketUrl() {
 
 const socketUrl = getSocketUrl();
 
-// The browser page is served on port 3000, while Socket.IO runs on 3001.
+// Production uses the page's own origin. Local Vite development proxies this
+// same Socket.IO path to the multiplayer server on port 3001.
 // Reusing window.__socket prevents duplicate sockets during Vite hot reloads.
 let socket;
 if (!window.__socket) {
