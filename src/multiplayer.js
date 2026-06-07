@@ -75,7 +75,7 @@ const bulletMaterial = new THREE.MeshStandardMaterial({
   emissiveIntensity: 0.18,
   metalness: 0.05,
   roughness: 0.55,
-  fog: false,
+  fog: true,
 });
 const bulletMagnetGeometry = new THREE.SphereGeometry(1, 16, 8);
 const bulletMagnetMaterial = new THREE.MeshBasicMaterial({
@@ -428,26 +428,14 @@ function recycleBulletMesh(mesh) {
   bulletMeshPool.push(mesh);
 }
 
-function getLocalViewDistance() {
-  return localPlayerTarget?.viewDistance ?? 30;
-}
-
-function isWithinLocalView(position, padding = 0) {
-  if (!localPlayerCell || !position) return false;
-  const maxDistance = getLocalViewDistance() + padding;
-  return localPlayerCell.position.distanceToSquared(position) <=
-    maxDistance * maxDistance;
-}
-
 function updateBulletVisibility(entry) {
   if (!entry?.mesh) return;
-  const withinView = isWithinLocalView(entry.mesh.position, entry.radius || 0);
   const traveledFarEnough =
     entry.ownerId !== socket.id ||
     !entry.visualOrigin ||
     entry.mesh.position.distanceToSquared(entry.visualOrigin) >=
       entry.visualOffset * entry.visualOffset;
-  entry.mesh.visible = withinView && traveledFarEnough;
+  entry.mesh.visible = traveledFarEnough;
 }
 
 function updateBullets(bulletStates = []) {
@@ -855,12 +843,8 @@ export function applyNetworkSmoothing(deltaTime = 1 / 60) {
     otherPlayer.mesh.scale.setScalar(
       THREE.MathUtils.lerp(otherPlayer.mesh.scale.x, targetScale, smoothing)
     );
-    const withinView = isWithinLocalView(
-      otherPlayer.mesh.position,
-      otherPlayer.target.radius
-    );
-    otherPlayer.mesh.visible = withinView;
-    otherPlayer.hpBar.visible = withinView;
+    otherPlayer.mesh.visible = true;
+    otherPlayer.hpBar.visible = true;
     updateLaserHitTint(
       otherPlayer.mesh,
       otherPlayer.target.isBeingLasered,
@@ -908,10 +892,7 @@ export function applyNetworkSmoothing(deltaTime = 1 / 60) {
       displayHp,
       entry.maxHp
     );
-    entry.bar.visible = isWithinLocalView(
-      pelletDataRef.positions[index],
-      pelletDataRef.sizes[index] || 0
-    );
+    entry.bar.visible = true;
     setBarOpacity(entry.bar, opacity);
     if (opacity <= 0) removePelletHpBar(index);
   }

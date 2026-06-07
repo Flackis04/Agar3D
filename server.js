@@ -95,7 +95,8 @@ const WORLD_SIZE = 250;
 const HALF_WORLD = WORLD_SIZE / 2;
 const PLAYER_BASE_RADIUS = 0.75;
 const BASE_SPEED = 10; // units per second
-const BOT_SPEED_MULTIPLIER = 0.5;
+const BOT_SPEED_MULTIPLIER = 0.45;
+const BOT_HEALTH_MULTIPLIER = 0.8;
 const PELLET_COUNT = 5000;
 const PELLET_GRID_SIZE = 8;
 const PELLET_DENSITY_CENTER_COUNT = 64;
@@ -112,8 +113,8 @@ const WORLD_BROADCAST_RATE = 30;
 const WORLD_BROADCAST_INTERVAL = 1000 / WORLD_BROADCAST_RATE;
 const LASER_PELLET_SYNC_INTERVAL_MS = 50;
 const BULLET_RADIUS = 0.24;
-const BULLET_SPAWN_OFFSET =
-  PELLET_MAX_RADIUS + BULLET_RADIUS + 1;
+const BULLET_VISUAL_OFFSET =
+  PELLET_MAX_RADIUS + BULLET_RADIUS + 2.5;
 const BULLET_SPEED = 48;
 const BULLET_TTL_MS = 1600;
 const PLAYER_BULLET_TTL_MS = 9000;
@@ -252,6 +253,8 @@ const BOT_STAGE_SLOTS = [
   "late",
   "boss",
 ];
+const BOT_STAGE_ORDER = ["early", "mid", "late", "boss"];
+const BOT_LOBBY_PROGRESSION_THRESHOLDS = [2500, 25000, 75000];
 
 const BOT_STATES = Object.freeze({
   ROAMING: "roaming",
@@ -474,6 +477,7 @@ const movedPelletIndexes = new Set();
 const players = new Map();
 const bullets = new Map();
 const botRespawnTimers = new Map();
+let currentBotProgressionLevel = 0;
 let lastTick = Date.now();
 let nextWorldBroadcastAt = lastTick;
 let nextBulletId = 1;
@@ -621,80 +625,6 @@ function createUpgradeState() {
   }, {});
 }
 
-function pointToSegmentDistanceSq(point, start, end) {
-  const segmentX = end.x - start.x;
-  const segmentY = end.y - start.y;
-  const segmentZ = end.z - start.z;
-  const lengthSq =
-    segmentX * segmentX + segmentY * segmentY + segmentZ * segmentZ;
-  if (lengthSq <= Number.EPSILON) return distanceSq(point, start);
-
-  const t = clamp(
-    ((point.x - start.x) * segmentX +
-      (point.y - start.y) * segmentY +
-      (point.z - start.z) * segmentZ) /
-      lengthSq,
-    0,
-    1
-  );
-  const closest = {
-    x: start.x + segmentX * t,
-    y: start.y + segmentY * t,
-    z: start.z + segmentZ * t,
-  };
-  return distanceSq(point, closest);
-}
-
-function clipSegmentToSphere(start, end, center, radius) {
-  if (pointToSegmentDistanceSq(center, start, end) > radius * radius) {
-    return null;
-  }
-
-  const direction = {
-    x: end.x - start.x,
-    y: end.y - start.y,
-    z: end.z - start.z,
-  };
-  const offset = {
-    x: start.x - center.x,
-    y: start.y - center.y,
-    z: start.z - center.z,
-  };
-  const a =
-    direction.x * direction.x +
-    direction.y * direction.y +
-    direction.z * direction.z;
-  if (a <= Number.EPSILON) return { origin: start, end };
-
-  const b =
-    2 *
-    (offset.x * direction.x +
-      offset.y * direction.y +
-      offset.z * direction.z);
-  const c =
-    offset.x * offset.x +
-    offset.y * offset.y +
-    offset.z * offset.z -
-    radius * radius;
-  const discriminant = Math.max(0, b * b - 4 * a * c);
-  const sqrtDiscriminant = Math.sqrt(discriminant);
-  const startT = clamp((-b - sqrtDiscriminant) / (2 * a), 0, 1);
-  const endT = clamp((-b + sqrtDiscriminant) / (2 * a), 0, 1);
-
-  return {
-    origin: {
-      x: start.x + direction.x * startT,
-      y: start.y + direction.y * startT,
-      z: start.z + direction.z * startT,
-    },
-    end: {
-      x: start.x + direction.x * endT,
-      y: start.y + direction.y * endT,
-      z: start.z + direction.z * endT,
-    },
-  };
-}
-
 function randomInteger([min, max]) {
   return Math.floor(randomBetween(min, max + 1));
 }
@@ -708,7 +638,8 @@ function getAvailableUpgradeKeys(player) {
 }
 
 function getPlayerMaxHp(player) {
-  return PLAYER_MAX_HP + getUpgradeLevel(player, "maxHealth") * 250;
+  const maxHp = PLAYER_MAX_HP + getUpgradeLevel(player, "maxHealth") * 250;
+  return player?.isBot ? maxHp * BOT_HEALTH_MULTIPLIER : maxHp;
 }
 
 function getViewDistance(player) {
@@ -1103,6 +1034,31 @@ function getBotStageConfig(bot) {
   return BOT_STAGE_CONFIGS[bot?.botStage] || BOT_STAGE_CONFIGS.mid;
 }
 
+function getLobbyBotProgressionLevel() {
+  let highestPlayerScore = 0;
+  players.forEach((player) => {
+    if (!player.isBot) {
+      highestPlayerScore = Math.max(highestPlayerScore, player.score);
+    }
+  });
+
+  return BOT_LOBBY_PROGRESSION_THRESHOLDS.reduce(
+    (level, threshold) => level + Number(highestPlayerScore >= threshold),
+    0
+  );
+}
+
+function getBotStageForLobby(
+  index,
+  progressionLevel = getLobbyBotProgressionLevel()
+) {
+  const baseStage = BOT_STAGE_SLOTS[index % BOT_STAGE_SLOTS.length];
+  const baseStageIndex = BOT_STAGE_ORDER.indexOf(baseStage);
+  return BOT_STAGE_ORDER[
+    Math.min(BOT_STAGE_ORDER.length - 1, baseStageIndex + progressionLevel)
+  ];
+}
+
 function createBotUpgrades(stageConfig) {
   const upgrades = createUpgradeState();
   for (const [key, range] of Object.entries(stageConfig.upgrades)) {
@@ -1131,6 +1087,23 @@ function applyBotStage(bot, stageKey) {
   bot.hp = getPlayerMaxHp(bot);
 }
 
+function syncBotsToLobbyProgression() {
+  const progressionLevel = getLobbyBotProgressionLevel();
+  if (progressionLevel === currentBotProgressionLevel) return;
+  currentBotProgressionLevel = progressionLevel;
+
+  players.forEach((bot) => {
+    if (!bot.isBot) return;
+    const index = Number(bot.id.replace("bot-", ""));
+    if (!Number.isInteger(index)) return;
+
+    const healthRatio = bot.hp / Math.max(1, getPlayerMaxHp(bot));
+    applyBotStage(bot, getBotStageForLobby(index, progressionLevel));
+    bot.hp = Math.max(1, getPlayerMaxHp(bot) * healthRatio);
+    clampPosition(bot.position, bot.radius);
+  });
+}
+
 function shootBullet(player) {
   const aimRay = getAimRay(player);
   if (!aimRay) return;
@@ -1157,7 +1130,7 @@ function shootBullet(player) {
     radius: BULLET_RADIUS,
     position: { ...origin },
     visualOrigin: { ...origin },
-    visualOffset: player.isBot ? 0 : BULLET_SPAWN_OFFSET,
+    visualOffset: player.isBot ? 0 : BULLET_VISUAL_OFFSET,
     velocity: {
       x: direction.x * bulletSpeed,
       y: direction.y * bulletSpeed,
@@ -1371,6 +1344,7 @@ function awardMassCurrency(player, amount) {
   }
 
   player.speed = getPlayerSpeed(player);
+  if (!player.isBot) syncBotsToLobbyProgression();
   emitUpgradeState(player);
   if (!player.isBot) {
     io.to(player.id).emit("mass-gained", {
@@ -2236,29 +2210,12 @@ function broadcastWorldState() {
     radius: bullet.radius,
   }));
   io.sockets.sockets.forEach((socket) => {
-    const viewer = players.get(socket.id);
-    const viewDistance = viewer ? getViewDistance(viewer) : 0;
     const isBeingLasered = laserPayload.some(
       (laser) => laser.hitPlayerId === socket.id
     );
-    const visibleLasers = viewer
-      ? laserPayload.flatMap((laser) => {
-          if (laser.hitPlayerId === socket.id) return [];
-          const clipped = clipSegmentToSphere(
-            laser.origin,
-            laser.end,
-            viewer.position,
-            viewDistance
-          );
-          if (!clipped) return [];
-          return [{
-            ...laser,
-            origin: clipped.origin,
-            end: clipped.end,
-            anchorToShooter: false,
-          }];
-        })
-      : [];
+    const visibleLasers = laserPayload.filter(
+      (laser) => laser.hitPlayerId !== socket.id
+    );
     socket.emit("world-update", {
       players: payload,
       bullets: bulletPayload,
@@ -2273,7 +2230,7 @@ function broadcastWorldState() {
 function spawnBot(index) {
   const id = `bot-${index}`;
   if (players.has(id)) return;
-  const stageKey = BOT_STAGE_SLOTS[index % BOT_STAGE_SLOTS.length];
+  const stageKey = getBotStageForLobby(index);
   const stageConfig = BOT_STAGE_CONFIGS[stageKey];
 
   const bot = createPlayerState({
@@ -2325,6 +2282,7 @@ function removePlayer(id) {
   const player = players.get(id);
   if (!player) return false;
   players.delete(id);
+  if (!player.isBot) syncBotsToLobbyProgression();
   scheduleBotRespawn(player);
   bullets.forEach((bullet, bulletId) => {
     if (bullet.ownerId === id) removeBullet(bulletId, "owner-left");

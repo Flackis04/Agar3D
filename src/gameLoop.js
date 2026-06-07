@@ -70,9 +70,7 @@ export function createGameFrame(
 
     handleDevModeObjectVisibility(
       scene,
-      cameraController,
-      gameState.pelletData,
-      gameState.border
+      cameraController
     );
     const sendInput = (aim) => {
       // This payload is the full client intent: "am I moving forward?"

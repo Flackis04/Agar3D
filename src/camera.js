@@ -217,8 +217,7 @@ export function createCameraController(camera, playerCell, followSpeed) {
 
 export function handleDevModeObjectVisibility(
   scene,
-  cameraController,
-  pelletData
+  cameraController
 ) {
   if (!scene._originalFog) scene._originalFog = scene.fog;
   if (!scene._originalBackground) scene._originalBackground = scene.background;
@@ -229,26 +228,10 @@ export function handleDevModeObjectVisibility(
       scene.background = new THREE.Color(0x000000);
     }
 
-    if (pelletData) {
-      if (pelletData.mesh) scene.remove(pelletData.mesh);
-      if (pelletData.meshPowerup) scene.remove(pelletData.meshPowerup);
-      pelletData._devModeRemoved = true;
-    }
-
   } else {
     if (typeof scene._originalFog !== "undefined")
       scene.fog = scene._originalFog;
     if (typeof scene._originalBackground !== "undefined")
       scene.background = scene._originalBackground;
-    if (pelletData && pelletData._devModeRemoved) {
-      if (pelletData.mesh && !scene.children.includes(pelletData.mesh))
-        scene.add(pelletData.mesh);
-      if (
-        pelletData.meshPowerup &&
-        !scene.children.includes(pelletData.meshPowerup)
-      )
-        scene.add(pelletData.meshPowerup);
-      pelletData._devModeRemoved = false;
-    }
   }
 }
