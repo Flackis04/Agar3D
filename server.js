@@ -104,12 +104,15 @@ const PELLET_GAUSSIAN_CHANCE = 0.8;
 const PELLET_GAUSSIAN_SPREAD = 16;
 const POWERUP_INTERVAL = 24;
 const MAGNET_DURATION_MS = 8000;
+const ABILITY_DURATION_MS = 5000;
+const ABILITY_COOLDOWN_MS = 15000;
+const SPEED_ABILITY_MULTIPLIER = 3;
 const PELLET_MAGNET_RANGE_MULTIPLIER = 4;
 const PELLET_MAGNET_SPEED = 27;
 const BULLET_MAGNET_RADIUS = 3.5;
-const TICK_RATE = 60;
+const TICK_RATE = 120;
 const TICK_INTERVAL = 1000 / TICK_RATE;
-const WORLD_BROADCAST_RATE = 30;
+const WORLD_BROADCAST_RATE = 60;
 const WORLD_BROADCAST_INTERVAL = 1000 / WORLD_BROADCAST_RATE;
 const LASER_PELLET_SYNC_INTERVAL_MS = 50;
 const BULLET_RADIUS = 0.24;
@@ -248,7 +251,7 @@ const BOT_STAGE_SLOTS = [
   "early",
   "early",
   "early",
-  "mid",
+  "early",
   "mid",
   "late",
   "boss",
@@ -790,6 +793,9 @@ function createPlayerState({ id, name, isBot = false, position = null }) {
     hp: PLAYER_MAX_HP,
     magnetUntil: 0,
     bulletMagnetUntil: 0,
+    speedBoostUntil: 0,
+    speedCooldownUntil: 0,
+    bulletCooldownUntil: 0,
     nextShootAt: 0,
     nextLaserHitSoundAt: 0,
     nextPelletContactAt: 0,
@@ -803,6 +809,7 @@ function createPlayerState({ id, name, isBot = false, position = null }) {
       aim: null,
       shoot: false,
       weaponMode: isBot ? "laser" : "bullet",
+      ability: { speed: false, bullet: false },
     },
   };
   player.speed = getPlayerSpeed(player);
@@ -2078,6 +2085,35 @@ function updatePlayers(delta) {
       shootBullet(player);
     }
 
+    const ability = player.input.ability || { speed: false, bullet: false };
+    player.prevAbility = player.prevAbility || { speed: false, bullet: false };
+
+    const speedCanActivate =
+      !player.prevAbility.speed &&
+      ability.speed &&
+      now >= player.speedCooldownUntil &&
+      now >= player.speedBoostUntil;
+    const bulletCanActivate =
+      !player.prevAbility.bullet &&
+      ability.bullet &&
+      now >= player.bulletCooldownUntil &&
+      now >= player.bulletMagnetUntil;
+
+    if (speedCanActivate) {
+      player.speedBoostUntil = now + ABILITY_DURATION_MS;
+      player.speedCooldownUntil = player.speedBoostUntil + ABILITY_COOLDOWN_MS;
+    }
+    if (bulletCanActivate) {
+      player.bulletMagnetUntil = now + ABILITY_DURATION_MS;
+      player.bulletCooldownUntil = player.bulletMagnetUntil + ABILITY_COOLDOWN_MS;
+    }
+
+    player.prevAbility = { ...ability };
+
+    const baseSpeed = getPlayerSpeed(player);
+    player.speed =
+      baseSpeed * (player.speedBoostUntil > now ? SPEED_ABILITY_MULTIPLIER : 1);
+
     const movement = player.input.movement || {};
     if (
       movement.forward ||
@@ -2419,6 +2455,10 @@ io.on("connection", (socket) => {
     }
     player.input.shoot = Boolean(input.shoot);
     player.input.weaponMode = player.weaponMode;
+    player.input.ability = {
+      speed: Boolean(input.ability?.speed),
+      bullet: Boolean(input.ability?.bullet),
+    };
   });
 
   socket.on("request-pellet-state", () => {

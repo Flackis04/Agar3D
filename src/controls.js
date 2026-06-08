@@ -22,6 +22,7 @@ export function setupControls(canvas, cameraController) {
     if (!hasControl()) return;
     const key = e.key.toLowerCase();
     keys[key] = true;
+    console.log(key)
 
     if (key === 'x') cameraController.toggleDeveloperMode();
   }
@@ -127,11 +128,17 @@ export function setupControls(canvas, cameraController) {
       backward: hasControl() && Boolean(keys.s),
       left: hasControl() && Boolean(keys.a),
       right: hasControl() && Boolean(keys.d),
-      up: hasControl() && Boolean(keys.e),
-      down: hasControl() && Boolean(keys.q),
+      up: hasControl() && Boolean(keys[" "]),
+      down: hasControl() && Boolean(keys.shift),
     }),
     getForwardButtonPressed: () => hasControl() && Boolean(keys.w),
     getShootButtonPressed: () => hasControl() && isShooting,
+    getAbilityButtonPressed: () =>
+      hasControl() && (Boolean(keys.e) || Boolean(keys.q)),
+    getAbilityInput: () => ({
+      speed: hasControl() && Boolean(keys.e),
+      bullet: hasControl() && Boolean(keys.q),
+    }),
     keys,
     playerSpeed,
     lastSplit,

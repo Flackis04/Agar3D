@@ -64,3 +64,8 @@ npm run build     # verify the frontend builds
 npm run dev:server
 npm run dev:client
 ```
+
+## Roblox Port
+
+A Roblox Studio remake now lives in [`roblox/`](roblox/README.md). Open
+`roblox/Agar3D.rbxlx` directly in Studio or use Rojo for live source syncing.

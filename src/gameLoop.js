@@ -76,6 +76,7 @@ export function createGameFrame(
       // This payload is the full client intent: "am I moving forward?"
       // plus "which direction am I facing?"
       const payload = {
+        ability: controls.getAbilityInput(),
         forward: controls.getForwardButtonPressed(),
         movement: controls.getMovementInput?.() || {
           forward: controls.getForwardButtonPressed(),

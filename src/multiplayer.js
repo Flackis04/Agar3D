@@ -802,7 +802,14 @@ export function initNetworking(scene, playerCell, audioMgr = null, camera = null
   socket.on("world-sound", playWorldSound);
 }
 
-export function sendPlayerInput({ forward, movement, rotation, shoot, aim }) {
+export function sendPlayerInput({
+  forward,
+  movement,
+  rotation,
+  shoot,
+  aim,
+  ability,
+}) {
   // Input is intentionally small. The server receives this and decides how far
   // the player actually moves during its next tick.
   socket.emit("player-input", {
@@ -811,6 +818,7 @@ export function sendPlayerInput({ forward, movement, rotation, shoot, aim }) {
     rotation,
     shoot,
     aim,
+    ability,
   });
 }
 
